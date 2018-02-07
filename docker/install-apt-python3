@@ -1,5 +1,6 @@
 curl
 python3-minimal
+python3-tk
 python3-pip
 git
 
