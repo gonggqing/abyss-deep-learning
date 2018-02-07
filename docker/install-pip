@@ -1,0 +1,10 @@
+cython
+ipython
+jupyter
+numpy
+opencv-contrib-python
+opencv-python
+pip
+setuptools
+six
+tensorflow-gpu
