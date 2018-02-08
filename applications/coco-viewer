@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import cv2
+import json
 from sys import stderr
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
@@ -94,14 +95,23 @@ def showAnns(self, anns, use_bbox=False):
 def info(string):
 	print(string, file=stderr)
 
+def coco_info(db):
+	print(json.dumps({
+		'num_images': len(db.imgs),
+		'num_annotations': len(db.anns),
+		'num_categories': len(db.cats),
+		'category_names': [cat['name'] for cat in db.cats.values()],
+		'category_ids': [cat['id'] for cat in db.cats.values()]
+	}))
+
 def main(args):
 	db = COCO(args.coco_path)
+	if args.info:
+		coco_info(db)
+		exit(0)
 	img_ids = db.getImgIds(imgIds=args.ids, catIds=args.cats)
 	# image_sets = [db.getImgIds(catIds=cat) for cat in args.cats]
 	# img_ids = list(set([j for i in image_sets for j in i]))
-	info("img_ids:")
-	info(img_ids)
-
 	images = db.loadImgs(ids=img_ids)
 	if len(images) == 0:
 		info("No images with given ids and cats")
@@ -140,6 +150,7 @@ def get_args():
     parser.add_argument("coco_path", help="The coco JSON to parse.")
     parser.add_argument("--ids", help="View this image ID, if not given then view all.", default='')
     parser.add_argument("--cats", help="Filter images by categories, CSV-delimited", default='')
+    parser.add_argument("--info", help="Print coco info and exit", action='store_true')
     args = parser.parse_args()
     args.ids = [int(i) for i in args.ids.split(',') if len(i)]
     args.cats = [int(i) for i in args.cats.split(',') if len(i)]

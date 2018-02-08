@@ -1,0 +1,63 @@
+#!/usr/bin/env python
+import argparse
+import os
+import sys
+import importlib
+from pprint import pprint
+
+# Note the directory MASK_RCNN_PATH should be exported as e.g. /home/whoever/src/abyss/deep-learning/third-party/Mask_RCNN
+sys.path.append(os.environ['MASK_RCNN_PATH'])
+import utils
+import model as modellib
+import visualize
+import coco
+
+def sanity_check_masks(dataset, num_images=4):
+    # Load and display random samples
+    image_ids = np.random.choice(dataset.image_ids, num_images)
+    for image_id in image_ids:
+        image = dataset.load_image(image_id)
+        mask, class_ids = dataset.load_mask(image_id)
+        visualize.display_top_masks(image, mask, class_ids, dataset.class_names)
+
+def train(config, args):
+    model = modellib.MaskRCNN(mode="training", config=config, model_dir=args.model_dir)
+    if args.pretrained_weights_path == 'last':
+        model.load_weights(model.find_last()[1], by_name=True)
+    elif args.pretrained_weights_path is not None:
+        model.load_weights(args.pretrained_weights_path, by_name=True,
+            exclude=["mrcnn_class_logits", "mrcnn_bbox_fc", "mrcnn_bbox", "mrcnn_mask"])
+    model.train(args.dataset_train, args.dataset_val, 
+        learning_rate=config.LEARNING_RATE, 
+        epochs=args.epochs, 
+        layers=args.layers)
+
+def main(args):
+    args.dataset_train = COCO(args.dataset_train)
+    args.dataset_val = COCO(args.dataset_val)
+    config_module = importlib.import_module(testName)
+    config = config_module.TrainConfig()
+    if args.sanity_check:
+        pprint(args)
+        config.display()
+        sanity_check_masks(args.dataset_train)
+        sanity_check(args.dataset_val)
+    train(config, args)
+
+def get_args():
+    '''Get args from the command line args'''
+    parser = argparse.ArgumentParser(description="Simultaneous training and validation of Resnet Mask RCNN")
+    parser.add_argument("dataset_train", help="Path to the coco JSON for the training set.")
+    parser.add_argument("dataset_val", help="Path to the coco JSON for the validation set.")
+    parser.add_argument("model_dir", help="Path to save and load models from.")
+    parser.add_argument("--config", help="Use this config file (see default MaskRCNN.config.py)", default=None)
+    parser.add_argument("--epochs", help="Train this many epochs", default=1)
+    parser.add_argument("--weights", help="Path to pretrained weights, or 'last' to load last model trained.", default=None)
+    parser.add_argument("--layers", help="Train only specified portion of the network, either the network heads, resnet layers 3, 4, or 5 onwards, or all the network. {heads, all, 3+, 4+, 5+}", default='heads')
+    parser.add_argument("--sanity-check", help="Show train and validation datasets to ensure that data is valid.", action='store_true')
+    args = parser.parse_args()
+    return args
+
+if __name__ == '__main__':
+    main(get_args())
+
