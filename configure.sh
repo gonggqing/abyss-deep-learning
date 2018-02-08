@@ -1,6 +1,8 @@
 #!/bin/bash
 
 BASE=$PWD
+git submodule update --init --recursive
+
 cd $BASE/third-party/cocoapi/PythonAPI
 # sed -r -i 's/python\s/python3 /g' Makefile
 make && sudo make install
