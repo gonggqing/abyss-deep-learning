@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+import argparse
+import os
+from herbicide.coco_classes import CocoDataset
+from pycocotools.coco import COCO
+
+def main(args):
+    coco_dir = os.path.dirname(args.coco_path)
+    coco_name = '.'.join(os.path.basename(args.coco_path).split('.')[0:-1])
+    if args.verbose:
+        print("loading {:s}".format(args.coco_path))
+    if not os.path.exists(args.coco_path):
+        raise Exception("No such COCO json exists")
+    db = CocoDataset.from_COCO(COCO(args.coco_path))
+    args.split_names = args.split_names.split(',')
+    args.split_ratios = (float(i) for i in args.split_ratios.split(','))
+    for dataset_split, split_name in zip(db.split(args.split_ratios), args.split_names):
+        split_path = os.path.join(coco_dir, "{:s}_{:s}.json".format(coco_name, split_name))
+        if args.verbose:
+            print("writing: {:s} with {:d} images and {:d} annotations"
+                  .format(split_path, len(dataset_split.images), len(dataset_split.annotations))
+            )
+        dataset_split.save(split_path)
+
+def get_args():
+    parser = argparse.ArgumentParser(
+     description="Extract rectanglar patches from a geotiff given a set of (latitude, longitude, width, height) tuples via stdin."
+    )
+    parser.add_argument('coco_path', help="Path to the coco JSON.")
+    parser.add_argument('split_names', help="CSV-delimited names of the splits")
+    parser.add_argument('split_ratios', help="CSV-delimited ratios of the splits (0.0 to 1.0)")
+    parser.add_argument('--verbose', action='store_true', help="verbose output to stderr")
+    args = parser.parse_args()
+    return args
+
+if __name__ == '__main__':
+    main(get_args())

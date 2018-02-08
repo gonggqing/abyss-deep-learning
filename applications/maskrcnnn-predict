@@ -1,0 +1,106 @@
+#!/usr/bin/env python
+import argparse
+import os
+import sys
+import importlib
+from pprint import pprint
+
+# Note the directory MASK_RCNN_PATH should be exported as e.g. /home/whoever/src/abyss/deep-learning/third-party/Mask_RCNN
+sys.path.append(os.environ['MASK_RCNN_PATH'])
+import utils
+import model as modellib
+import visualize
+import coco
+import matplotlib.pyplot as plt
+from skimage.color import label2rgb
+
+def uint8_image(image):
+    if image.dtype == np.uint16:
+        return (image / 256).astype(np.uint8)
+    elif image.dtype in [np.float32, np.float64]:
+        return (image * 255).astype(np.uint8)
+    elif image.dtype == np.uint8:
+        return image
+    else:
+        return image.astype(np.uint8)
+
+def get_ax(rows=1, cols=1, size=8):
+    return plt.subplots(rows, cols, figsize=(size*cols, size*rows))[1]
+
+def initialise_model(config, args):
+    model = modellib.MaskRCNN(mode="training", config=config, model_dir=args.model_dir)
+    if args.weights == 'last':
+        model.load_weights(model.find_last()[1], by_name=True)
+    elif args.weights is not None:
+        model.load_weights(args.weights, by_name=True)
+    return model
+    
+def predict(rgb, config, args):
+    results = model.detect([rgb], verbose=0)[0]
+        num_results = len(results['scores'])
+        label_image = np.argmax(results['masks'], axis=2)
+        if args.overlay:
+            label_image = label2rgb(label_image, rgb, bg_label=0)
+        elif args.rgb_labels:
+            label_image = label2rgb(label_image, bg_label=0)
+        if args.show:
+            if args.class_names == None:
+                args.class_names = [str(i + 1) for i in range(config.NUM_CLASSES)]
+            plt.figure()
+            visualize.display_instances(
+                uint8_image(img), results['rois'], results['masks'], results['class_ids'], 
+                args.class_names, results['scores'], ax=get_ax()
+            )
+            plt.show()
+    return results, label_image
+
+def main(args):
+    config_module = importlib.import_module(args.config)
+    config = config_module.InferenceConfig()
+    model = initialise_model(config, args)
+    input_type, output_type = 'file', 'file' #TODO: Add stream support
+    if input_type == 'file':
+        for image_path in args.input:
+            rgb = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+            results, label_image = predict(rgb, config, args)
+            if args.output_type == 'file' and not args.show:
+                image_dir = os.path.dirname(image_path)
+                image_name = '.'.join(os.path.basename(image_path).split('.')[0:-1])
+                image_out_path = os.path.join(image_dir, '{:s}_predicted.png'.format(image_name))
+                cv2.imwrite(image_out_path, label_image)
+
+def get_args():
+    '''Get args from the command line args'''
+    class MyAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string=None):
+            # Set optional arguments to True or False
+            if option_string:
+                attr = True if values else False
+                setattr(namespace, self.dest, attr)
+            # Modify value of "input" in the namespace
+            if hasattr(namespace, 'input'):
+                current_values = getattr(namespace, 'input')
+                try:
+                    current_values.extend(values)
+                except AttributeError:
+                    current_values = values
+                finally:
+                    setattr(namespace, 'input', current_values)
+            else:
+                setattr(namespace, 'input', values)
+
+    parser = argparse.ArgumentParser(description="Simultaneous training and validation of Resnet Mask RCNN")
+    parser.add_argument("config", help="Path to the coco JSON for the training set.")
+    parser.add_argument("model_weights", help="Path to the coco JSON for the validation set.")
+    parser.add_argument("model_dir", help="Path to save the model to. (needed but unused)")
+    parser.add_argument('input', nargs='+', action=MyAction)
+    parser.add_argument("--class-names", help="Use these class names instead of class numbers (with --show)", default=None)
+    parser.add_argument("--overlay", help="Output should be overlaid onto input image", action='store_true')
+    parser.add_argument("--rgb-labels", help="Output RGB labels instead of class numbers", action='store_true')
+    parser.add_argument("--show", help="Show output interactively", action='store_true')
+    args = parser.parse_args()
+    return args
+
+if __name__ == '__main__':
+    main(get_args())
+
