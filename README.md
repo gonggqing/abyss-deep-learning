@@ -2,7 +2,7 @@
 
 ## Installation
 ```bash 
-mkdir -p cd ~/src/abyss
+mkdir -p ~/src/abyss
 cd ~/src/abyss
 git clone https://github.com/abyss-solutions/deep-learning.git
 cd deep-learning
