@@ -1,5 +1,14 @@
 # deep-learning
 
+## Installation
+```bash 
+mkdir -p cd ~/src/abyss
+cd ~/src/abyss
+git clone https://github.com/abyss-solutions/deep-learning.git
+cd deep-learning
+./configure.sh
+```
+
 ## Applications
 * labelme-to-coco: Convert labelme dataset into COCO JSON
 * coco-extract-masks: Extract masks from COCO JSON to pngs
