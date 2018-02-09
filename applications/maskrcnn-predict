@@ -60,7 +60,7 @@ def predict(model, rgb, config, args):
     return results, label_image
 
 def main(args):
-    spec = importlib.util.spec_from_file_location("module.name", args.config)
+    spec = importlib.util.spec_from_file_location("maskrcnn_config", args.config)
     config_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(config_module)
     config = config_module.TrainConfig()
