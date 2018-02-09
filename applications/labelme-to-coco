@@ -43,11 +43,18 @@ def bool_or_text_to_int(item):
         return 1
     return 0
 
+def replace_extension(path, extension):
+    components = path.split('.')
+    components[-1] = extension
+    return '.'.join(components)
+
 def json_from_labelme(labelme_file, args, class_names, images, categories, annotations):
     data_in = labelme_file.read()
     annotation = ET.fromstring(data_in)
     path_rel = xml_text_value(annotation.find('folder')) + '/' + \
      xml_text_value(annotation.find('filename'))
+    if args.force_extension != None:
+        path_rel = replace_extension(path_rel, args.force_extension)
     url = "http://labelme2.csail.mit.edu/Release3.0/Images/" + path_rel
     # source = xml_text_value(annotation.find('source/submittedBy'))
     image_annotations = []
@@ -85,18 +92,24 @@ def json_from_labelme(labelme_file, args, class_names, images, categories, annot
          }
         )
     if len(image_annotations):
-        images.append({
+        filename = xml_text_value(annotation.find('filename'))
+        if args.force_extension != None:
+            filename = replace_extension(filename, args.force_extension)
+
+        record = {
          "coco_url": url,
          "url": url,
-         "path": path_rel,
          "date_captured": "1970-01-01 00:00:00",
-         "file_name": xml_text_value(annotation.find('filename')),
+         "file_name": filename,
          "flickr_url": url,
          "height": int(xml_text_value(annotation.find('imagesize/nrows'))),
          "id": len(images) + 1,
          "license": 0,
          "width": int(xml_text_value(annotation.find('imagesize/ncols')))
-        })
+        }
+        if args.image_dir:
+            record['path'] = os.path.join(args.image_dir, filename)
+        images.append(record)
         annotations.extend(image_annotations)
     if args.verbose:
         print("Annotations: %d" % len(image_annotations), file=stderr)
@@ -120,7 +133,7 @@ def main(args):
             file_path = os.path.join(args.xml_dir, filename)
             if args.verbose:
                 print(file_path, file=stderr)
-            with file(file_path, 'r') as f:
+            with open(file_path, 'r') as f:
                 json_from_labelme(f, args, class_names, images, categories, annotations)
     data_out = {
      "info": {
@@ -151,12 +164,15 @@ def get_args():
      description="Create a COCO JSON annotation file from a directory of LabelMe XMLs."
     )
     parser.add_argument('xml_dir', help="the directory to look for the XMLs")
+    parser.add_argument("--force-extension", help="force image extensions, use if you have converted the image types", default=None)
+    parser.add_argument('--image-dir', help="Use absolute paths with images found in this dir", default=None)
     parser.add_argument('--name', help="The name to identify this dataset by", \
      default=None, type=str)
     parser.add_argument('--no', help="The name of any category to exclude", \
      default=None, type=str)
     parser.add_argument('--pretty', action='store_true', help="pretty print json")
     parser.add_argument('--verbose', action='store_true', help="verbose output to stderr")
+
     args = parser.parse_args()
     if args.no is not None:
         args.no = args.no.split(',')

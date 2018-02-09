@@ -120,10 +120,9 @@ def main(args):
 	info(db.loadCats(args.cats))
 	info("Loaded {:d} images".format(len(images)))
 
-	dataset_base_dir = '.'
 	for i, image in enumerate(images):
 	    plt.figure(figsize=(15,11))
-	    image_path = image['path'] if 'path' in image else os.path.join(dataset_base_dir, image['file_name'])
+	    image_path = image['path'] if 'path' in image else os.path.join(args.image_dir, image['file_name'])
 	    rgb = plt.imread(image_path)
 	    ann_ids = db.getAnnIds(imgIds=[image['id']], catIds=args.cats)
 	    annotations = db.loadAnns(ids=ann_ids)
@@ -151,6 +150,7 @@ def get_args():
     parser.add_argument("--ids", help="View this image ID, if not given then view all.", default='')
     parser.add_argument("--cats", help="Filter images by categories, CSV-delimited", default='')
     parser.add_argument("--info", help="Print coco info and exit", action='store_true')
+    parser.add_argument("--image-dir", help="If images referenced relatively, give the iamge dir", default=None)
     args = parser.parse_args()
     args.ids = [int(i) for i in args.ids.split(',') if len(i)]
     args.cats = [int(i) for i in args.cats.split(',') if len(i)]

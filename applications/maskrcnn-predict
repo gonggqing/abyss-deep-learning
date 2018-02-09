@@ -40,13 +40,13 @@ def initialise_model(config, args):
 def predict(model, rgb, config, args):
     results = model.detect([rgb], verbose=0)[0]
     num_results = len(results['scores'])
-    print("{:d} results".format(num_results))
+    label_image = np.zeros(results['masks'].shape[0:2], dtype=np.uint8)
     if num_results > 0:
-        label_image = results['masks'][..., 0] #TODO FIX for >1 detection
-    else:
-        label_image = np.zeros(results['masks'].shape[1:], dtype=np.uint8)
-    print((results['masks'].shape, label_image.shape, rgb.shape))
-    print((results['masks'].dtype, label_image.dtype, rgb.dtype))
+        if args.order == None:
+            args.order = np.unique(results['class_ids'])
+        for class_id in reversed(args.order):
+            mask = np.sum(results['masks'] == class_id, axis=2) > 0
+            label_image[mask] = class_id
     if args.overlay:
         label_image = uint8_image(label2rgb(label_image, rgb, bg_label=0))
     elif args.rgb_labels:
@@ -74,6 +74,8 @@ def main(args):
         for image_path in args.input:
             rgb = cv2.imread(image_path) # , cv2.IMREAD_UNCHANGED #TODO: find out why doesn't work with this option
             results, label_image = predict(model, rgb, config, args)
+            if args.verbose:
+                print("{:s}: {:d} results".format(image_path, len(results['scores'])))
             if output_type == 'file' and not args.show:
                 image_dir = os.path.dirname(image_path)
                 image_name = '.'.join(os.path.basename(image_path).split('.')[0:-1])
@@ -106,10 +108,14 @@ def get_args():
     parser.add_argument("model_dir", help="Path to save the model to. (needed but unused)")
     parser.add_argument('input', nargs='+', action=MyAction)
     parser.add_argument("--class-names", help="Use these class names instead of class numbers (with --show)", default=None)
+    parser.add_argument("--order", help="Output the labels top-down in this order (csv-list of class ids)", default=None)
     parser.add_argument("--overlay", help="Output should be overlaid onto input image", action='store_true')
     parser.add_argument("--rgb-labels", help="Output RGB labels instead of class numbers", action='store_true')
     parser.add_argument("--show", help="Show output interactively", action='store_true')
+    parser.add_argument("--verbose", help="Output number of detections per image", action='store_true')
     args = parser.parse_args()
+    if args.order != None:
+        args.order = [int(i) for i in args.order.split(',')]
     return args
 
 if __name__ == '__main__':

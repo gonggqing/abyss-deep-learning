@@ -74,6 +74,7 @@ def get_args():
     args = parser.parse_args()
     if args.categories != None:
         args.categories = [int(i) for i in args.categories.split(',')]
+    args.epochs = int(args.epochs)
     return args
 
 if __name__ == '__main__':
