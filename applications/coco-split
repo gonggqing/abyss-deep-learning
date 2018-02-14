@@ -33,7 +33,7 @@ def main(args):
 
 def get_args():
     parser = argparse.ArgumentParser(
-     description="Extract rectanglar patches from a geotiff given a set of (latitude, longitude, width, height) tuples via stdin."
+     description="Split a COCO JSON database into multiple."
     )
     parser.add_argument('coco_path', help="Path to the coco JSON.")
     parser.add_argument('split_names', help="CSV-delimited names of the splits")
