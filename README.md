@@ -22,6 +22,7 @@ cd deep-learning
 * maskrcnn-test: Test a Mask RCNN network with COCO JSON dataset
 * maskrcnn-predict
   * Add feature: Take in STDIN cv-cat stream and output prediction cv-cat stream
+* maskrcnn-trainval: Ensure that all label types work (polygon, mask, bbox) (currently fails without mask labels)
 * Tutorials
 
 ## Example: BAE Prop data with labelme labels
