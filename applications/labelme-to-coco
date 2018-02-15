@@ -137,12 +137,12 @@ def main(args):
                 json_from_labelme(f, args, class_names, images, categories, annotations)
     data_out = {
      "info": {
-      "contributor": "ACFR",
-      "date_created": "2017-05-01 10:30:00.000000",
-      "description": "This is a dataset for training agricultural datasets.",
-      "url": "http://www.acfr.usyd.edu.au/",
+      "contributor": "Abyss Solutions", 
+      "date_created": "2018-02-08 10:30:00.000000",
+      "description": "This is a dataset configured by Abyss Solutions.",
+      "url": "http://www.abysssolutions.com.au/",
       "version": "1.0",
-      "year": 2017
+      "year": 2018
      },
      "licenses": [
       {

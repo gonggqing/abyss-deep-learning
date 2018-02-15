@@ -38,7 +38,7 @@ def save_mask_as_image(db, image, annotations, destination_dir, multiclass=False
             annotation_img &= (label << (int(annotation['category_id']) - 1))
         else:
             # Note the order of the annotations may change the way this appears
-            annotation_img[label] = annotation['category_id']
+            annotation_img[label==annotation['category_id']] = annotation['category_id']
     if as_rgb:
         annotation_img = encode_rgb_label(annotation_img)
     image_path = os.path.join(destination_dir, image['file_name'])

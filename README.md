@@ -13,6 +13,8 @@ cd deep-learning
 * labelme-to-coco: Convert labelme dataset into COCO JSON
 * coco-extract-masks: Extract masks from COCO JSON to pngs
 * coco-viewer: View coco images and annotations
+* coco-to-csv: Convert a COCO dataset into a series of CSV files
+* coco-split: Split a COCO dataset into subsets given split ratios
 * maskrcnn-trainval: Train a Mask RCNN network with COCO JSON dataset
 * maskrcnn-predict: Predict on input images or streams using a trained Mask RCNN model and output labels or overlay
 
@@ -20,6 +22,7 @@ cd deep-learning
 * maskrcnn-test: Test a Mask RCNN network with COCO JSON dataset
 * maskrcnn-predict
   * Add feature: Take in STDIN cv-cat stream and output prediction cv-cat stream
+* maskrcnn-trainval: Ensure that all label types work (polygon, mask, bbox) (currently fails without mask labels)
 * Tutorials
 
 ## Example: BAE Prop data with labelme labels
@@ -109,3 +112,26 @@ If you want to save the images remove --show and add any of: --rgb-labels, --ove
 
 Note this is a bad dataset - results are not that good.
 Network may be better with other configs.
+
+## coco-to-csv: Convert COCO JSON into CSV
+
+This utility is to convert to CSV for Suchet's Faster RCNN.
+It by default outputs id,bbox,category_id but can be overridden with --fields flag.
+The output format for bbox is bbox_x,bbox_y,bbox_w,bbox_h.
+
+Output fields that can be used:
+* id: The unique ID of the annotation
+* bbox: The bounding box of the annotation (x, y, w, h)
+* category_id: The ID of the category of the annotation
+* area: The area of the annotation (calcualted from mask/poly or bbox, in that order)
+* iscrowd: 1 if the annotation is a group of objects.
+
+
+### Example: 
+```bash
+cd ~/src/abyss/deep-learning/applications
+./coco-to-csv \
+   /data/abyss/bae-prop-uw/baeprop-coco.json \
+   /data/abyss/bae-prop-uw/annotations-csv \
+   --fields id,bbox,category_id --verbose
+```
