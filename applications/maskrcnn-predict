@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import argparse
 import os
+import pickle
 import sys
 import importlib
 from pprint import pprint
@@ -15,6 +16,21 @@ import visualize
 import coco
 import matplotlib.pyplot as plt
 from skimage.color import label2rgb
+from skimage.io import imread, imsave
+from skvideo.io import FFmpegReader, FFmpegWriter
+
+def file_ext_type(source_path):
+        basename = os.path.basename(source_path)
+        extension = basename.split('.')[-1]
+        types = {
+            'image': ['jpg', 'jpeg', 'tif', 'tiff', 'png'],
+            'video': ['mp4', 'avi', 'wmv', 'mov']
+        }
+        for type_name, type_extension_list in types.items():
+            if extension in type_extension_list:
+                return type_name
+        raise Exception("Type name unknown: {:s} for file {:s}".format(extension, basename))
+
 
 def uint8_image(image):
     if image.dtype == np.uint16:
@@ -36,51 +52,122 @@ def initialise_model(config, args):
     elif args.weights is not None:
         model.load_weights(args.weights, by_name=True)
     return model
+
+def filter_predictions(rgb, result, config):
+    pass
+
+def rgb_labels(annotation): # for js-segment-annotator
+    return np.stack([
+        np.bitwise_and(annotation, 255),
+        np.bitwise_and(annotation >> 8, 255),
+        np.bitwise_and(annotation >> 16, 255),
+    ], axis=2).astype(np.uint8)[..., ::-1]
     
-def predict(model, rgb, config, args):
-    results = model.detect([rgb], verbose=0)[0]
-    num_results = len(results['scores'])
-    label_image = np.zeros(results['masks'].shape[0:2], dtype=np.uint8)
-    if num_results > 0:
-        if args.order == None:
-            args.order = np.unique(results['class_ids'])
-        for class_id in reversed(args.order):
-            mask = np.sum(results['masks'] == class_id, axis=2) > 0
-            label_image[mask] = class_id
-    if args.overlay:
-        label_image = uint8_image(label2rgb(label_image, rgb, bg_label=0))
-    elif args.rgb_labels:
-        label_image = uint8_image(label2rgb(label_image, bg_label=0))
-    if args.show:
-        visualize.display_instances(
-            uint8_image(rgb), results['rois'], results['masks'], results['class_ids'], 
-            args.class_names, results['scores'], ax=get_ax()
-        )
-        plt.show()
-    return results, label_image
+def predict(model, batch, config, args):
+    results = model.detect(batch, verbose=0)
+    label_images = []
+    for rgb, result in zip(batch, results):
+        # filter_predictions(rgb, result, config)
+        num_results = len(result['scores'])
+        label_image = np.zeros(rgb.shape[0:2], dtype=np.uint8)
+        if num_results > 0:
+            if args.order is None:
+                args.order = np.unique(result['class_ids'])
+            for idx, class_id in enumerate(result['class_ids']):
+                result['masks'][..., idx] *= class_id
+            for class_id in reversed(args.order):
+                mask = np.sum(result['masks'] == class_id, axis=2) > 0
+                label_image[mask] = class_id
+        if args.overlay:
+            colors = [args.overlay_colors[i] for i in result['class_ids']]
+            label_image = uint8_image(label2rgb(label_image, rgb, bg_label=0, colors=colors))
+        elif args.rgb_labels:
+            label_image = rgb_labels(label_image)
+        if args.show:
+            visualize.display_instances(
+                uint8_image(rgb), result['rois'], result['masks'], result['class_ids'], 
+                args.class_names, result['scores'], ax=get_ax()
+            )
+            plt.show()
+        label_images.append(label_image)
+    return results, label_images
 
 def main(args):
     spec = importlib.util.spec_from_file_location("maskrcnn_config", args.config)
     config_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(config_module)
-    config = config_module.TrainConfig()
+    config = config_module.InferenceConfig()
     if args.class_names == None:
         args.class_names = [str(i) for i in range(config.NUM_CLASSES)]
     else:
         args.class_names = ['background'] + args.class_names.split(',')
+    if args.display_config:
+        config.display()
     model = initialise_model(config, args)
-    input_type, output_type = 'file', 'file' #TODO: Add stream support
-    if input_type == 'file':
-        for image_path in args.input:
-            rgb = cv2.imread(image_path) # , cv2.IMREAD_UNCHANGED #TODO: find out why doesn't work with this option
-            results, label_image = predict(model, rgb, config, args)
-            if args.verbose:
-                print("{:s}: {:d} results".format(image_path, len(results['scores'])))
-            if output_type == 'file' and not args.show:
-                image_dir = os.path.dirname(image_path)
-                image_name = '.'.join(os.path.basename(image_path).split('.')[0:-1])
-                image_out_path = os.path.join(image_dir, '{:s}_predicted.png'.format(image_name))
-                cv2.imwrite(image_out_path, label_image)
+    output_type = ['image'] #TODO: Add stream support
+    if args.pickle:
+        output_type = ['pickle']
+    if args.input_type == 'image':
+        image_iter = iter(args.input)
+        for image_path in image_iter:
+            batch = []
+            for batch_idx in range(config.BATCH_SIZE):
+                if batch_idx > 0:
+                    image_path = next(image_iter)
+                rgb = imread(image_path) # , cv2.IMREAD_UNCHANGED #TODO: find out why doesn't work with this option
+                if len(rgb.shape) == 3 and rgb.shape[2] > 3:
+                    rgb = rgb[..., 0:3]
+                if rgb is None:
+                    print("WARNING: Couldn't open file: {:s}".format(image_path))
+                    continue
+                batch.append(rgb)
+            for result, label_image in zip(*predict(model, batch, config, args)):
+                if args.verbose:
+                    print("{:s}: {:d} results".format(image_path, len(result['scores'])))
+                if not args.show:
+                    output_dir = args.output_dir if args.output_dir else os.path.dirname(image_path)
+                    image_name = '.'.join(os.path.basename(image_path).split('.')[0:-1])
+                    if 'image' in output_type:
+                        image_out_path = os.path.join(output_dir, '{:s}_predicted.png'.format(image_name))
+                        cv2.imwrite(image_out_path, label_image)
+                    if 'json' in output_type:
+                        json_out_path = os.path.join(output_dir, 'results.json')
+                        raise NotImplementedError("JSON COCO Results output not yet implemented")
+                    if 'pickle' in output_type:
+                        pickle_out_path = os.path.join(output_dir, '{:s}_predicted.pkl'.format(image_name))
+                        with open(pickle_out_path, 'wb') as outfile:
+                            pickle.dump(result, outfile)
+    elif args.input_type == "video": #TODO fix hackjob
+        import skvideo.io
+        image_iter = iter(args.input)
+        for video_path in image_iter:
+            video_path_parts = video_path.split('.')
+            video_out_path = '.'.join(video_path_parts[:-1]) + "_predicted." + video_path_parts[1]
+            reader = skvideo.io.FFmpegReader(video_path)  
+            writer = skvideo.io.FFmpegWriter(video_out_path, 
+                outputdict={
+              '-vcodec': 'libx264', '-b': '1455968'
+            })
+            frame_iter = reader.nextFrame()
+            frame_idx = 0
+            try:
+                for frame in frame_iter:
+                    frame_idx += 1
+                    batch = [frame]
+                    # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE))
+                    for batch_idx in range(config.BATCH_SIZE):
+                        if batch_idx > 0:
+                            batch += [next(frame_iter)]
+                            frame_idx += 1
+                            # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE))
+                    if frame_idx % args.video_skip == 0:
+                        for result, label_image in zip(*predict(model, batch, config, args)):
+                            writer.writeFrame(label_image)
+            except Exception as e:
+                print(e)
+                print("Closing videos")
+                writer.close()
+                reader.close()
 
 def get_args():
     '''Get args from the command line args'''
@@ -108,15 +195,24 @@ def get_args():
     parser.add_argument("model_dir", help="Path to save the model to. (needed but unused)")
     parser.add_argument('input', nargs='+', action=MyAction)
     parser.add_argument("--class-names", help="Use these class names instead of class numbers (with --show)", default=None)
+    parser.add_argument("--display-config", help="Display the config being used for inference", action='store_true')
+    parser.add_argument("--input-type", help="Either 'image' or 'video", default='image')
     parser.add_argument("--order", help="Output the labels top-down in this order (csv-list of class ids)", default=None)
+    parser.add_argument("--output-dir", help="Output to this directory", default=None)
     parser.add_argument("--overlay", help="Output should be overlaid onto input image", action='store_true')
-    parser.add_argument("--rgb-labels", help="Output RGB labels instead of class numbers", action='store_true')
+    parser.add_argument("--overlay-colors", help="csv-list, ordered: red,green,blue,magenta,cyan,yellow,indigo,darkorange,pink", default='red,green,blue,magenta,cyan,yellow,indigo,darkorange,pink')
+    parser.add_argument("--pickle", help="Output as a numpy pickle for each image", action='store_true')
+    parser.add_argument("--rgb-labels", help="Output RGB labels instead of class numbers (for use with js-segment-annotator)", action='store_true')
     parser.add_argument("--show", help="Show output interactively", action='store_true')
+    parser.add_argument("--video-skip", help="Output 1 in every N frames of a video", default=24)
     parser.add_argument("--verbose", help="Output number of detections per image", action='store_true')
     args = parser.parse_args()
+    args.video_skip = int(args.video_skip)
     if args.order != None:
         args.order = [int(i) for i in args.order.split(',')]
+    args.overlay_colors = args.overlay_colors.split(',')
     return args
+
 
 if __name__ == '__main__':
     main(get_args())

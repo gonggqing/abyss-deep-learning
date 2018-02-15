@@ -12,6 +12,7 @@ import model as modellib
 import visualize
 import coco
 import numpy as np
+# from imgaug import augmenters as iaa
 
 def sanity_check_masks(dataset, num_images=4):
     # Load and display random samples
@@ -28,6 +29,7 @@ def train(config, args):
     elif args.weights is not None:
         model.load_weights(args.weights, by_name=True,
             exclude=["mrcnn_class_logits", "mrcnn_bbox_fc", "mrcnn_bbox", "mrcnn_mask"])
+    print("Loaded weights! Beginning training.")
     model.train(args.dataset_train, args.dataset_val, 
         learning_rate=config.LEARNING_RATE, 
         epochs=args.epochs, 
@@ -69,6 +71,7 @@ def get_args():
     parser.add_argument("--epochs", help="Train this many epochs", default=1)
     parser.add_argument("--image-dir", help="Base dir of the images referred to relatively from the COCO JSON", default=None)
     parser.add_argument("--layers", help="Train only specified portion of the network, either the network heads, resnet layers 3, 4, or 5 onwards, or all the network. {heads, all, 3+, 4+, 5+}", default='heads')
+    # parser.add_argument("--no-augmentation", help="Do not perorm any data augmentation", action='store_true')
     parser.add_argument("--sanity-check", help="Show train and validation datasets to ensure that data is valid.", action='store_true')
     parser.add_argument("--weights", help="Path to pretrained weights, or 'last' to load last model trained.", default=None)
     args = parser.parse_args()
