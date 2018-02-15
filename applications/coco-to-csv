@@ -11,8 +11,12 @@ def export_csv(image, annotations, args):
         file_name = ','.join(image['file_name'].split('.')[:-1])
         if args.verbose:
             print(file_name, file=stderr)
-        with open(os.path.join(args.annotation_dir, file_name + '.csv'), 'w') as f:
+
+        with open(os.path.join(args.annotation_dir, file_name + '.csv'), 'a') as f:
             output_string = []
+            if file_name=='image_001030':
+                print('I am here')
+                print(annotation)
             for field_name in args.fields:
                 if field_name == 'bbox':
                     output_string += [str(floor(i)) for i in annotation['bbox']]
