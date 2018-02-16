@@ -93,7 +93,7 @@ def json_from_labelme(labelme_file, args, class_names, images, categories, annot
           "segmentation": [[j for i in polygon for j in i]]
          }
         )
-    if len(image_annotations):
+    if labelme_file:
         filename = xml_text_value(annotation.find('filename'))
         if args.force_extension != None:
             filename = replace_extension(filename, args.force_extension)
