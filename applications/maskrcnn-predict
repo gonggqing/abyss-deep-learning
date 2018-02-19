@@ -18,6 +18,8 @@ import matplotlib.pyplot as plt
 from skimage.color import label2rgb
 from skimage.io import imread, imsave
 from skvideo.io import FFmpegReader, FFmpegWriter
+from skimage.segmentation import clear_border, mark_boundaries
+import skimage.color.rgb_colors as rgb_colors
 
 def file_ext_type(source_path):
         basename = os.path.basename(source_path)
@@ -62,10 +64,29 @@ def rgb_labels(annotation): # for js-segment-annotator
         np.bitwise_and(annotation >> 8, 255),
         np.bitwise_and(annotation >> 16, 255),
     ], axis=2).astype(np.uint8)[..., ::-1]
+
+def output_predictions(filename, result, frame_id):
+    if output_predictions.stream is None:
+        output_predictions.stream = open(filename, 'w')
+    for i in range(len(result['class_ids'])):
+        output_str = "{:d},{:d},{:d},{:s},{:d}".format(
+            frame_id,
+            output_predictions.counter,
+            i,
+            ','.join([str(x) for x in result['rois'][i]]),
+            result['class_ids'][i]
+            )
+        output_predictions.stream.write(output_str + "\n")
+        output_predictions.counter += 1
+output_predictions.stream = None
+output_predictions.counter = 0
     
 def predict(model, batch, config, args):
     results = model.detect(batch, verbose=0)
     label_images = []
+    color_map = {
+        class_id: (args.overlay_colors[class_id], getattr(rgb_colors, args.overlay_colors[class_id])) for class_id in args.order 
+    }
     for rgb, result in zip(batch, results):
         # filter_predictions(rgb, result, config)
         num_results = len(result['scores'])
@@ -79,8 +100,11 @@ def predict(model, batch, config, args):
                 mask = np.sum(result['masks'] == class_id, axis=2) > 0
                 label_image[mask] = class_id
         if args.overlay:
-            colors = [args.overlay_colors[i] for i in result['class_ids']]
-            label_image = uint8_image(label2rgb(label_image, rgb, bg_label=0, colors=colors))
+            colors = [color_map[i][0] for i in args.order if i in result['class_ids']]
+            label_image = label2rgb(label_image, rgb, bg_label=0, colors=colors)
+            for idx in range(num_results):
+                label_image = mark_boundaries(label_image, result['masks'][..., idx], color=color_map[result['class_ids'][idx]][1], mode='thick')
+            label_image = uint8_image(label_image)
         elif args.rgb_labels:
             label_image = rgb_labels(label_image)
         if args.show:
@@ -145,9 +169,8 @@ def main(args):
             video_out_path = '.'.join(video_path_parts[:-1]) + "_predicted." + video_path_parts[1]
             reader = skvideo.io.FFmpegReader(video_path)  
             writer = skvideo.io.FFmpegWriter(video_out_path, 
-                outputdict={
-              '-vcodec': 'libx264', '-b': '1455968'
-            })
+                outputdict={'-vcodec': 'libx264', '-b': '1455968'}
+            )
             frame_iter = reader.nextFrame()
             frame_idx = 0
             try:
@@ -162,6 +185,8 @@ def main(args):
                             # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE))
                     if frame_idx % args.video_skip == 0:
                         for result, label_image in zip(*predict(model, batch, config, args)):
+                            if args.output_predictions:
+                                output_predictions(args.output_predictions, result, frame_idx)
                             writer.writeFrame(label_image)
             except Exception as e:
                 print(e)
@@ -199,6 +224,7 @@ def get_args():
     parser.add_argument("--input-type", help="Either 'image' or 'video", default='image')
     parser.add_argument("--order", help="Output the labels top-down in this order (csv-list of class ids)", default=None)
     parser.add_argument("--output-dir", help="Output to this directory", default=None)
+    parser.add_argument("--output-predictions", help="CSV output of detections to this file", default=None)
     parser.add_argument("--overlay", help="Output should be overlaid onto input image", action='store_true')
     parser.add_argument("--overlay-colors", help="csv-list, ordered: red,green,blue,magenta,cyan,yellow,indigo,darkorange,pink", default='red,green,blue,magenta,cyan,yellow,indigo,darkorange,pink')
     parser.add_argument("--pickle", help="Output as a numpy pickle for each image", action='store_true')
