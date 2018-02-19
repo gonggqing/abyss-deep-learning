@@ -1,4 +1,4 @@
-FROM nvidia/cuda
+FROM nvidia/cuda:8.0-cudnn7-devel
 
 # Expose jupyter notebook and tensorboard ports
 EXPOSE 8888
@@ -14,7 +14,7 @@ RUN apt-get update &&  apt-get install -y --fix-missing $(cat /tmp/install-apt)
 RUN pip3 install -U $(cat /tmp/install-pip)
 RUN bash /tmp/setup_permissions.sh
 RUN apt-get clean && rm -rf /tmp/* /var/tmp/*
-
+RUN echo 'export PYTHONPATH=/home/docker/src/abyss/deep-learning:$PYTHONPATH' >> /home/docker/.profile
 RUN jupyter notebook --generate-config
 
 USER docker

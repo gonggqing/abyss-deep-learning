@@ -1,10 +1,9 @@
+#!/usr/bin/env python3
 import argparse
 import numpy as np
 from pycocotools.coco import COCO
 import pycocotools.mask as mask
-import matplotlib.pyplot as plt
 import sys
-sys.path.append("/home/stevep/src/abyss/deep-learning/lib")
 import coco_classes
 
 def main(args):
@@ -12,13 +11,14 @@ def main(args):
     for ann in coco.anns.values():
         ann['segmentation'] = mask.encode(coco.annToMask(ann))
     coco2 = coco_classes.CocoDataset.from_COCO(coco, image_dir=args.image_dir)
-    print(str(coco2))
+    coco2.save(args.output_path)
 
 def get_args():
     parser = argparse.ArgumentParser(
      description="Split a COCO JSON database into multiple."
     )
     parser.add_argument('coco_path', help="Path to the coco JSON.")
+    parser.add_argument('output_path', help="Output path for new coco JSON.")
     parser.add_argument('--verbose', action='store_true', help="verbose output to stderr")
     parser.add_argument("--image-dir", help="If images referenced relatively, give the iamge dir", default=None)
     args = parser.parse_args()

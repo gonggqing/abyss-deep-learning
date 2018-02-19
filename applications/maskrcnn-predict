@@ -5,7 +5,6 @@ import pickle
 import sys
 import importlib
 from pprint import pprint
-import cv2
 import numpy as np
 
 # Note the directory MASK_RCNN_PATH should be exported as e.g. /home/whoever/src/abyss/deep-learning/third-party/Mask_RCNN
@@ -135,9 +134,12 @@ def main(args):
         image_iter = iter(args.input)
         for image_path in image_iter:
             batch = []
-            for batch_idx in range(config.BATCH_SIZE):
+            for batch_idx in range(config.BATCH_SIZE if args.batch is None else int(args.batch)):
                 if batch_idx > 0:
-                    image_path = next(image_iter)
+                    try:
+                        image_path = next(image_iter)
+                    except StopIteration:
+                        image_path = args.input[-1]
                 rgb = imread(image_path) # , cv2.IMREAD_UNCHANGED #TODO: find out why doesn't work with this option
                 if len(rgb.shape) == 3 and rgb.shape[2] > 3:
                     rgb = rgb[..., 0:3]
@@ -153,7 +155,7 @@ def main(args):
                     image_name = '.'.join(os.path.basename(image_path).split('.')[0:-1])
                     if 'image' in output_type:
                         image_out_path = os.path.join(output_dir, '{:s}_predicted.png'.format(image_name))
-                        cv2.imwrite(image_out_path, label_image)
+                        imsave(image_out_path, label_image)
                     if 'json' in output_type:
                         json_out_path = os.path.join(output_dir, 'results.json')
                         raise NotImplementedError("JSON COCO Results output not yet implemented")
@@ -219,6 +221,7 @@ def get_args():
     parser.add_argument("weights", help="Path to the coco JSON for the validation set.")
     parser.add_argument("model_dir", help="Path to save the model to. (needed but unused)")
     parser.add_argument('input', nargs='+', action=MyAction)
+    parser.add_argument("--batch", help="Use these class names instead of class numbers (with --show)", default=None)
     parser.add_argument("--class-names", help="Use these class names instead of class numbers (with --show)", default=None)
     parser.add_argument("--display-config", help="Display the config being used for inference", action='store_true')
     parser.add_argument("--input-type", help="Either 'image' or 'video", default='image')

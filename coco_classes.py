@@ -81,6 +81,8 @@ class CocoDataset(object):
             bbox = cm.toBbox(label).tolist()
             area = int(cm.area(label))
             segm = label
+            if not isinstance(segm["counts"], str):
+                segm["counts"] = segm["counts"].decode("utf-8") # TODO find out why this doesnt work on coco-calc-masks
             # segm = [CocoDataset.Utils.polygon_from_bbox(bbox)]
         elif label_type == 'bbox':
             bbox = label if isinstance(bbox, list) else label.tolist()
@@ -97,6 +99,7 @@ class CocoDataset(object):
         elif label_type == 'mask': # No conversion to poly
             # raise NotImplementedError("Haven't done mask -> poly yet")
             segm = cm.encode(np.asfortranarray(label.astype(np.uint8)))
+            segm["counts"] = segm["counts"].decode("utf-8")
             area = int(cm.area(segm))
             bbox = cm.toBbox(segm).tolist()
         return (segm, bbox, area)
@@ -300,6 +303,7 @@ class CocoResults(object):
         elif isinstance(detection, np.ndarray) and detection.ndim == 2:
             # mask segmentation
             result["segmentation"] = cm.encode(np.asfortranarray(detection))
+            result["segmentation"]["counts"] = result["segmentation"]["counts"].decode('utf-8')
             result["bbox"] = cm.toBbox(result["segmentation"]).tolist()
         else:
             if len(detection) == 4: #bbox

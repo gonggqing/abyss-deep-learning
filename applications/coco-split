@@ -3,15 +3,15 @@ import argparse
 import importlib.util
 import os
 from pycocotools.coco import COCO
-
-def import_coco_classes(path='../lib/coco_classes.py'):
-    spec = importlib.util.spec_from_file_location("coco_classes", path)
-    coco_classes_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(coco_classes_module)
-    return coco_classes_module
-
-coco_classes = import_coco_classes()
-CocoDataset = coco_classes.CocoDataset
+from coco_classes import CocoDataset
+# def import_coco_classes(path='../lib/coco_classes.py'):
+#     spec = importlib.util.spec_from_file_location("coco_classes", path)
+#     coco_classes_module = importlib.util.module_from_spec(spec)
+#     spec.loader.exec_module(coco_classes_module)
+#     return coco_classes_module
+# 
+# coco_classes = import_coco_classes()
+# CocoDataset = coco_classes.CocoDataset
 
 def main(args):
     coco_dir = os.path.dirname(args.coco_path)

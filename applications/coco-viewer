@@ -5,7 +5,6 @@ import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-import cv2
 import json
 from sys import stderr
 from pycocotools.coco import COCO

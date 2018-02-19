@@ -1,9 +1,11 @@
 curl
+ffmpeg
+git
+libcudnn6
+libcudnn6-dev
 openssh-server
 python3-minimal
-python3-tk
 python3-pip
-git
-vim
+python3-tk
 sudo
-
+vim
