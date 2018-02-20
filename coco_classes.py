@@ -199,7 +199,7 @@ class CocoDataset(object):
         for split in splits:
             split_ids = np.random.choice(
              list(image_set)
-             , int(round(len(self.images) * split))
+             , int(round(len(self.images) * split)), replace=False
             ).tolist()
             image_set -= set(split_ids)
             dataset = CocoDataset(is_pretty=self.pretty)
