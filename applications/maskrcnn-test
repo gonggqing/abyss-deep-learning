@@ -22,29 +22,38 @@ def sanity_check_masks(dataset, num_images=4):
         mask, class_ids = dataset.load_mask(image_id)
         visualize.display_top_masks(image, mask, class_ids, dataset.class_names)
 
-def train(config, args):
-    model = modellib.MaskRCNN(mode="training", config=config, model_dir=args.model_dir)
+def test(config, args):
+    model = modellib.MaskRCNN(mode="inference", config=config, model_dir=args.model_dir)
     if args.weights == 'last':
         model.load_weights(model.find_last()[1], by_name=True)
     elif args.weights is not None:
-        model.load_weights(args.weights, by_name=True,
-            exclude=["mrcnn_class_logits", "mrcnn_bbox_fc", "mrcnn_bbox", "mrcnn_mask"])
-    print("Loaded weights! Beginning training.")
-    model.train(args.dataset_train, args.dataset_val, 
-        learning_rate=config.LEARNING_RATE * args.lr_mult, 
-        epochs=args.epochs, 
-        layers=args.layers)
+        model.load_weights(args.weights, by_name=True)
+    print("Loaded weights! Beginning testing.", file=sys.stderr)
+    
+    # Compute VOC-Style mAP @ IoU=0.5
+    APs = []
+    for image_id in args.dataset_test.image_ids:
+        # Load image and ground truth data
+        image, image_shape, gt_class_ids, gt_bbox, gt_mask = \
+            modellib.load_image_gt(args.dataset_test, config,image_id, use_mini_mask=False)
+        molded_images = np.expand_dims(modellib.mold_image(image, config), 0)
+        # Run object detection
+        results = model.detect([image], verbose=0)
+        r = results[0]
+        # Compute AP
+        AP, precisions, recalls, overlaps =\
+            utils.compute_ap(gt_bbox[:,:4], gt_class_ids, gt_mask,
+                             r["rois"], r["class_ids"], r["scores"], r["masks"], iou_threshold=args.iou)
+        print("AP,{:d},{:f}".format(image_id, AP))
+        APs.append(AP)
+        
+    print("Overall mAP for IoU={:f}: ".format(args.iou), file=sys.stderr)
+    print("mAP,{:f}".format(np.mean(APs)))
 
 def main(args):
-    args.dataset_train = coco.CocoDataset()
-    # args.coco_train = args.dataset_train.load_coco(args.dataset_train_path, args.image_dir, class_ids=args.categories, return_coco=True)
-    args.coco_train = args.dataset_train.load_coco(args.dataset_train_path, args.image_dir, class_ids=args.categories, return_coco=True)
-    args.dataset_train.prepare()
-    # print("Loaded coco_train {:d} images".format(len(args.coco_train.imgs)))
-    args.dataset_val = coco.CocoDataset()
-    args.coco_val = args.dataset_val.load_coco(args.dataset_val_path, args.image_dir, class_ids=args.categories, return_coco=True)
-    args.dataset_val.prepare()
-    # print("Loaded coco_val {:d} images".format(len(args.coco_val.imgs)))
+    args.dataset_test = coco.CocoDataset()
+    args.dataset_test.load_coco(args.dataset_test_path, image_dir=args.image_dir, class_ids=args.categories)
+    args.dataset_test.prepare()
     if args.config == None:
         from config import Config as DefaultConfig
         config = DefaultConfig()
@@ -52,33 +61,27 @@ def main(args):
         spec = importlib.util.spec_from_file_location("maskrcnn_config", args.config)
         config_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(config_module)
-        config = config_module.TrainConfig()
+        config = config_module.InferenceConfig()
     if args.sanity_check:
         pprint(args)
         config.display()
-        sanity_check_masks(args.dataset_train)
-        sanity_check_masks(args.dataset_val)
-    train(config, args)
+        sanity_check_masks(args.dataset_test)
+    test(config, args)
 
 def get_args():
     '''Get args from the command line args'''
-    parser = argparse.ArgumentParser(description="Simultaneous training and validation of Resnet Mask RCNN")
-    parser.add_argument("dataset_train_path", help="Path to the coco JSON for the training set.")
-    parser.add_argument("dataset_val_path", help="Path to the coco JSON for the validation set.")
+    parser = argparse.ArgumentParser(description="Statistical testing of Resnet Mask RCNN")
+    parser.add_argument("dataset_test_path", help="Path to the coco JSON for the testing set.")
     parser.add_argument("model_dir", help="Path to save and load models from.")
     parser.add_argument("--categories", help="Only train on images that have this group of categories", default=None)
     parser.add_argument("--config", help="Use this config file (see default MaskRCNN.config.py)", default=None)
-    parser.add_argument("--epochs", help="Train this many epochs", default=1)
     parser.add_argument("--image-dir", help="Base dir of the images referred to relatively from the COCO JSON", default=None)
-    parser.add_argument("--layers", help="Train only specified portion of the network, either the network heads, resnet layers 3, 4, or 5 onwards, or all the network. {heads, all, 3+, 4+, 5+}", default='heads')
-    parser.add_argument("--lr-mult", help="Multiply the config LR by this", type=float, default=1.0)
     parser.add_argument("--sanity-check", help="Show train and validation datasets to ensure that data is valid.", action='store_true')
     parser.add_argument("--weights", help="Path to pretrained weights, or 'last' to load last model trained.", default=None)
-    # parser.add_argument("--no-augmentation", help="Do not perorm any data augmentation", action='store_true')
+    parser.add_argument("--iou", help="IoU threshold for stats.", default=0.5, type=float)
     args = parser.parse_args()
     if args.categories != None:
         args.categories = [int(i) for i in args.categories.split(',')]
-    args.epochs = int(args.epochs)
     return args
 
 if __name__ == '__main__':
