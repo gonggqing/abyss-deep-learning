@@ -92,55 +92,56 @@ def showAnns(self, anns, use_bbox=False):
                 print(ann['caption'])
 
 def info(string):
-	print(string, file=stderr)
+    print(string, file=stderr)
 
 def coco_info(db):
-	print(json.dumps({
-		'num_images': len(db.imgs),
-		'num_annotations': len(db.anns),
-		'num_categories': len(db.cats),
-		'category_names': [cat['name'] for cat in db.cats.values()],
-		'category_ids': [cat['id'] for cat in db.cats.values()]
-	}))
+    print(json.dumps({
+        'num_images': len(db.imgs),
+        'num_annotations': len(db.anns),
+        'num_categories': len(db.cats),
+        'category_names': [cat['name'] for cat in db.cats.values()],
+        'category_ids': [cat['id'] for cat in db.cats.values()]
+    }))
 
 def main(args):
-	db = COCO(args.coco_path)
-	if args.info:
-		coco_info(db)
-		exit(0)
-	img_ids = db.getImgIds(imgIds=args.ids, catIds=args.cats)
-	# image_sets = [db.getImgIds(catIds=cat) for cat in args.cats]
-	# img_ids = list(set([j for i in image_sets for j in i]))
-	images = db.loadImgs(ids=img_ids)
-	if len(images) == 0:
-		info("No images with given ids and cats")
-		exit(0)
-	info("Categories:")
-	info(db.loadCats(args.cats))
-	info("Loaded {:d} images".format(len(images)))
+    db = COCO(args.coco_path)
+    if args.info:
+        coco_info(db)
+        exit(0)
+    img_ids = db.getImgIds(imgIds=args.ids, catIds=args.cats)
+    # image_sets = [db.getImgIds(catIds=cat) for cat in args.cats]
+    # img_ids = list(set([j for i in image_sets for j in i]))
+    images = db.loadImgs(ids=img_ids)
+    if len(images) == 0:
+        info("No images with given ids and cats")
+        exit(0)
+    info("Categories:")
+    info(db.loadCats(args.cats))
+    info("Loaded {:d} images".format(len(images)))
 
-	for i, image in enumerate(images):
-	    plt.figure(figsize=(15,11))
-	    image_path = image['path'] if 'path' in image else os.path.join(args.image_dir, image['file_name'])
-	    rgb = plt.imread(image_path)
-	    ann_ids = db.getAnnIds(imgIds=[image['id']], catIds=args.cats)
-	    annotations = db.loadAnns(ids=ann_ids)
-	    if len(annotations) == 0:
-	        info("skipping {:d} cause of 0 annotations".format(img['file_name']))
+    for i, image in enumerate(images):
+        plt.figure(figsize=(15,11))
+        image_path = image['path'] if 'path' in image else os.path.join(args.image_dir, image['file_name'])
+        rgb = plt.imread(image_path)
+        ann_ids = db.getAnnIds(imgIds=[image['id']], catIds=args.cats)
+        annotations = db.loadAnns(ids=ann_ids)
+        if len(annotations) == 0:
+            info("skipping {:s} cause of 0 annotations".format(image['file_name']))
 
-	    # remove duplicates
-	    #     groups = []
-	    #     uniquekeys = []
-	    #     data = sorted(annotations, key=lambda a: a['segmentation'])
-	    #     for k, g in itertools.groupby(data, lambda a: a['segmentation']):
-	    #         groups.append(list(g))      # Store group iterator as a list
-	    #         uniquekeys.append(k)
-	    #     annotations = [sorted(g, key=lambda a: a['id'])[0] for g in groups]
-	    info("[%d \"%s\"] %d annotations" % (image['id'], image['file_name'], len(annotations)))
-	    plt.imshow(rgb)
-	    showAnns(db, annotations, use_bbox=False)
-	    plt.title("[{:d}] {:s}".format(image['id'], image['file_name']))
-	    plt.show()
+        # remove duplicates
+        #     groups = []
+        #     uniquekeys = []
+        #     data = sorted(annotations, key=lambda a: a['segmentation'])
+        #     for k, g in itertools.groupby(data, lambda a: a['segmentation']):
+        #         groups.append(list(g))      # Store group iterator as a list
+        #         uniquekeys.append(k)
+        #     annotations = [sorted(g, key=lambda a: a['id'])[0] for g in groups]
+        info("[%d \"%s\"] %d annotations" % (image['id'], image['file_name'], len(annotations)))
+        if not args.dontshow:
+           plt.imshow(rgb)
+           showAnns(db, annotations, use_bbox=False)
+           plt.title("[{:d}] {:s}".format(image['id'], image['file_name']))
+           plt.show()
 
 def get_args():
     '''Get args from the command line args'''
@@ -148,6 +149,7 @@ def get_args():
     parser.add_argument("coco_path", help="The coco JSON to parse.")
     parser.add_argument("--ids", help="View this image ID, if not given then view all.", default='')
     parser.add_argument("--cats", help="Filter images by categories, CSV-delimited", default='')
+    parser.add_argument("--dontshow", help="Filter images by categories, CSV-delimited", action='store_true')
     parser.add_argument("--info", help="Print coco info and exit", action='store_true')
     parser.add_argument("--image-dir", help="If images referenced relatively, give the iamge dir", default=None)
     args = parser.parse_args()
