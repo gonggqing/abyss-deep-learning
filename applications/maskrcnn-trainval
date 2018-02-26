@@ -1,9 +1,10 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import argparse
 import os
 import sys
 import importlib
 from pprint import pprint
+from contextlib import redirect_stdout
 
 # Note the directory MASK_RCNN_PATH should be exported as e.g. /home/whoever/src/abyss/deep-learning/third-party/Mask_RCNN
 sys.path.append(os.environ['MASK_RCNN_PATH'])
@@ -36,15 +37,19 @@ def train(config, args):
         layers=args.layers)
 
 def main(args):
-    args.dataset_train = coco.CocoDataset()
-    # args.coco_train = args.dataset_train.load_coco(args.dataset_train_path, args.image_dir, class_ids=args.categories, return_coco=True)
-    args.coco_train = args.dataset_train.load_coco(args.dataset_train_path, args.image_dir, class_ids=args.categories, return_coco=True)
-    args.dataset_train.prepare()
-    # print("Loaded coco_train {:d} images".format(len(args.coco_train.imgs)))
-    args.dataset_val = coco.CocoDataset()
-    args.coco_val = args.dataset_val.load_coco(args.dataset_val_path, args.image_dir, class_ids=args.categories, return_coco=True)
-    args.dataset_val.prepare()
-    # print("Loaded coco_val {:d} images".format(len(args.coco_val.imgs)))
+    if args.cpu:
+        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    with redirect_stdout(sys.stderr):
+        args.dataset_train = coco.CocoDataset()
+        # args.coco_train = args.dataset_train.load_coco(args.dataset_train_path, args.image_dir, class_ids=args.categories, return_coco=True)
+        args.coco_train = args.dataset_train.load_coco(args.dataset_train_path, args.image_dir, class_ids=args.categories, return_coco=True)
+        args.dataset_train.prepare()
+        # print("Loaded coco_train {:d} images".format(len(args.coco_train.imgs)))
+        args.dataset_val = coco.CocoDataset()
+        args.coco_val = args.dataset_val.load_coco(args.dataset_val_path, args.image_dir, class_ids=args.categories, return_coco=True)
+        args.dataset_val.prepare()
+        # print("Loaded coco_val {:d} images".format(len(args.coco_val.imgs)))
     if args.config == None:
         from config import Config as DefaultConfig
         config = DefaultConfig()
@@ -67,6 +72,7 @@ def get_args():
     parser.add_argument("dataset_val_path", help="Path to the coco JSON for the validation set.")
     parser.add_argument("model_dir", help="Path to save and load models from.")
     parser.add_argument("--categories", help="Only train on images that have this group of categories", default=None)
+    parser.add_argument("--cpu", help="Use CPU instead of GPU", action='store_true')
     parser.add_argument("--config", help="Use this config file (see default MaskRCNN.config.py)", default=None)
     parser.add_argument("--epochs", help="Train this many epochs", default=1)
     parser.add_argument("--image-dir", help="Base dir of the images referred to relatively from the COCO JSON", default=None)

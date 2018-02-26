@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import argparse
 import os
 import pickle
@@ -6,6 +6,7 @@ import sys
 import importlib
 from pprint import pprint
 import numpy as np
+from contextlib import redirect_stdout
 
 # Note the directory MASK_RCNN_PATH should be exported as e.g. /home/whoever/src/abyss/deep-learning/third-party/Mask_RCNN
 sys.path.append(os.environ['MASK_RCNN_PATH'])
@@ -74,7 +75,7 @@ def output_predictions(filename, result, frame_id):
             i,
             ','.join([str(x) for x in result['rois'][i]]),
             result['class_ids'][i]
-            )
+        )
         output_predictions.stream.write(output_str + "\n")
         output_predictions.counter += 1
 output_predictions.stream = None
@@ -116,6 +117,9 @@ def predict(model, batch, config, args):
     return results, label_images
 
 def main(args):
+    if args.cpu:
+        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
     spec = importlib.util.spec_from_file_location("maskrcnn_config", args.config)
     config_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(config_module)
@@ -127,9 +131,11 @@ def main(args):
     if args.display_config:
         config.display()
     model = initialise_model(config, args)
-    output_type = ['image'] #TODO: Add stream support
+    output_type = [] #TODO: Add stream support
     if args.pickle:
-        output_type = ['pickle']
+        output_type += ['pickle']
+    if args.image:
+        output_type += ['image'] 
     if args.input_type == 'image':
         image_iter = iter(args.input)
         for image_path in image_iter:
@@ -153,14 +159,17 @@ def main(args):
                 if not args.show:
                     output_dir = args.output_dir if args.output_dir else os.path.dirname(image_path)
                     image_name = '.'.join(os.path.basename(image_path).split('.')[0:-1])
+                    results_dir = os.path.join(output_dir, 'results')
+                    if not os.path.exists(results_dir):
+                        os.mkdir(results_dir)
                     if 'image' in output_type:
-                        image_out_path = os.path.join(output_dir, '{:s}_predicted.png'.format(image_name))
+                        image_out_path = os.path.join(results_dir, 'img',  '{:s}.png'.format(image_name))
                         imsave(image_out_path, label_image)
                     if 'json' in output_type:
-                        json_out_path = os.path.join(output_dir, 'results.json')
+                        json_out_path = os.path.join(results_dir, 'results.json')
                         raise NotImplementedError("JSON COCO Results output not yet implemented")
                     if 'pickle' in output_type:
-                        pickle_out_path = os.path.join(output_dir, '{:s}_predicted.pkl'.format(image_name))
+                        pickle_out_path = os.path.join(results_dir, 'pkl', '{:s}.pkl'.format(image_name))
                         with open(pickle_out_path, 'wb') as outfile:
                             pickle.dump(result, outfile)
     elif args.input_type == "video": #TODO fix hackjob
@@ -224,6 +233,7 @@ def get_args():
     parser.add_argument("--batch", help="Use these class names instead of class numbers (with --show)", default=None)
     parser.add_argument("--class-names", help="Use these class names instead of class numbers (with --show)", default=None)
     parser.add_argument("--display-config", help="Display the config being used for inference", action='store_true')
+    parser.add_argument("--image", help="Output prediction as an image for each image", action='store_true')
     parser.add_argument("--input-type", help="Either 'image' or 'video", default='image')
     parser.add_argument("--order", help="Output the labels top-down in this order (csv-list of class ids)", default=None)
     parser.add_argument("--output-dir", help="Output to this directory", default=None)
@@ -232,9 +242,10 @@ def get_args():
     parser.add_argument("--overlay-colors", help="csv-list, ordered: red,green,blue,magenta,cyan,yellow,indigo,darkorange,pink", default='red,green,blue,magenta,cyan,yellow,indigo,darkorange,pink')
     parser.add_argument("--pickle", help="Output as a numpy pickle for each image", action='store_true')
     parser.add_argument("--rgb-labels", help="Output RGB labels instead of class numbers (for use with js-segment-annotator)", action='store_true')
+    parser.add_argument("--cpu", help="Use CPU instead of GPU", action='store_true')
     parser.add_argument("--show", help="Show output interactively", action='store_true')
-    parser.add_argument("--video-skip", help="Output 1 in every N frames of a video", default=24)
     parser.add_argument("--verbose", help="Output number of detections per image", action='store_true')
+    parser.add_argument("--video-skip", help="Output 1 in every N frames of a video", default=24)
     args = parser.parse_args()
     args.video_skip = int(args.video_skip)
     if args.order != None:

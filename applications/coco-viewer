@@ -3,6 +3,7 @@
 from __future__ import print_function
 import argparse
 import matplotlib.pyplot as plt
+import sys
 import numpy as np
 import os
 import json
@@ -12,6 +13,8 @@ from pycocotools.cocoeval import COCOeval
 from pycocotools import mask as COCOmask
 from matplotlib.patches import Polygon
 from matplotlib.collections import PatchCollection
+from contextlib import redirect_stdout
+
 
 def bounding_box(polygon):
     'return the bounding box of a given polygon'
@@ -104,7 +107,8 @@ def coco_info(db):
     }))
 
 def main(args):
-    db = COCO(args.coco_path)
+    with redirect_stdout(sys.stderr):
+        db = COCO(args.coco_path)
     if args.info:
         coco_info(db)
         exit(0)

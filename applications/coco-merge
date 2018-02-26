@@ -2,28 +2,23 @@
 import argparse
 import importlib.util
 import os
+import sys
+from contextlib import redirect_stdout
 from pycocotools.coco import COCO
-
-def import_coco_classes(path='../lib/coco_classes.py'):
-    spec = importlib.util.spec_from_file_location("coco_classes", path)
-    coco_classes_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(coco_classes_module)
-    return coco_classes_module
-
-coco_classes = import_coco_classes()
-CocoDataset = coco_classes.CocoDataset
+from coco_classes import CocoDataset
 
 def main(args):
-    coco_list = []
-    for coco_path in args.input:
-        coco_dir = os.path.dirname(coco_path)
-        coco_name = '.'.join(os.path.basename(coco_path).split('.')[0:-1])
-        if args.verbose:
-            print("loading {:s}".format(coco_path))
-        if not os.path.exists(coco_path):
-            raise Exception("No such COCO json exists")
-        coco_list.append(CocoDataset.from_COCO(COCO(coco_path), image_dir=args.image_dir))
-    print("Loaded {:d} COCO datasets".format(len(coco_list)))
+    with redirect_stdout(sys.stderr):
+        coco_list = []
+        for coco_path in args.input:
+            coco_dir = os.path.dirname(coco_path)
+            coco_name = '.'.join(os.path.basename(coco_path).split('.')[0:-1])
+            if args.verbose:
+                print("loading {:s}".format(coco_path), file=sys.stderr)
+            if not os.path.exists(coco_path):
+                raise Exception("No such COCO json exists")
+            coco_list.append(CocoDataset.from_COCO(COCO(coco_path), image_dir=args.image_dir))
+    print("Loaded {:d} COCO datasets".format(len(coco_list)), file=sys.stderr)
     result = coco_list[0]
     for x in coco_list[1:]:
         result += x
