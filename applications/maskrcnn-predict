@@ -179,7 +179,11 @@ def main(args):
             video_path_parts = video_path.split('.')
             video_out_path = '.'.join(video_path_parts[:-1]) + "_predicted." + video_path_parts[1]
             reader = skvideo.io.FFmpegReader(video_path)  
-            writer = skvideo.io.FFmpegWriter(video_out_path, 
+            # writer = skvideo.io.FFmpegWriter(video_out_path, 
+            #     outputdict={'-vcodec': 'libx264', '-b': '1455968'}
+            # )
+            output_dir = args.output_dir if args.output_dir else os.path.dirname(video_path)
+            writer = skvideo.io.FFmpegWriter(os.path.join(output_dir, 'processed-video.mp4'), 
                 outputdict={'-vcodec': 'libx264', '-b': '1455968'}
             )
             frame_iter = reader.nextFrame()
@@ -187,6 +191,8 @@ def main(args):
             try:
                 for frame in frame_iter:
                     frame_idx += 1
+                    if args.verbose:
+                        print('Processing frame {}'.format(frame_idx))
                     batch = [frame]
                     # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE))
                     for batch_idx in range(config.BATCH_SIZE):
@@ -195,10 +201,21 @@ def main(args):
                             frame_idx += 1
                             # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE))
                     if frame_idx % args.video_skip == 0:
+                        temp_frame_diff = -1
                         for result, label_image in zip(*predict(model, batch, config, args)):
+                            current_frame = frame_idx+temp_frame_diff
+                            if args.verbose:
+                                print('{} results in frame {}'.format(len(result['scores']), current_frame))
                             if args.output_predictions:
-                                output_predictions(args.output_predictions, result, frame_idx)
+                                output_predictions(os.path.join(output_dir, args.output_predictions), result, current_frame)
+                                   
                             writer.writeFrame(label_image)
+                            if 'pickle' in output_type:
+                                pickle_out_path = os.path.join(output_dir, 'image_{}_predicted.pkl'.format(str(current_frame).zfill(6)))
+                                with open(pickle_out_path, 'wb') as outfile:
+                                    pickle.dump(result, outfile)
+                            temp_frame_diff += 1 
+                    
             except Exception as e:
                 print(e)
                 print("Closing videos")
