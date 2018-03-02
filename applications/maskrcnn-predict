@@ -171,7 +171,7 @@ def main(args):
                     if 'pickle' in output_type:
                         pickle_out_path = os.path.join(results_dir, 'pkl', '{:s}.pkl'.format(image_name))
                         with open(pickle_out_path, 'wb') as outfile:
-                            pickle.dump(result, outfile)
+                            pickle.dump(result, outfile, protocol=2)
     elif args.input_type == "video": #TODO fix hackjob
         import skvideo.io
         image_iter = iter(args.input)
@@ -213,7 +213,7 @@ def main(args):
                             if 'pickle' in output_type:
                                 pickle_out_path = os.path.join(output_dir, 'image_{}_predicted.pkl'.format(str(current_frame).zfill(6)))
                                 with open(pickle_out_path, 'wb') as outfile:
-                                    pickle.dump(result, outfile)
+                                    pickle.dump(result, outfile, protocol=2)
                             temp_frame_diff += 1 
                     
             except Exception as e:
