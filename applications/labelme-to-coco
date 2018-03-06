@@ -35,7 +35,7 @@ def area_polygon(polygon):
     return float(0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1))))
 
 def bool_or_text_to_int(item):
-    if type(item) is str and (item == 'yes' or item == 'true' or item == 'True' or item == '1'):
+    if isinstance(item, str) and (item == 'yes' or item == 'true' or item == 'True' or item == '1'):
         return 1
     if item is int and item > 0:
         return 1
@@ -63,8 +63,8 @@ def json_from_labelme(labelme_file, args, class_names, images, categories, annot
         if args.no is not None and class_name in args.no:
             continue
         polygon = [
-         (xml_float_value(pt.find('x')), xml_float_value(pt.find('y')))
-         for pt in obj.find('polygon').findall('pt')
+            (xml_float_value(pt.find('x')), xml_float_value(pt.find('y')))
+            for pt in obj.find('polygon').findall('pt')
         ]
         if len(polygon) < 2:
             continue
@@ -73,24 +73,26 @@ def json_from_labelme(labelme_file, args, class_names, images, categories, annot
         if class_name not in class_names:
             class_names[class_name] = len(class_names) + 1
             categories.append(
-             {'name': class_name,
-              'id': class_names[class_name],
-              'supercategory': ''}
+                {
+                    'name': class_name,
+                    'id': class_names[class_name],
+                    'supercategory': ''
+                }
             )
         image_annotations.append(
          {
-          "area": area_polygon(polygon),
-          "bbox": bounding_box(polygon),
-          "deleted": bool_or_text_to_int(xml_text_value(obj.find('deleted'))),
-          "verified": bool_or_text_to_int(xml_text_value(obj.find('verified'))),
-          "date": xml_text_value(obj.find('date')),
-          "category_id": class_names[class_name],
-          "labelme_id": int(xml_text_value(obj.find('id'))),
-          "id": len(annotations) + 1 + len(image_annotations),
-          "image_id": len(images) + 1,
-          "iscrowd": 0,
-          "occluded": bool_or_text_to_int(xml_text_value(obj.find('occluded'))),
-          "segmentation": [[j for i in polygon for j in i]]
+             "area": area_polygon(polygon),
+             "bbox": bounding_box(polygon),
+             "deleted": bool_or_text_to_int(xml_text_value(obj.find('deleted'))),
+             "verified": bool_or_text_to_int(xml_text_value(obj.find('verified'))),
+             "date": xml_text_value(obj.find('date')),
+             "category_id": class_names[class_name],
+             "labelme_id": int(xml_text_value(obj.find('id'))),
+             "id": len(annotations) + 1 + len(image_annotations),
+             "image_id": len(images) + 1,
+             "iscrowd": 0,
+             "occluded": bool_or_text_to_int(xml_text_value(obj.find('occluded'))),
+             "segmentation": [[j for i in polygon for j in i]]
          }
         )
     if labelme_file:
@@ -99,15 +101,15 @@ def json_from_labelme(labelme_file, args, class_names, images, categories, annot
             filename = replace_extension(filename, args.force_extension)
 
         record = {
-         "coco_url": url,
-         "url": url,
-         "date_captured": "1970-01-01 00:00:00",
-         "file_name": filename,
-         "flickr_url": url,
-         "height": int(xml_text_value(annotation.find('imagesize/nrows'))),
-         "id": len(images) + 1,
-         "license": 0,
-         "width": int(xml_text_value(annotation.find('imagesize/ncols')))
+            "coco_url": url,
+            "url": url,
+            "date_captured": "1970-01-01 00:00:00",
+            "file_name": filename,
+            "flickr_url": url,
+            "height": int(xml_text_value(annotation.find('imagesize/nrows'))),
+            "id": len(images) + 1,
+            "license": 0,
+            "width": int(xml_text_value(annotation.find('imagesize/ncols')))
         }
         if args.image_dir:
             record['path'] = os.path.join(args.image_dir, filename)
@@ -138,24 +140,24 @@ def main(args):
             with open(file_path, 'r') as f:
                 json_from_labelme(f, args, class_names, images, categories, annotations)
     data_out = {
-     "info": {
-      "contributor": "Abyss Solutions", 
-      "date_created": "2018-02-08 10:30:00.000000",
-      "description": "This is a dataset configured by Abyss Solutions.",
-      "url": "http://www.abysssolutions.com.au/",
-      "version": "1.0",
-      "year": 2018
-     },
-     "licenses": [
-      {
-       "id": 1,
-       "name": "Attribution-NonCommercial-ShareAlike License",
-       "url": "http://creativecommons.org/licenses/by-nc-sa/2.0/"
-      }
-     ],
-     "images": images,
-     "annotations": annotations,
-     "categories": categories
+        "info": {
+            "contributor": "Abyss Solutions", 
+            "date_created": "2018-02-08 10:30:00.000000",
+            "description": "This is a dataset configured by Abyss Solutions.",
+            "url": "http://www.abysssolutions.com.au/",
+            "version": "1.0",
+            "year": 2018
+        },
+        "licenses": [
+            {
+                "id": 1,
+                "name": "Attribution-NonCommercial-ShareAlike License",
+                "url": "http://creativecommons.org/licenses/by-nc-sa/2.0/"
+            }
+        ],
+        "images": images,
+        "annotations": annotations,
+        "categories": categories
     }
     if args.name:
         data_out['info']['name'] = args.name
@@ -163,15 +165,18 @@ def main(args):
 
 def get_args():
     parser = argparse.ArgumentParser(
-     description="Create a COCO JSON annotation file from a directory of LabelMe XMLs."
+        description="Create a COCO JSON annotation file from a directory of LabelMe XMLs."
     )
     parser.add_argument('xml_dir', help="the directory to look for the XMLs")
-    parser.add_argument("--force-extension", help="force image extensions, use if you have converted the image types", default=None)
+    parser.add_argument(
+        "--force-extension",
+        help="force image extensions, use if you have converted the image types", default=None
+    )
     parser.add_argument('--image-dir', help="Use absolute paths with images found in this dir", default=None)
     parser.add_argument('--name', help="The name to identify this dataset by", \
-     default=None, type=str)
+        default=None, type=str)
     parser.add_argument('--no', help="The name of any category to exclude", \
-     default=None, type=str)
+        default=None, type=str)
     parser.add_argument('--pretty', action='store_true', help="pretty print json")
     parser.add_argument('--verbose', action='store_true', help="verbose output to stderr")
 

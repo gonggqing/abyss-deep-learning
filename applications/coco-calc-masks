@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 import argparse
-import numpy as np
-from pycocotools.coco import COCO
-import pycocotools.mask as mask
 import sys
+import pycocotools.mask as mask
 import coco_classes
+from pycocotools.coco import COCO
 
 def main(args):
     coco = COCO(args.coco_path)

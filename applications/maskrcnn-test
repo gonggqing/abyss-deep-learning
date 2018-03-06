@@ -4,17 +4,21 @@ import json
 import os
 import sys
 import importlib
+
 from pprint import pprint
 from contextlib import redirect_stdout
-import matplotlib.pyplot as plt
 from scipy.ndimage.measurements import center_of_mass
-# Note the directory MASK_RCNN_PATH should be exported as e.g. /home/whoever/src/abyss/deep-learning/third-party/Mask_RCNN
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Note the directory MASK_RCNN_PATH should be exported 
+# e.g. export MASK_RCNN_PATH=/home/whoever/src/abyss/deep-learning/third-party/Mask_RCNN
 sys.path.append(os.environ['MASK_RCNN_PATH'])
+from config import Config as DefaultConfig
 import utils
 import model as modellib
 import visualize
 import coco
-import numpy as np
 # from imgaug import augmenters as iaa
 
 def sanity_check_masks(dataset, num_images=4):
@@ -29,9 +33,9 @@ def get_ax(rows=1, cols=1, size=8):
     return plt.subplots(rows, cols, figsize=(size*cols, size*rows))[1]
 
 def calc_position_error(mask1, mask2):
-    p1 = np.array(center_of_mass(mask1 > 0))
-    p2 = np.array(center_of_mass(mask2 > 0))
-    return np.sqrt(np.sum((p1 - p2) ** 2.0))
+    pos1 = np.array(center_of_mass(mask1 > 0))
+    pos2 = np.array(center_of_mass(mask2 > 0))
+    return np.sqrt(np.sum((pos1 - pos2) ** 2.0))
 
 def compute_centroid_errors(gt_boxes, gt_class_ids, gt_masks,
                pred_boxes, pred_class_ids, pred_scores, pred_masks,
@@ -86,14 +90,14 @@ def test(config, args):
     class_names = [
         i[1] for i in 
         sorted([
-            (cat['id'], cat['name']) 
+            (cat['id'], cat['name'])
             for cat in args.dataset_test.class_info],
                 key=lambda x: x[0]
         )
     ]
-    APs = {'mean': 0.0, 'std': 0.0, 'individual': {}}
-    ARs = {'mean': 0.0, 'std': 0.0, 'individual': {}}
-    CEs = {'mean': 0.0, 'std': 0.0, 'individual': {}}
+    average_precisions = {'mean': 0.0, 'std': 0.0, 'individual': {}}
+    average_recalls = {'mean': 0.0, 'std': 0.0, 'individual': {}}
+    centroid_errors = {'mean': 0.0, 'std': 0.0, 'individual': {}}
     for image_id in args.dataset_test.image_ids:
         # Load image and ground truth data
         image, image_shape, gt_class_ids, gt_bbox, gt_mask = \
@@ -123,27 +127,27 @@ def test(config, args):
             # print("AP,{:d},{:f}".format(image_id, AP), file=sys.stderr)
             # print("AR,{:d},{:f}".format(image_id, AR), file=sys.stderr)
             # print("CE,{:d},{:f}".format(image_id, CE), file=sys.stderr)
-            APs['individual'][int(image_id)] = float(AP)
-            ARs['individual'][int(image_id)] = float(AR)
-            CEs['individual'][int(image_id)] = float(CE)
+            average_precisions['individual'][int(image_id)] = float(AP)
+            average_recalls['individual'][int(image_id)] = float(AR)
+            centroid_errors['individual'][int(image_id)] = float(CE)
         except ValueError:
             print("Skipping image {:d}, no positive gt's.".format(image_id), file=sys.stderr)
         finally:
             if args.show:
                 plt.show()
     print("Overall mAP for IoU={:f}: ".format(args.iou), file=sys.stderr)
-    APs['mean'] = float(np.mean([i for i in APs['individual'].values()]))
-    ARs['mean'] = float(np.mean([i for i in ARs['individual'].values()]))
-    CEs['mean'] = float(np.nanmean([i for i in CEs['individual'].values()]))
-    APs['std'] = float(np.std([i for i in APs['individual'].values()]))
-    ARs['std'] = float(np.std([i for i in ARs['individual'].values()]))
-    CEs['std'] = float(np.nanstd([i for i in CEs['individual'].values()]))
-    # print("mAP,{:f}".format(APs['mean']), file=sys.stderr)
-    # print("mAR,{:f}".format(ARs['mean']), file=sys.stderr)
-    # print("mCE,{:f}".format(CEs['mean']), file=sys.stderr)
+    average_precisions['mean'] = float(np.mean([i for i in average_precisions['individual'].values()]))
+    average_recalls['mean'] = float(np.mean([i for i in average_recalls['individual'].values()]))
+    centroid_errors['mean'] = float(np.nanmean([i for i in centroid_errors['individual'].values()]))
+    average_precisions['std'] = float(np.std([i for i in average_precisions['individual'].values()]))
+    average_recalls['std'] = float(np.std([i for i in average_recalls['individual'].values()]))
+    centroid_errors['std'] = float(np.nanstd([i for i in centroid_errors['individual'].values()]))
+    # print("mAP,{:f}".format(average_precisions['mean']), file=sys.stderr)
+    # print("mAR,{:f}".format(average_recalls['mean']), file=sys.stderr)
+    # print("mCE,{:f}".format(centroid_errors['mean']), file=sys.stderr)
     print(
         json.dumps(
-            {"precision": APs, "recall": ARs, 'centroid_errors': CEs},
+            {"precision": average_precisions, "recall": average_recalls, 'centroid_errors': centroid_errors},
             sort_keys=True, indent=4, separators=(',', ': ')
         )
     )
@@ -162,8 +166,7 @@ def main(args):
         args.dataset_test = coco.CocoDataset()
         args.dataset_test.load_coco(args.dataset_test_path, image_dir=args.image_dir, class_ids=args.categories)
         args.dataset_test.prepare()
-    if args.config == None:
-        from config import Config as DefaultConfig
+    if args.config is None:
         config = DefaultConfig()
     else:
         spec = importlib.util.spec_from_file_location("maskrcnn_config", args.config)
@@ -182,12 +185,24 @@ def get_args():
     parser.add_argument("config", help="Use this config file (see default MaskRCNN.config.py)", default=None)
     parser.add_argument("dataset_test_path", help="Path to the coco JSON for the testing set.")
     parser.add_argument("model_dir", help="Path to save and load models from.")
-    parser.add_argument("weights", help="Path to pretrained weights, or 'last' to load last model trained.", default=None)
+    parser.add_argument(
+        "weights",
+        help="Path to pretrained weights, or 'last' to load last model trained.",
+        default=None
+    )
     parser.add_argument("--categories", help="Only train on images that have this group of categories", default=None)
     parser.add_argument("--cpu", help="Use CPU instead of GPU", action='store_true')
-    parser.add_argument("--image-dir", help="Base dir of the images referred to relatively from the COCO JSON", default=None)
+    parser.add_argument(
+        "--image-dir",
+        help="Base dir of the images referred to relatively from the COCO JSON",
+        default=None
+    )
     parser.add_argument("--iou", help="IoU threshold for stats.", default=0.5, type=float)
-    parser.add_argument("--sanity-check", help="Show train and validation datasets to ensure that data is valid.", action='store_true')
+    parser.add_argument(
+        "--sanity-check",
+        help="Show train and validation datasets to ensure that data is valid.",
+        action='store_true'
+    )
     parser.add_argument("--show", help="Display outputs interactively.", action='store_true')
     args = parser.parse_args()
     if args.categories != None:
@@ -196,4 +211,3 @@ def get_args():
 
 if __name__ == '__main__':
     main(get_args())
-

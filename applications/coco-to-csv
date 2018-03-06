@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 import argparse
 import os
-import importlib.util
 from math import floor
-from sys import stderr
 from pycocotools.coco import COCO
+from sys import stderr
+# import importlib.util
 
 def export_csv(image, annotations, args):
     for annotation in annotations:
@@ -12,11 +12,8 @@ def export_csv(image, annotations, args):
         if args.verbose:
             print(file_name, file=stderr)
 
-        with open(os.path.join(args.annotation_dir, file_name + '.csv'), 'a') as f:
+        with open(os.path.join(args.annotation_dir, file_name + '.csv'), 'a') as file_handle:
             output_string = []
-            if file_name=='image_001030':
-                print('I am here')
-                print(annotation)
             for field_name in args.fields:
                 if field_name == 'bbox':
                     output_string += [str(floor(i)) for i in annotation['bbox']]
@@ -24,7 +21,7 @@ def export_csv(image, annotations, args):
                     output_string += [image['file_name']]
                 else:
                     output_string += [str(annotation[field_name])]
-            f.write(','.join(output_string) + "\n")
+            file_handle.write(','.join(output_string) + "\n")
 
 def coco_to_csv(args):
     assert os.path.exists(args.coco_path), "COCO file not found."
@@ -37,12 +34,15 @@ def coco_to_csv(args):
 
 def get_args():
     parser = argparse.ArgumentParser(
-     description="Convert a COCO JSON into CSV"
+        description="Convert a COCO JSON into CSV"
     )
     parser.add_argument('coco_path', help="Path to the coco JSON.")
     # parser.add_argument('image_dir', help="Path the images are stored in")
     parser.add_argument('annotation_dir', help="Path to output the annotations")
-    parser.add_argument('--fields', help="Override output fields (CSV list of any annotation key, or 'filename')", default='id,bbox,category_id')
+    parser.add_argument(
+        '--fields', default='id,bbox,category_id',
+        help="Override output fields (CSV list of any annotation key, or 'filename')"
+    )
     parser.add_argument('--verbose', action='store_true', help="verbose output to stderr")
     args = parser.parse_args()
     args.fields = args.fields.split(',')

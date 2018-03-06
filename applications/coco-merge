@@ -20,14 +20,14 @@ def main(args):
             coco_list.append(CocoDataset.from_COCO(COCO(coco_path), image_dir=args.image_dir))
     print("Loaded {:d} COCO datasets".format(len(coco_list)), file=sys.stderr)
     result = coco_list[0]
-    for x in coco_list[1:]:
-        result += x
+    for coco_dataset in coco_list[1:]:
+        result += coco_dataset
     print(result)
     
 
 def get_args():
     '''Get args from the command line args'''
-    class MyAction(argparse.Action):
+    class MyAction(argparse.Action): 
         def __call__(self, parser, namespace, values, option_string=None):
             # Set optional arguments to True or False
             if option_string:
@@ -50,7 +50,10 @@ def get_args():
     )
     parser.add_argument('input', nargs='+', action=MyAction)
     parser.add_argument('--verbose', action='store_true', help="verbose output to stderr")
-    parser.add_argument("--image-dir", help="If images referenced relatively and in different dirs, you must give the CSV-delimited paths", default=None)
+    parser.add_argument(
+        "--image-dir", default=None,
+        help="If images referenced relatively and in different dirs, you must give the CSV-delimited paths"
+    )
 
     args = parser.parse_args()
     return args

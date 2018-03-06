@@ -1,9 +1,11 @@
 import os
 import sys
-import numpy as np
-# Note the directory MASK_RCNN_PATH should be exported as e.g. /home/whoever/src/abyss/deep-learning/third-party/Mask_RCNN
-sys.path.append(os.environ['MASK_RCNN_PATH'])
 
+import numpy as np
+
+# Note the directory MASK_RCNN_PATH should be exported 
+# e.g. export MASK_RCNN_PATH=/home/whoever/src/abyss/deep-learning/third-party/Mask_RCNN
+sys.path.append(os.environ['MASK_RCNN_PATH'])
 from config import Config
 
 class TrainConfig(Config):
@@ -142,8 +144,7 @@ class InferenceConfig(TrainConfig):
     GPU_COUNT = 1
     IMAGES_PER_GPU = 1
     NUM_CLASSES = 1 + 1 # Override in sub-classes
-    USE_MINI_MASK = True
-    MINI_MASK_SHAPE = (128, 128)  # (height, width) of the mini-mask
+    USE_MINI_MASK = False
     IMAGE_MIN_DIM = 800
     IMAGE_MAX_DIM = 1024
     MEAN_PIXEL = np.array([123.7, 116.8, 103.9])
@@ -153,7 +154,7 @@ class InferenceConfig(TrainConfig):
 
     # Minimum probability value to accept a detected instance
     # ROIs below this threshold are skipped
-    DETECTION_MIN_CONFIDENCE = 0.99
+    DETECTION_MIN_CONFIDENCE = 0.95
 
     # Non-maximum suppression threshold for detection
     DETECTION_NMS_THRESHOLD = 0.4

@@ -3,16 +3,13 @@ from __future__ import print_function
 import argparse
 import os
 import sys
-from fnmatch import fnmatch
-from PIL import Image
+import matplotlib.pyplot as plt
+import numpy as np
 from skimage.color import label2rgb
 from skimage.io import imread
 from skimage.measure import label
-from skimage.segmentation import clear_border, mark_boundaries, find_boundaries
 from skimage.transform import rescale
-import matplotlib.pyplot as plt
-import numpy as np
-from herbicide.coco_classes import CocoDataset
+from coco_classes import CocoDataset
 
 class SkipPairException(Exception):
     pass
@@ -36,44 +33,52 @@ def save_annotations(file_path, image_size, boundaries, masks, categories, image
     populate_coco(file_path, image_size, coco, boundaries, masks, categories, image_id, args)
 
 def decode_rgb_labels(encoded_image):
-    return np.bitwise_or(np.bitwise_or(
-        encoded_image[:, :, 0].astype(np.uint32),
-        encoded_image[:, :, 1].astype(np.uint32) << 8),
+    return np.bitwise_or(
+        np.bitwise_or(
+            encoded_image[:, :, 0].astype(np.uint32),
+            encoded_image[:, :, 1].astype(np.uint32) << 8
+        ),
         encoded_image[:, :, 2].astype(np.uint32) << 16
     )
 
 def process_pair(image_path, annotation_path, args):
     rgb = imread(image_path)
     if args.rescale:
-        rgb = rescale(args.rescale)
+        rgb = rescale(rgb, args.rescale)
     image_size = rgb.shape[0:2]#[1::-1]
     labels_image = imread(annotation_path)
     if len(labels_image.shape) == 2:
         labels_image = labels_image[..., np.newaxis] # Normal input, flat image coded by class number
     else:
-        labels_image = decode_rgb_labels(labels_image[:,:, 0:3]) # js-segmentation-annotator output, RGB encoded
+        labels_image = decode_rgb_labels(labels_image[:, :, 0:3]) # js-segmentation-annotator output, RGB encoded
     unique_labels = np.unique(labels_image)
     if args.no_empty and len(unique_labels) <= 1:
         raise SkipPairException()
     if args.verbose:
         print("unique labels", file=sys.stderr)
         print(unique_labels, file=sys.stderr)
-    categories = {}
-    masks = {}
-    boundaries = {}
+    categories, masks, boundaries = {}, {}, {}
 
-    for label_no in unique_labels:
-        mask = labels_image == label_no
-        area = np.sum(mask)
-        masks[label_no] = mask
-        instances, num_instances = label(mask, background=args.background, return_num=True, connectivity=2)
-        for instance in instances:
-            # boundaries[label_no] = np.fliplr(np.argwhere(find_boundaries(mask, mode='inner')))
-            categories[label_no] = label_no
+    for class_idx in unique_labels: # Category
+        if class_idx == args.background:
+            continue
+        class_mask = labels_image == class_idx
+        instances, num_instances = label(class_mask, background=args.background, return_num=True, connectivity=2)
+        if args.verbose:
+            print("Instances: ", num_instances, np.unique(instances), file=sys.stderr)
+        if args.single_instance:
+            categories[0] = args.label
+            masks[0] = class_mask
+        else:
+            for instance_idx in range(1, num_instances + 1): # Instances
+                instance_mask = instances == instance_idx
+                # boundaries[class_idx] = np.fliplr(np.argwhere(find_boundaries(class_mask, mode='inner')))
+                categories[instance_idx] = args.label
+                masks[instance_idx] = instance_mask
     if args.display:
-        print("# TODO this is showing only the last mask??", file=sys.stderr)
-        image_masked = rgb.copy() 
-        image_masked[np.logical_not(mask), :] = 0 
+        print("# TODO this is showing only the last class_mask mask??", file=sys.stderr)
+        image_masked = rgb.copy()
+        image_masked[np.logical_not(class_mask), :] = 0
         plt.figure()
         plt.subplot(3, 1, 1)
         plt.imshow(rgb)
@@ -85,28 +90,27 @@ def process_pair(image_path, annotation_path, args):
     return (boundaries, masks, categories, image_size)
 
 def get_args():
-  '''Get args from the command line args'''
-  parser = argparse.ArgumentParser(description="Create lists for convert_annoset")
-  parser.add_argument("image_dir", help="The directory which contains the images.")
-  parser.add_argument("label_dir", help="The directory which contains the annotations.")
-  parser.add_argument("coco", help="Output path for coco file.")
-  parser.add_argument("class_names", help="csv-delimited list of class names in order starting from 0")
-  parser.add_argument("--background", type=int, help="Background value for label image", default=None)
-  # parser.add_argument("--clear-border", action='store_true', default=False)
-  parser.add_argument("--display", action='store_true')
-  parser.add_argument("--verbose", action='store_true')
-  parser.add_argument("--no-empty", action='store_true')
-  parser.add_argument("--rescale", action='store', default=None)
-  parser.add_argument("--ext", help="The file extension to search for (default 'png')", default='png')
-  args = parser.parse_args()
+    '''Get args from the command line args'''
+    parser = argparse.ArgumentParser(description="Create lists for convert_annoset")
+    parser.add_argument("image_dir", help="The directory which contains the images.")
+    parser.add_argument("label_dir", help="The directory which contains the annotations.")
+    parser.add_argument("coco", help="Output path for coco file.")
+    parser.add_argument("class_names", help="csv-delimited list of class names in order starting from 0")
+    parser.add_argument("--background", type=int, help="Background value for label image", default=0)
+    # parser.add_argument("--clear-border", action='store_true', default=False)
+    parser.add_argument("--label", default=1, help='The label to write (single class only supported)')
+    parser.add_argument("--single-instance", action='store_true')
+    parser.add_argument("--display", action='store_true')
+    parser.add_argument("--verbose", action='store_true')
+    parser.add_argument("--no-empty", action='store_true')
+    parser.add_argument("--rescale", action='store', default=None)
+    parser.add_argument("--ext", help="The file extension to search for (default 'png')", default='png')
+    args = parser.parse_args()
 
-  args.class_names = {i: name for i, name in enumerate(args.class_names.split(','))}
-  if len(args.class_names) < 2:
-    raise Exception("Need at least 2 class names (e.g.: background,crop,weed)")
-  return args
-
-
-
+    args.class_names = {i: name for i, name in enumerate(args.class_names.split(','))}
+    if len(args.class_names) < 2:
+        raise Exception("Need at least 2 class names (e.g.: background,crop,weed)")
+    return args
 
 def main(args):
     coco_data = CocoDataset(is_pretty=False)
@@ -123,8 +127,8 @@ def main(args):
                 save_annotations(file_path, image_size, boundaries, masks, categories, image_id, args, coco=coco_data)
             except SkipPairException:
                 print("Skipped empty label: {:s}".format(file_path), file=sys.stderr)
-    with open(args.coco, 'w') as f:
-        f.write(str(coco_data))
+    with open(args.coco, 'w') as file_handle:
+        file_handle.write(str(coco_data))
 
 if __name__ == '__main__':
     main(get_args())
