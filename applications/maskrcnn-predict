@@ -177,7 +177,7 @@ def main(args):
                     if 'pickle' in output_type:
                         pickle_out_path = os.path.join(results_dir, 'pkl', '{:s}.pkl'.format(image_name))
                         with open(pickle_out_path, 'wb') as outfile:
-                            pickle.dump(result, outfile)
+                            pickle.dump(result, outfile, protocol=2)
     elif args.input_type == "video": #TODO fix hackjob
         image_iter = iter(args.input)
         for video_path in image_iter:
@@ -193,6 +193,8 @@ def main(args):
             try:
                 for frame in frame_iter:
                     frame_idx += 1
+                    if args.verbose:
+                        print('Processing frame {}'.format(frame_idx))
                     batch = [frame]
                     # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE))
                     for batch_idx in range(config.BATCH_SIZE):
@@ -201,10 +203,21 @@ def main(args):
                             frame_idx += 1
                             # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE))
                     if frame_idx % args.video_skip == 0:
+                        temp_frame_diff = -1
                         for result, label_image in zip(*predict(model, batch, config, args)):
+                            current_frame = frame_idx+temp_frame_diff
+                            if args.verbose:
+                                print('{} results in frame {}'.format(len(result['scores']), current_frame))
                             if args.output_predictions:
-                                output_predictions(args.output_predictions, result, frame_idx)
+                                output_predictions(os.path.join(output_dir, args.output_predictions), result, current_frame)
+                                   
                             writer.writeFrame(label_image)
+                            if 'pickle' in output_type:
+                                pickle_out_path = os.path.join(output_dir, 'image_{}_predicted.pkl'.format(str(current_frame).zfill(6)))
+                                with open(pickle_out_path, 'wb') as outfile:
+                                    pickle.dump(result, outfile, protocol=2)
+                            temp_frame_diff += 1 
+                    
             except Exception as e:
                 print(e)
                 print("Closing videos")
