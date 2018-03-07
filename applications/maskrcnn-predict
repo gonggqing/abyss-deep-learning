@@ -79,8 +79,6 @@ output_predictions.stream = None
 output_predictions.counter = 0
     
 def predict(model, batch, args):
-    if args.order is None:
-        args.order = [i for i in range(1, 10)]
     results = model.detect(batch, verbose=0)
     label_images = []
     color_map = {
@@ -114,7 +112,7 @@ def predict(model, batch, args):
             label_image = rgb_labels(label_image)
         if args.show:
             visualize.display_instances(
-                uint8_image(rgb[..., ::-1]), result['rois'],
+                uint8_image(rgb), result['rois'],
                 result['masks'], result['class_ids'],
                 args.class_names, result['scores'], ax=get_ax()
             )
@@ -246,8 +244,8 @@ def get_args():
 
     parser = argparse.ArgumentParser(description="Simultaneous training and validation of Resnet Mask RCNN")
     parser.add_argument("config", help="Path to the coco JSON for the training set.")
-    parser.add_argument("weights", help="Path to the coco JSON for the validation set.")
     parser.add_argument("model_dir", help="Path to save the model to. (needed but unused)")
+    parser.add_argument("weights", help="Path to the coco JSON for the validation set.")
     parser.add_argument('input', nargs='+', action=MyAction)
     parser.add_argument("--batch", help="Use these class names instead of class numbers (with --show)", default=None)
     parser.add_argument(
@@ -283,9 +281,8 @@ def get_args():
     parser.add_argument("--video-skip", help="Output 1 in every N frames of a video", default=24)
     args = parser.parse_args()
     args.video_skip = int(args.video_skip)
-    if args.order != None:
-        args.order = [int(i) for i in args.order.split(',')]
     args.overlay_colors = args.overlay_colors.split(',')
+    args.order = [int(i) for i in args.order.split(',')] if args.order else [i for i in range(1, len(args.overlay_colors))]
     return args
 
 if __name__ == '__main__':

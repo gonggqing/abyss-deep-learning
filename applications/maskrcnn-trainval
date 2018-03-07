@@ -28,14 +28,16 @@ def sanity_check_masks(dataset, num_images=4):
 
 def train(config, args):
     model = modellib.MaskRCNN(mode="training", config=config, model_dir=args.model_dir)
+    exclude = [] if args.fresh_heads is False else ["mrcnn_class_logits", "mrcnn_bbox_fc", "mrcnn_bbox", "mrcnn_mask"]
+
     if args.weights == 'last':
-        model.load_weights(model.find_last()[1], by_name=True)
+        model.load_weights(model.find_last()[1], by_name=True, exclude=exclude)
+        print("Loaded weights! Beginning training.", file=sys.stderr)
     elif args.weights is not None:
-        model.load_weights(
-            args.weights, by_name=True,
-            exclude=["mrcnn_class_logits", "mrcnn_bbox_fc", "mrcnn_bbox", "mrcnn_mask"]
-        )
-    print("Loaded weights! Beginning training.")
+        model.load_weights(args.weights, by_name=True, exclude=exclude)
+        print("Loaded weights! Beginning training.", file=sys.stderr)
+    elif args.weights == 'none':
+        print("WARNING: Not loading any pre-trained weights. Training fresh.", file=sys.stderr)
     model.train(
         args.dataset_train, args.dataset_val,
         learning_rate_multiplier=args.lr_mult,
@@ -86,8 +88,14 @@ def get_args():
     parser.add_argument("dataset_train_path", help="Path to the coco JSON for the training set.")
     parser.add_argument("dataset_val_path", help="Path to the coco JSON for the validation set.")
     parser.add_argument("model_dir", help="Path to save and load models from.")
+    parser.add_argument(
+        "weights",
+        help="Path to pretrained weights, 'last' to load last model trained, or 'none' to train fresh.",
+        default=None
+    )
     parser.add_argument("--categories", help="Only train on images that have this group of categories", default=None)
     parser.add_argument("--cpu", help="Use CPU instead of GPU", action='store_true')
+    parser.add_argument("--fresh-heads", help="Randomly initialize the heads", action='store_true')
     parser.add_argument(
         "--image-dir",
         help="Base dir of the images referred to relatively from the COCO JSON",
@@ -103,11 +111,6 @@ def get_args():
         "--sanity-check",
         help="Show train and validation datasets to ensure that data is valid.",
         action='store_true'
-    )
-    parser.add_argument(
-        "--weights",
-        help="Path to pretrained weights, or 'last' to load last model trained.",
-        default=None
     )
     # parser.add_argument("--no-augmentation", help="Do not perorm any data augmentation", action='store_true')
     args = parser.parse_args()

@@ -108,23 +108,25 @@ def test(config, args):
         # Run object detection
         results = model.detect([image], verbose=0)
         r = results[0]
-        if args.show:
-            ax = get_ax(cols=2)
-            plt.title('ground truth')
-            display_gt(args.dataset_test, image_id, ax=ax[0])
+        
         try:
             stats = (
                 gt_bbox[:,:4], gt_class_ids, gt_mask, 
                 r["rois"], r["class_ids"], r["scores"], r["masks"]
             )
             AP, precisions, recalls, overlaps = utils.compute_ap(*stats, iou_threshold=args.iou)
-            AR, positive_ids = utils.compute_recall(r["rois"], gt_bbox[:,:4], args.iou)
+            AR, positive_ids = utils.compute_recall(r["rois"], gt_bbox[:, :4], args.iou)
             CE = compute_centroid_errors(*stats, iou_threshold=args.iou)
             if args.show:
+                plt.figure()
+                plt.subplot(1, 2, 1)
                 visualize.display_instances(
-                    image, r['rois'], r['masks'], r['class_ids'], class_names, r['scores'], ax=ax[1]
+                    image, r['rois'], r['masks'], r['class_ids'], class_names, r['scores']
                 )
                 plt.title('predicted')
+                plt.subplot(1, 2, 2)
+                display_gt(args.dataset_test, image_id)
+                plt.title('ground truth')
             # visualize.plot_overlaps(gt_class_ids, r['class_ids'], r['scores'], overlaps, class_names, threshold=0.5)
             # print("AP,{:d},{:f}".format(image_id, AP), file=sys.stderr)
             # print("AR,{:d},{:f}".format(image_id, AR), file=sys.stderr)
