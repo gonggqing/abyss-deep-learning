@@ -19,18 +19,17 @@ cd deep-learning
 * maskrcnn-predict: Predict on input images or streams using a trained Mask RCNN model and output labels or overlay
 
 ## TODO
-* maskrcnn-test: Test a Mask RCNN network with COCO JSON dataset
-* maskrcnn-predict
-  * Add feature: Take in STDIN cv-cat stream and output prediction cv-cat stream
 * maskrcnn-trainval: Ensure that all label types work (polygon, mask, bbox) (currently fails without mask labels)
 * Tutorials
 
 ## Example: BAE Prop data with labelme labels
-### Important note
-skimage.io.imread sometimes does not read the image properly if it is not PNG; typically this happens if JPGs are large.
-It's highly suggested to convert all images to PNGs before starting:
-
-`bash for i in *.jpg; do convert $i ${i:0:-4}.png; done`
+### Important notes
+*  skimage.io.imread sometimes does not read the image properly if it is not PNG; typically this happens if JPGs are large.
+    It's highly suggested to convert all images to PNGs before starting:
+    `bash for i in *.jpg; do convert $i ${i:0:-4}.png; done`
+*  There are changes you will need to pull from steve's fork of the original Mask_RCNN code:
+   `bash git remote add steve https://github.com/spotiris/Mask_RCNN.git`
+   `bash git pull steve master`
 
 ### Prerequisites
 * Download the labelme collection and extract it
