@@ -16,7 +16,7 @@ from config import Config as DefaultConfig
 import utils
 import model as modellib
 import visualize
-import coco
+import abyss_dataset as dataset_model
 
 def sanity_check_masks(dataset, num_images=4):
     # Load and display random samples
@@ -38,7 +38,7 @@ def train(config, args):
     print("Loaded weights! Beginning training.")
     model.train(
         args.dataset_train, args.dataset_val,
-        learning_rate=config.LEARNING_RATE * args.lr_mult,
+        learning_rate_multiplier=args.lr_mult,
         epochs=args.epochs, 
         layers=args.layers
     )
@@ -48,7 +48,7 @@ def main(args):
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
     with redirect_stdout(sys.stderr):
-        args.dataset_train = coco.CocoDataset()
+        args.dataset_train = dataset_model.CocoDataset()
         args.coco_train = args.dataset_train.load_coco(
             args.dataset_train_path, args.image_dir,
             class_ids=args.categories,
@@ -56,7 +56,7 @@ def main(args):
         )
         args.dataset_train.prepare()
         # print("Loaded coco_train {:d} images".format(len(args.coco_train.imgs)))
-        args.dataset_val = coco.CocoDataset()
+        args.dataset_val = dataset_model.CocoDataset()
         args.coco_val = args.dataset_val.load_coco(
             args.dataset_val_path, args.image_dir,
             class_ids=args.categories,
@@ -81,13 +81,13 @@ def main(args):
 def get_args():
     '''Get args from the command line args'''
     parser = argparse.ArgumentParser(description="Simultaneous training and validation of Resnet Mask RCNN")
+    parser.add_argument("config", help="Use this config file (see default MaskRCNN.config.py)", default=None)
+    parser.add_argument("epochs", help="Train this many epochs", default=1)
     parser.add_argument("dataset_train_path", help="Path to the coco JSON for the training set.")
     parser.add_argument("dataset_val_path", help="Path to the coco JSON for the validation set.")
     parser.add_argument("model_dir", help="Path to save and load models from.")
     parser.add_argument("--categories", help="Only train on images that have this group of categories", default=None)
     parser.add_argument("--cpu", help="Use CPU instead of GPU", action='store_true')
-    parser.add_argument("--config", help="Use this config file (see default MaskRCNN.config.py)", default=None)
-    parser.add_argument("--epochs", help="Train this many epochs", default=1)
     parser.add_argument(
         "--image-dir",
         help="Base dir of the images referred to relatively from the COCO JSON",

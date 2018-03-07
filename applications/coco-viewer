@@ -12,6 +12,7 @@ from matplotlib.collections import PatchCollection
 from matplotlib.patches import Polygon
 from pycocotools import mask as COCOmask
 from pycocotools.coco import COCO
+from skimage.io import imread
 # from pycocotools.cocoeval import COCOeval
 
 def bounding_box(polygon):
@@ -97,27 +98,48 @@ def showAnns(self, anns, use_bbox=False):
 def info(string):
     print(string, file=stderr)
 
+def foreach_coco_image(dataset, function):
+    image_ids = dataset.getImgIds()
+    images = dataset.loadImgs(image_ids)
+    for image in images:
+        annotations = dataset.loadAnns(dataset.getAnnIds(imgIds=[image['id']]))
+        function(dataset, image, annotations)
 
-def coco_info(db):
-    print(json.dumps({
-        'num_images': len(db.imgs),
-        'num_annotations': len(db.anns),
-        'num_categories': len(db.cats),
-        'category_names': [cat['name'] for cat in db.cats.values()],
-        'category_ids': [cat['id'] for cat in db.cats.values()]
-    }))
+def calculate_rgb_means(dataset, image_dir=None):
+    '''Calculate the pixel color means in the dataset'''
+    means = []
+    def _calc_rgb(_dataset, image, _annotations):
+        print(image['path'], file=sys.stderr)
+        image_path = image['path'] if 'path' in image else os.path.join(image_dir, image['file_name'])
+        rgb = imread(image_path)
+        means.append(np.mean(rgb, axis=(0, 1)))
+    foreach_coco_image(dataset, _calc_rgb)
+    return np.mean(np.array(means), axis=0)
+
+def coco_info(dataset, args):
+    db_info = {
+        'num_images': len(dataset.imgs),
+        'num_annotations': len(dataset.anns),
+        'num_categories': len(dataset.cats),
+        'category_names': [cat['name'] for cat in dataset.cats.values()],
+        'category_ids': [cat['id'] for cat in dataset.cats.values()]
+    }
+    if args.rgb_means:
+        db_info['rgb_means'] = calculate_rgb_means(dataset, image_dir=args.image_dir)
+    print(json.dumps(db_info))
 
 def main(args):
     with redirect_stdout(sys.stderr):
         coco_db = COCO(args.coco_path)
+    args.info = True if args.rgb_means else args.info
     if args.info:
-        coco_info(coco_db)
+        coco_info(coco_db, args)
         exit(0)
     img_ids = coco_db.getImgIds(imgIds=args.ids, catIds=args.cats)
     # image_sets = [coco_db.getImgIds(catIds=cat) for cat in args.cats]
     # img_ids = list(set([j for i in image_sets for j in i]))
     images = coco_db.loadImgs(ids=img_ids)
-    if len(images) == 0:
+    if images:
         info("No images with given ids and cats")
         exit(0)
     info("Categories:")
@@ -129,7 +151,7 @@ def main(args):
         rgb = plt.imread(image_path)
         ann_ids = coco_db.getAnnIds(imgIds=[image['id']], catIds=args.cats)
         annotations = coco_db.loadAnns(ids=ann_ids)
-        if len(annotations) == 0:
+        if annotations:
             info("skipping {:s} cause of 0 annotations".format(image['file_name']))
         # remove duplicates
         #     groups = []
@@ -153,6 +175,7 @@ def get_args():
     parser.add_argument("--cats", help="Filter images by categories, CSV-delimited", default='')
     parser.add_argument("--dontshow", help="Filter images by categories, CSV-delimited", action='store_true')
     parser.add_argument("--info", help="Print coco info and exit", action='store_true')
+    parser.add_argument("--rgb-means", help="Print coco rgb means (implies --info)", action='store_true')
     parser.add_argument("--image-dir", help="If images referenced relatively, give the iamge dir", default=None)
     args = parser.parse_args()
     args.ids = [int(i) for i in args.ids.split(',') if len(i)]

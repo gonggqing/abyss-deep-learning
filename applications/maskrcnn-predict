@@ -16,7 +16,6 @@ import skvideo.io
 # Note the directory MASK_RCNN_PATH should be exported 
 # e.g. export MASK_RCNN_PATH=/home/whoever/src/abyss/deep-learning/third-party/Mask_RCNN
 sys.path.append(os.environ['MASK_RCNN_PATH'])
-import coco
 import model as modellib
 import utils
 import visualize
@@ -79,7 +78,9 @@ def output_predictions(filename, result, frame_id):
 output_predictions.stream = None
 output_predictions.counter = 0
     
-def predict(model, batch, config, args):
+def predict(model, batch, args):
+    if args.order is None:
+        args.order = [i for i in range(1, 10)]
     results = model.detect(batch, verbose=0)
     label_images = []
     color_map = {
@@ -92,8 +93,7 @@ def predict(model, batch, config, args):
         num_results = len(result['scores'])
         label_image = np.zeros(rgb.shape[0:2], dtype=np.uint8)
         if num_results > 0:
-            if args.order is None:
-                args.order = np.unique(result['class_ids'])
+            
             for idx, class_id in enumerate(result['class_ids']):
                 result['masks'][..., idx] *= class_id
             for class_id in reversed(args.order):
@@ -159,7 +159,7 @@ def main(args):
                     print("WARNING: Couldn't open file: {:s}".format(image_path))
                     continue
                 batch.append(rgb)
-            for result, label_image in zip(*predict(model, batch, config, args)):
+            for result, label_image in zip(*predict(model, batch, args)):
                 if args.verbose:
                     print("{:s}: {:d} results".format(image_path, len(result['scores'])))
                 if not args.show:
@@ -204,7 +204,7 @@ def main(args):
                             # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE))
                     if frame_idx % args.video_skip == 0:
                         temp_frame_diff = -1
-                        for result, label_image in zip(*predict(model, batch, config, args)):
+                        for result, label_image in zip(*predict(model, batch, args)):
                             current_frame = frame_idx+temp_frame_diff
                             if args.verbose:
                                 print('{} results in frame {}'.format(len(result['scores']), current_frame))

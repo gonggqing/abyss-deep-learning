@@ -19,6 +19,8 @@ import utils
 import model as modellib
 import visualize
 import coco
+from abyss_dataset import CocoDataset as dataset_model
+
 # from imgaug import augmenters as iaa
 
 def sanity_check_masks(dataset, num_images=4):
@@ -163,16 +165,16 @@ def main(args):
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
     with redirect_stdout(sys.stderr):
-        args.dataset_test = coco.CocoDataset()
+        args.dataset_test = dataset_model()
         args.dataset_test.load_coco(args.dataset_test_path, image_dir=args.image_dir, class_ids=args.categories)
         args.dataset_test.prepare()
-    if args.config is None:
-        config = DefaultConfig()
-    else:
-        spec = importlib.util.spec_from_file_location("maskrcnn_config", args.config)
-        config_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(config_module)
-        config = config_module.InferenceConfig()
+    # if args.config is None:
+    #     config = DefaultConfig()
+    # else:
+    spec = importlib.util.spec_from_file_location("maskrcnn_config", args.config)
+    config_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(config_module)
+    config = config_module.InferenceConfig()
     if args.sanity_check:
         pprint(args)
         config.display()

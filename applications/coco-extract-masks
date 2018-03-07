@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 import argparse
 import os
+
 import matplotlib.pyplot as plt
 import numpy as np
-from pycocotools.coco import COCO
+
 from skimage.io import imread, imsave
+from pycocotools.coco import COCO
 # from pycocotools import mask
+
 def decode_rbg_label(encoded):
     annotation = np.bitwise_or(
         np.bitwise_or(
@@ -15,6 +18,7 @@ def decode_rbg_label(encoded):
         encoded[:, :, 2].astype(np.uint32) << 16
     )
     return annotation
+
 def encode_rgb_label(annotation, dtype=np.uint8):
     encoded = np.stack([
         np.bitwise_and(annotation, 255),
@@ -22,6 +26,7 @@ def encode_rgb_label(annotation, dtype=np.uint8):
         np.bitwise_and(annotation >> 16, 255),
     ], axis=2).astype(dtype)
     return encoded
+
 def foreach_coco_image(coco_path, function):
     dataset = COCO(coco_path)
     image_ids = dataset.getImgIds()
@@ -29,10 +34,12 @@ def foreach_coco_image(coco_path, function):
     for image in images:
         annotations = dataset.loadAnns(dataset.getAnnIds(imgIds=[image['id']]))
         function(dataset, image, annotations)
+
 def rgb_mask(image, mask, label=1, color=0):
     rgb = image.copy()
     rgb[mask == label] = color
     return rgb
+
 def save_mask_as_image(coco_dataset, image, annotations, args):
     annotation_img = np.zeros((image['height'], image['width']), dtype=np.uint8)
     for annotation in annotations:
@@ -54,11 +61,13 @@ def save_mask_as_image(coco_dataset, image, annotations, args):
         plt.show()
     else:
         imsave(image_path, annotation_img)
+
 def main(args):
     foreach_coco_image(
         args.coco_path,
         lambda coco_dataset, image, annotation: save_mask_as_image(coco_dataset, image, annotation, args)
     )
+
 def get_args():
     '''Get args from the command line args'''
     parser = argparse.ArgumentParser(description="Extract labels from COCO JSON and dump them in to annotation images")
@@ -70,5 +79,6 @@ def get_args():
     parser.add_argument("--show", help="Show instead of saving", action='store_true')
     args = parser.parse_args()
     return args
+
 if __name__ == '__main__':
     main(get_args())
