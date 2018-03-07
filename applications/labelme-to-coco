@@ -18,10 +18,10 @@ import numpy as np
 
 def xml_text_value(element):
     '''extract text from XML element'''
-    return "".join(element.itertext())
+    return "".join(element.itertext()).strip()
 def xml_float_value(element):
     '''extract float from XML element'''
-    return float("".join(element.itertext()))
+    return float("".join(element.itertext()).strip())
 
 def bounding_box(polygon):
     'return the bounding box of a given polygon'

@@ -77,7 +77,11 @@ Prepare dataset:
 
 Train:
 We will train the classification head, then the whole network (feature detector + head).
-This should give a better result than just the head.
+This should give a better result than just the head and be faster and more stable than just training 'all'.
+
+Note: Mask RCNN implementation does something where it will reset the heads layer if it does not recognise that logdir and filename of the weights you provide.
+It is recommended to use the `--weights 'last'` way of training the 'all' layers after the 'heads' layers to ensure it picks up the right one.
+
 ```bash
 ~/src/abyss/deep-learning/applications/maskrcnn-trainval \
     /data/abyss/bae-prop-uw/baeprop-coco_train.json \
