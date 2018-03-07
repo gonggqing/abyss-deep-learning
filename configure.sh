@@ -15,9 +15,8 @@ else
 fi
 make && sudo make install
 
-## Download Mask RCNN pretrained weights and patch coco file
+## Download Mask RCNN pretrained weights and update remotes
 cd $BASE/third-party/Mask_RCNN
-git apply --stat ../../maskrcnn-coco.patch
 [[ ! -e mask_rcnn_coco.h5 ]] && \
  wget -c https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5
 
