@@ -28,14 +28,14 @@ def sanity_check_masks(dataset, num_images=4):
 
 def train(config, args):
     model = modellib.MaskRCNN(mode="training", config=config, model_dir=args.model_dir)
-    exclude = [] if args.fresh_heads is False else ["mrcnn_class_logits", "mrcnn_bbox_fc", "mrcnn_bbox", "mrcnn_mask"]
+    exclude = ["mrcnn_class_logits", "mrcnn_bbox_fc", "mrcnn_bbox", "mrcnn_mask"] if args.fresh_heads else []
 
     if args.weights == 'last':
         model.load_weights(model.find_last()[1], by_name=True, exclude=exclude)
-        print("Loaded weights! Beginning training.", file=sys.stderr)
+        print("Loaded weights. Excluded: {:s}.".format(str(exclude)), file=sys.stderr)
     elif args.weights is not None:
         model.load_weights(args.weights, by_name=True, exclude=exclude)
-        print("Loaded weights! Beginning training.", file=sys.stderr)
+        print("Loaded weights. Excluded: {:s}.".format(str(exclude)), file=sys.stderr)
     elif args.weights == 'none':
         print("WARNING: Not loading any pre-trained weights. Training fresh.", file=sys.stderr)
     model.train(
@@ -84,9 +84,9 @@ def get_args():
     '''Get args from the command line args'''
     parser = argparse.ArgumentParser(description="Simultaneous training and validation of Resnet Mask RCNN")
     parser.add_argument("config", help="Use this config file (see default MaskRCNN.config.py)", default=None)
-    parser.add_argument("epochs", help="Train this many epochs", default=1)
     parser.add_argument("dataset_train_path", help="Path to the coco JSON for the training set.")
     parser.add_argument("dataset_val_path", help="Path to the coco JSON for the validation set.")
+    parser.add_argument("epochs", help="Train this many epochs", default=1)
     parser.add_argument("model_dir", help="Path to save and load models from.")
     parser.add_argument(
         "weights",
