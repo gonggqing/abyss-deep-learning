@@ -1,10 +1,6 @@
 #!/usr/bin/env python
 from distutils.core import setup
 
-#This is a list of files to install, and where
-#(relative to the 'root' dir, where setup.py is)
-#You could be more specific.
-
 setup(
 	name='Abyss Deep Learning',
 	version="100",
