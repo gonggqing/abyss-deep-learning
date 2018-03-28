@@ -77,7 +77,7 @@ def output_predictions(filename, result, frame_id):
         output_predictions.counter += 1
 output_predictions.stream = None
 output_predictions.counter = 0
-    
+
 def predict(model, batch, args):
     results = model.detect(batch, verbose=0)
     label_images = []
@@ -91,7 +91,6 @@ def predict(model, batch, args):
         num_results = len(result['scores'])
         label_image = np.zeros(rgb.shape[0:2], dtype=np.uint8)
         if num_results > 0:
-            
             for idx, class_id in enumerate(result['class_ids']):
                 result['masks'][..., idx] *= class_id
             for class_id in reversed(args.order):

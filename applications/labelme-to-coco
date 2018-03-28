@@ -62,9 +62,12 @@ def json_from_labelme(labelme_file, args, class_names, images, categories, annot
         class_name = xml_text_value(obj.find('name'))
         if args.no is not None and class_name in args.no:
             continue
+        polygon = obj.find('polygon')
+        if not polygon:
+            continue
         polygon = [
             (xml_float_value(pt.find('x')), xml_float_value(pt.find('y')))
-            for pt in obj.find('polygon').findall('pt')
+            for pt in polygon.findall('pt')
         ]
         if len(polygon) < 2:
             continue
@@ -80,20 +83,20 @@ def json_from_labelme(labelme_file, args, class_names, images, categories, annot
                 }
             )
         image_annotations.append(
-         {
-             "area": area_polygon(polygon),
-             "bbox": bounding_box(polygon),
-             "deleted": bool_or_text_to_int(xml_text_value(obj.find('deleted'))),
-             "verified": bool_or_text_to_int(xml_text_value(obj.find('verified'))),
-             "date": xml_text_value(obj.find('date')),
-             "category_id": class_names[class_name],
-             "labelme_id": int(xml_text_value(obj.find('id'))),
-             "id": len(annotations) + 1 + len(image_annotations),
-             "image_id": len(images) + 1,
-             "iscrowd": 0,
-             "occluded": bool_or_text_to_int(xml_text_value(obj.find('occluded'))),
-             "segmentation": [[j for i in polygon for j in i]]
-         }
+            {
+                "area": area_polygon(polygon),
+                "bbox": bounding_box(polygon),
+                "deleted": bool_or_text_to_int(xml_text_value(obj.find('deleted'))),
+                "verified": bool_or_text_to_int(xml_text_value(obj.find('verified'))),
+                "date": xml_text_value(obj.find('date')),
+                "category_id": class_names[class_name],
+                "labelme_id": int(xml_text_value(obj.find('id'))),
+                "id": len(annotations) + 1 + len(image_annotations),
+                "image_id": len(images) + 1,
+                "iscrowd": 0,
+                "occluded": bool_or_text_to_int(xml_text_value(obj.find('occluded'))),
+                "segmentation": [[j for i in polygon for j in i]]
+            }
         )
     if labelme_file:
         filename = xml_text_value(annotation.find('filename'))
@@ -113,8 +116,11 @@ def json_from_labelme(labelme_file, args, class_names, images, categories, annot
         }
         if args.image_dir:
             record['path'] = os.path.join(args.image_dir, filename)
-        images.append(record)
-        annotations.extend(image_annotations)
+        if len(image_annotations) or not args.strict:
+            images.append(record)
+            annotations.extend(image_annotations)
+        else:
+            print("Image {:s} didn't have annotations, not adding it (--strict)".format(record['file_name']), file=stderr)
     if args.verbose:
         print("Annotations: %d" % len(image_annotations), file=stderr)
 
@@ -178,6 +184,7 @@ def get_args():
     parser.add_argument('--no', help="The name of any category to exclude", \
         default=None, type=str)
     parser.add_argument('--pretty', action='store_true', help="pretty print json")
+    parser.add_argument('--strict', action='store_true', help="Don't allow images without annotations")
     parser.add_argument('--verbose', action='store_true', help="verbose output to stderr")
 
     args = parser.parse_args()

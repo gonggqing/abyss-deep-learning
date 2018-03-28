@@ -1,0 +1,6 @@
+include configure.sh docker MANIFEST.in README.md setup.py
+recursive-include abyss_deep_learning *
+recursive-include abyss_maskrcnn *
+recursive-include applications *
+recursive-include configs *
+recursive-include docker *

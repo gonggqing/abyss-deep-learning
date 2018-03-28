@@ -1,12 +1,25 @@
 #!/bin/bash
-BASE=$PWD
+set -e
 
-## Initialise submodules
+[[ $# -lt 1 ]] && { echo "Usage: ./configure [python3 | python2]"; exit 1; }
+
+BASE=$PWD
+SRC_DIR=/home/$USER/src
+COCOTOOLS_DIR=$SRC_DIR/cocoapi
+
+# ## Initialise submodules
 git submodule update --init --recursive
 
+if [[ ! -e $SRC_DIR ]] ; then
+	mkdir "$SRC_DIR"
+fi
+if [[ ! -e $COCOTOOLS_DIR ]] ; then
+  cd "$COCOTOOLS_DIR/.."
+  git clone https://github.com/cocodataset/cocoapi.git
+fi
 
 ## Install pycocotools
-cd $BASE/third-party/cocoapi/PythonAPI
+cd "$COCOTOOLS_DIR/PythonAPI"
 if [[ $1 == python3 ]] ; then
  echo "Building pycocotools for python3"
  sed -r -i 's/python\s/python3 /g' Makefile
@@ -16,10 +29,9 @@ fi
 make && sudo make install
 
 ## Download Mask RCNN pretrained weights and update remotes
-cd $BASE/third-party/Mask_RCNN
+cd "$BASE/abyss_maskrcnn"
 [[ ! -e mask_rcnn_coco.h5 ]] && \
  wget -c https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5
-
 
 ## Download Mask RCNN tutorial datasets
 # cd $BASE/datasets
@@ -29,8 +41,3 @@ cd $BASE/third-party/Mask_RCNN
 # [[ ! -e instances_valminusminival2014.json ]] && \
 #  wget -c https://dl.dropboxusercontent.com/s/s3tw5zcg7395368/instances_valminusminival2014.json.zip &&
 #  unzip instances_valminusminival2014.json.zip
-
-## Set MASK RCNN path for python scripts
-[[ ! $(grep 'export MASK_RCNN_PATH' ~/.profile) ]] && \
- echo "export MASK_RCNN_PATH=$BASE/third-party/Mask_RCNN" >> ~/.profile
-

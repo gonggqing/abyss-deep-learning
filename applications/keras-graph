@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+
+import sys
+import matplotlib.pyplot as plt
+import re
+
+def file_split(f, delim=',', bufsize=1024):
+    prev = ''
+    while True:
+        s = f.read(bufsize)
+        if not s:
+            break
+        split = re.split("|".join(delim), s)
+        if len(split) > 1:
+            yield prev + split[0]
+            prev = split[-1]
+            for x in split[1:-1]:
+                yield x
+        else:
+            prev += s
+    if prev:
+        yield prev
+
+def parse(line):
+    if not line:
+        return None
+    print(list(line))
+    # search1 = re.match(r'(\d+)/(\d+) [\[\]=\.>]+ - (\w+): (\d+:\d+) - loss: (\d+\.\d+) - acc: (\d+\.\d+)', line)
+    steps = re.search(r'(\d+)/(\d+)', line)
+    stats = re.findall(r'(\w+): ([\d:\.]+)', line)
+    data = {}
+    if steps and stats:
+        data = {stat[0]: stat[1] for stat in stats}
+        data.update({
+            'step': steps.group(1),
+            'max_step': steps.group(2),
+        })
+    return data   
+
+    
+
+def main():
+    input_stream = sys.stdin
+    delim = ["\n", "\r"]
+    for line in file_split(input_stream, delim=delim):
+        line = line.strip()
+        data = parse(line)
+
+if __name__ == "__main__":
+    main()

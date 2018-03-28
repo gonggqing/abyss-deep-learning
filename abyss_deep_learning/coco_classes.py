@@ -9,9 +9,11 @@ import json
 from random import shuffle
 import bidict
 import numpy as np
-from pycocotools import mask as cm
+from pycocotools import mask as coco_mask
+
 def next_smallest_free_id(id_list):
     return int(np.min([i for i in np.arange(1, len(id_list) + 2) if i not in id_list]))
+
 class CocoDataset(object):
     '''Class to load, manipulate and save COCO datasets'''
     class Utils(object):
@@ -25,23 +27,27 @@ class CocoDataset(object):
                 bbox[0], bbox[1] + bbox[3],
                 bbox[0], bbox[1]
             ]).tolist()
+
         @staticmethod
         def bbox_from_polygon2D(polygon):
             'return the bounding box of a given polygon'
             min_x, min_y = np.min(polygon, axis=0)
             max_x, max_y = np.max(polygon, axis=0)
             return np.array([min_x, min_y, max_x - min_x, max_y - min_y]).tolist()
+
         @staticmethod
         def bbox_from_points(polygon):
             'return the bounding box of a given set of points [Nx2]'
             min_x, min_y = np.min(polygon, axis=0)
             max_x, max_y = np.max(polygon, axis=0)
             return np.array([min_x, min_y, max_x - min_x, max_y - min_y]).tolist()
+
         @staticmethod
         def area_polygon(polygon):
             pts_x = [i[0] for i in polygon]
             pts_y = [i[1] for i in polygon]
             return 0.5 * np.abs(np.dot(pts_x, np.roll(pts_y, 1)) - np.dot(pts_y, np.roll(pts_x, 1)))
+
     @staticmethod
     def from_COCO(coco, image_dir=None, limit_images=None):
         dataset = CocoDataset()
@@ -67,6 +73,7 @@ class CocoDataset(object):
                     annotation['segmentation']
                 )
         return dataset
+
     @staticmethod
     def get_label_type(segm):
         if isinstance(segm, dict): # mask being read from COCO json
@@ -82,6 +89,7 @@ class CocoDataset(object):
         if isinstance(segm, np.ndarray):
             print(segm.shape)
         raise RuntimeError("Unknown label type")
+
     @staticmethod
     def serialize_label(label):
         '''convert whatever label type into a polygon '''
@@ -89,8 +97,8 @@ class CocoDataset(object):
         segm, area, bbox = None, None, None
         if label_type == 'coco_mask':
             # raise NotImplementedError("Haven't done coco_mask -> poly yet")
-            bbox = cm.toBbox(label).tolist()
-            area = int(cm.area(label))
+            bbox = coco_mask.toBbox(label).tolist()
+            area = int(coco_mask.area(label))
             segm = label
             if not isinstance(segm["counts"], str):
                 # TODO find out why this doesnt work on coco-calc-masks
@@ -110,11 +118,12 @@ class CocoDataset(object):
             # plt.show()
         elif label_type == 'mask': # No conversion to poly
             # raise NotImplementedError("Haven't done mask -> poly yet")
-            segm = cm.encode(np.asfortranarray(label.astype(np.uint8)))
+            segm = coco_mask.encode(np.asfortranarray(label.astype(np.uint8)))
             segm["counts"] = segm["counts"].decode("utf-8")
-            area = int(cm.area(segm))
-            bbox = cm.toBbox(segm).tolist()
+            area = int(coco_mask.area(segm))
+            bbox = coco_mask.toBbox(segm).tolist()
         return (segm, bbox, area)
+
     def __init__(self, name=None, is_pretty=False, verbose=False):
         self.name = name
         self.verbose = verbose
@@ -142,6 +151,7 @@ class CocoDataset(object):
                 "url": "http://creativecommons.org/licenses/by-nc-sa/2.0/"
             }
         ]
+
     def add_category(self, class_name, id_number=None, supercategory=''):
         if id_number is None:
             id_number = next_smallest_free_id(self.category_ids)
@@ -156,6 +166,7 @@ class CocoDataset(object):
             )
         self.category_ids.add(id_number)
         return id_number
+
     def add_image(
             self, image_size, filename, url,
             force_id=None, license=0, date_captured=None, path=None,
@@ -182,6 +193,7 @@ class CocoDataset(object):
         self.images.append(record)
         self.image_ids.add(id_number)
         return id_number
+
     def add_annotation(self, image_id, category_id, segm, other=None):
         if category_id not in self.class_dict.inv:
             raise Exception("no category id exists {}".format(category_id))
@@ -207,6 +219,7 @@ class CocoDataset(object):
                     "Warning: Skipped annotation on image {:d} category {:d} due to area <= 1"
                     .format(image_id, category_id)
                 )
+
     def split(self, splits, verbose=False):
         image_set = set([img['id'] for img in self.images])
         datasets = []
@@ -231,10 +244,12 @@ class CocoDataset(object):
             ]
             datasets.append(dataset)
         return datasets
+
     def save(self, path):
         '''Save the COCO dataset to a file'''
         with open(path, 'w') as handle:
             return handle.write(str(self))
+
     def __add__(self, other):
         if not isinstance(other, CocoDataset):
             raise Exception("Can only add together two CocoDataset objects")
@@ -291,6 +306,7 @@ class CocoDataset(object):
                 annotation['segmentation']
             )
         return self
+
     def __str__(self):
         data_out = {
             "info": self.info,
@@ -302,14 +318,18 @@ class CocoDataset(object):
         if self.pretty:
             return json.dumps(data_out, sort_keys=True, indent=4, separators=(',', ': '))
         return json.dumps(data_out, sort_keys=True, separators=(',', ':'))
+
+
 class CocoResults(object):
     def __init__(self, is_pretty=False):
         self.results = []
         self.pretty = is_pretty
+
     def add(self, obj, guess=None):
         '''guess the result type and add it to the record'''
         if guess == 'bbox':
             self.results.append(obj)
+
     def add_detection(self, image_id, category_id, score, detection):
         '''takes a bbox, polygon, keypoints or mask
         bbox should be list [x, y, w, h]
@@ -326,9 +346,9 @@ class CocoResults(object):
             result["keypoints"] = detection
         elif isinstance(detection, np.ndarray) and detection.ndim == 2:
             # mask segmentation
-            result["segmentation"] = cm.encode(np.asfortranarray(detection))
+            result["segmentation"] = coco_mask.encode(np.asfortranarray(detection))
             result["segmentation"]["counts"] = result["segmentation"]["counts"].decode('utf-8')
-            result["bbox"] = cm.toBbox(result["segmentation"]).tolist()
+            result["bbox"] = coco_mask.toBbox(result["segmentation"]).tolist()
         else:
             if len(detection) == 4: #bbox
                 result["bbox"] = detection.tolist() \
@@ -341,6 +361,7 @@ class CocoResults(object):
                 result["bbox"] = CocoDataset.Utils.bbox_from_polygon2D(poly)
                 result["segmentation"] = np.array(poly).reshape((1, -1)).tolist()
         self.results.append(result)
+
     def add_detection_keypoints(self, image_id, category_id, score, keypoints):
         self.results.append(
             {
@@ -357,6 +378,7 @@ class CocoResults(object):
     #             "caption" : str,
     #         }
     #     )
+
     def __str__(self):
         if self.pretty:
             return json.dumps(self.results, sort_keys=True, indent=4, separators=(',', ': '))

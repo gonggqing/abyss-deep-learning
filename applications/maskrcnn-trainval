@@ -11,33 +11,35 @@ import numpy as np
 
 # Note the directory MASK_RCNN_PATH should be exported
 # e.g. export MASK_RCNN_PATH=/home/whoever/src/abyss/deep-learning/third-party/Mask_RCNN
-sys.path.append(os.environ['MASK_RCNN_PATH'])
-from config import Config as DefaultConfig
-import utils
-import model as modellib
-import visualize
-import abyss_dataset as dataset_model
+
+
 
 def sanity_check_masks(dataset, num_images=4):
+    import matplotlib.pyplot as plt
     # Load and display random samples
     image_ids = np.random.choice(dataset.image_ids, num_images)
     for image_id in image_ids:
         image = dataset.load_image(image_id)
         mask, class_ids = dataset.load_mask(image_id)
         visualize.display_top_masks(image, mask, class_ids, dataset.class_names)
+        plt.show()
+
 
 def train(config, args):
+    config.NUM_CLASSES = args.dataset_train.num_classes
+    config.STEPS_PER_EPOCH = int(np.ceil(args.dataset_train.num_images * args.step_mult))
+
     model = modellib.MaskRCNN(mode="training", config=config, model_dir=args.model_dir)
     exclude = ["mrcnn_class_logits", "mrcnn_bbox_fc", "mrcnn_bbox", "mrcnn_mask"] if args.fresh_heads else []
 
     if args.weights == 'last':
         model.load_weights(model.find_last()[1], by_name=True, exclude=exclude)
         print("Loaded weights. Excluded: {:s}.".format(str(exclude)), file=sys.stderr)
+    elif args.weights == 'none':
+        print("WARNING: Not loading any pre-trained weights. Training fresh.", file=sys.stderr)
     elif args.weights is not None:
         model.load_weights(args.weights, by_name=True, exclude=exclude)
         print("Loaded weights. Excluded: {:s}.".format(str(exclude)), file=sys.stderr)
-    elif args.weights == 'none':
-        print("WARNING: Not loading any pre-trained weights. Training fresh.", file=sys.stderr)
     model.train(
         args.dataset_train, args.dataset_val,
         learning_rate_multiplier=args.lr_mult,
@@ -107,17 +109,31 @@ def get_args():
         default='heads'
     )
     parser.add_argument("--lr-mult", help="Multiply the config LR by this", type=float, default=1.0)
+    parser.add_argument("--step-mult", help="Multiply the number of images per step by this", type=float, default=1.0)
     parser.add_argument(
         "--sanity-check",
         help="Show train and validation datasets to ensure that data is valid.",
         action='store_true'
     )
+    # parser.add_argument("--seed", help="Set the random number generator seed.", default=False, type=int)
     # parser.add_argument("--no-augmentation", help="Do not perorm any data augmentation", action='store_true')
     args = parser.parse_args()
+    args.seed = None # Not yet implemented in Keras with Tensorflow backend
     if args.categories != None:
         args.categories = [int(i) for i in args.categories.split(',')]
     args.epochs = int(args.epochs)
     return args
 
 if __name__ == '__main__':
-    main(get_args())
+    # Put ahead to make --help faster
+    sys.path.append(os.environ['MASK_RCNN_PATH'])
+    ARGS = get_args()      
+
+from config import Config as DefaultConfig
+import utils
+import model as modellib
+import visualize
+import abyss_deep_learning.abyss_dataset as dataset_model
+
+if __name__ == '__main__':
+    main(ARGS)
