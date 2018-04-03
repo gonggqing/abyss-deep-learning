@@ -2,7 +2,7 @@
 import argparse
 import os
 from pycocotools.coco import COCO
-from coco_classes import CocoDataset
+from abyss_deep_learning.coco_classes import CocoDataset
 # import importlib.util
 # def import_coco_classes(path='../lib/coco_classes.py'):
 #     spec = importlib.util.spec_from_file_location("coco_classes", path)

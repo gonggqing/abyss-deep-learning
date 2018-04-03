@@ -11,7 +11,7 @@ from pycocotools import mask as maskUtils
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 
-import utils
+import abyss_maskrcnn.utils as utils
 
 ############################################################
 #  Dataset
@@ -22,7 +22,7 @@ class CocoDataset(utils.Dataset):
         self.data = []
         super(CocoDataset, self).__init__(*args, **kwargs)
 
-    def load_coco(self, dataset_path, image_dir=None, class_ids=None, preload=False):
+    def load_coco(self, dataset_path, image_dir=None, class_ids=None, preload=False, return_coco=False):
         """Load a subset of the COCO dataset.
         dataset_path: Thepath to the COCO dataset JSON.
         image_dir: The base path of the RGB images, if None then look for 'path' key in JSON
