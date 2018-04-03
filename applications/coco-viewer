@@ -111,7 +111,9 @@ def calculate_rgb_means(dataset, image_dir=None):
     def _calc_rgb(_dataset, image, _annotations):
         print(image['path'], file=sys.stderr)
         image_path = image['path'] if 'path' in image else os.path.join(image_dir, image['file_name'])
-        rgb = imread(image_path, plugin='matplotlib')
+        rgb = imread(image_path)
+        if not isinstance(rgb, np.ndarray):
+            rgb = imread(image_path, plugin='matplotlib') * 255
         means.append(np.mean(rgb, axis=(0, 1)))
     foreach_coco_image(dataset, _calc_rgb)
     return np.mean(np.array(means), axis=0).tolist()
