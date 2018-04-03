@@ -166,8 +166,12 @@ def main(args):
         info("[%d \"%s\"] %d annotations" % (image['id'], image['file_name'], len(annotations)))
         if not args.dontshow:
             plt.imshow(rgb)
-            showAnns(coco_db, annotations, use_bbox=False)
-            plt.title("[{:d}] {:s}".format(image['id'], image['file_name']))
+            try:
+                showAnns(coco_db, annotations, use_bbox=False)
+                plt.title("[{:d}] {:s}".format(image['id'], image['file_name']))
+            except Exception as e:
+                print(e, file=stderr)
+                plt.title("ERROR [{:d}] {:s}".format(image['id'], image['file_name']))
             plt.show()
 def get_args():
     '''Get args from the command line args'''

@@ -3,10 +3,7 @@ import sys
 
 import numpy as np
 
-# Note the directory MASK_RCNN_PATH should be exported 
-# e.g. export MASK_RCNN_PATH=/home/whoever/src/abyss/deep-learning/third-party/Mask_RCNN
-sys.path.append(os.environ['MASK_RCNN_PATH'])
-from config import Config
+from abyss_maskrcnn.config import Config
 
 class TrainConfig(Config):
     '''See Mask_RCNN/config.py for more parameters'''

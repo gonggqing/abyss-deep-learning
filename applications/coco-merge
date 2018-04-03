@@ -5,7 +5,7 @@ import os
 import sys
 from contextlib import redirect_stdout
 from pycocotools.coco import COCO
-from coco_classes import CocoDataset
+from abyss_deep_learning.coco_classes import CocoDataset
 
 def main(args):
     with redirect_stdout(sys.stderr):
