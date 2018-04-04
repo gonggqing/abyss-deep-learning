@@ -19,7 +19,7 @@ First initialise the repo:
 mkdir -p ~/src/abyss
 cd ~/src/abyss
 git clone https://github.com/abyss-solutions/deep-learning.git
-cd docker
+cd deep-learning/docker
 docker build -t abyss/dl .
 ```
 
@@ -36,7 +36,14 @@ xhost +local:$USER
 docker-dl
 ```
 
-You should now be in an environment that will allow you to run any of the below applications.
+You should now be in an environment that will have all the prerequisites for you to install the deep-learning repo:
+```bash
+cd ~/src/abyss/deep-learning
+sudo ./configure python3 # This will take a while to download the MaskRCNN weights
+sudo python3 setup.py install
+```
+
+Now you are ready to run maskrcnn-trainval, etc...
 
 ## Applications
 * coco-calc-masks: Open a COCO dataset and save a new one, where the segmentations are always masks.
