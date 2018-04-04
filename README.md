@@ -1,6 +1,7 @@
 # deep-learning
 
 ## Installation
+### Local
 ```bash 
 mkdir -p ~/src/abyss
 cd ~/src/abyss
@@ -9,18 +10,45 @@ cd deep-learning
 ./configure.sh
 ```
 
-## Applications
-* labelme-to-coco: Convert labelme dataset into COCO JSON
-* coco-extract-masks: Extract masks from COCO JSON to pngs
-* coco-viewer: View coco images and annotations
-* coco-to-csv: Convert a COCO dataset into a series of CSV files
-* coco-split: Split a COCO dataset into subsets given split ratios
-* maskrcnn-trainval: Train a Mask RCNN network with COCO JSON dataset
-* maskrcnn-predict: Predict on input images or streams using a trained Mask RCNN model and output labels or overlay
+### Docker
+First initialise the repo:
+```bash 
+mkdir -p ~/src/abyss
+cd ~/src/abyss
+git clone https://github.com/abyss-solutions/deep-learning.git
+cd docker
+docker build -t abyss/dl .
+```
 
-## TODO
-* maskrcnn-trainval: Ensure that all label types work (polygon, mask, bbox) (currently fails without mask labels)
-* Tutorials
+Add the following alias to your host that will allow you to run the image easily:
+```bash
+echo 'alias docker-dl="nvidia-docker run --user docker -it --rm -v /home/$USER:/home/docker -v /:/host -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix -p 8888:8888 -p 7001:7001 abyss/dl bash"' > ~/.abyss_aliases
+source ~/.bash_aliases
+```
+
+Now run docker with xhost sharing:
+```bash
+xhost +local:root
+xhost +local:$USER
+docker-dl
+```
+
+You should now be in an environment that will allow you to run any of the below applications.
+
+## Applications
+* coco-calc-masks: Open a COCO dataset and save a new one, where the segmentations are always masks.
+* coco-check-data-pollution: Examine combinations of COCO datasets to ensure there are no common images between them.
+* coco-extract-masks: Extract masks from COCO to pngs
+* coco-merge: Merge multiple COCO datasets
+* coco-split: Split a COCO dataset into subsets given split ratios
+* coco-to-csv: Convert a COCO dataset into a series of CSV files (similar to VOC format)
+* coco-viewer: View coco images and annotations, calculate RGB mean pixel
+* image-dirs-to-coco: Convert VOC style annotations into COCO
+* labelme-to-coco: Convert labelme dataset into COCO
+* maskrcnn-find-lr: Search in log space for a suitable learning rate for a network and dataset.
+* maskrcnn-predict: Predict on input images or streams using a trained Mask RCNN model and output labels or overlay
+* maskrcnn-test: Test a trained network on a COCO Dataset
+* maskrcnn-trainval: Train a Mask RCNN network with COCO dataset* 
 
 ## Example: BAE Prop data with labelme labels
 ### Important notes
