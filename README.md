@@ -1,6 +1,10 @@
 # deep-learning
+Provides tools to manipulate COCO JSON, VOC CSV datasets as well as Mask RCNN train-val, test and predict.
+
+As of April 2018 the MASK_RCNN_PATH environment variable is no longer needed as the distutils repo has been merged to master.
 
 ## Installation
+### Local
 ```bash 
 mkdir -p ~/src/abyss
 cd ~/src/abyss
@@ -9,27 +13,54 @@ cd deep-learning
 ./configure.sh
 ```
 
-## Applications
-* labelme-to-coco: Convert labelme dataset into COCO JSON
-* coco-extract-masks: Extract masks from COCO JSON to pngs
-* coco-viewer: View coco images and annotations
-* coco-to-csv: Convert a COCO dataset into a series of CSV files
-* coco-split: Split a COCO dataset into subsets given split ratios
-* maskrcnn-trainval: Train a Mask RCNN network with COCO JSON dataset
-* maskrcnn-predict: Predict on input images or streams using a trained Mask RCNN model and output labels or overlay
+### Docker
+First initialise the repo:
+```bash 
+mkdir -p ~/src/abyss
+cd ~/src/abyss
+git clone https://github.com/abyss-solutions/deep-learning.git
+cd docker
+docker build -t abyss/dl .
+```
 
-## TODO
-* maskrcnn-trainval: Ensure that all label types work (polygon, mask, bbox) (currently fails without mask labels)
-* Tutorials
+Add the following alias to your host that will allow you to run the image easily:
+```bash
+echo 'alias docker-dl="nvidia-docker run --user docker -it --rm -v /home/$USER:/home/docker -v /:/host -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix -p 8888:8888 -p 7001:7001 abyss/dl bash"' > ~/.abyss_aliases
+source ~/.bash_aliases
+```
+
+Now run docker with xhost sharing:
+```bash
+xhost +local:root
+xhost +local:$USER
+docker-dl
+```
+
+You should now be in an environment that will allow you to run any of the below applications.
+
+## Applications
+* coco-calc-masks: Open a COCO dataset and save a new one, where the segmentations are always masks.
+* coco-check-data-pollution: Examine combinations of COCO datasets to ensure there are no common images between them.
+* coco-extract-masks: Extract masks from COCO to pngs
+* coco-merge: Merge multiple COCO datasets
+* coco-split: Split a COCO dataset into subsets given split ratios
+* coco-to-csv: Convert a COCO dataset into a series of CSV files (similar to VOC format)
+* coco-viewer: View coco images and annotations, calculate RGB mean pixel
+* image-dirs-to-coco: Convert VOC style annotations into COCO
+* labelme-to-coco: Convert labelme dataset into COCO
+* maskrcnn-find-lr: Search in log space for a suitable learning rate for a network and dataset.
+* maskrcnn-predict: Predict on input images or streams using a trained Mask RCNN model and output labels or overlay
+* maskrcnn-test: Test a trained network on a COCO Dataset
+* maskrcnn-trainval: Train a Mask RCNN network with COCO dataset* 
 
 ## Example: BAE Prop data with labelme labels
 ### Important notes
 *  skimage.io.imread sometimes does not read the image properly if it is not PNG; typically this happens if JPGs are large.
     It's highly suggested to convert all images to PNGs before starting:
-    `bash for i in *.jpg; do convert $i ${i:0:-4}.png; done`
+    `for i in *.jpg; do convert $i ${i:0:-4}.png; done`
 *  There are changes you will need to pull from steve's fork of the original Mask_RCNN code:
-   `bash git remote add steve https://github.com/spotiris/Mask_RCNN.git`
-   `bash git pull steve master`
+   `git remote add steve https://github.com/spotiris/Mask_RCNN.git`
+   `git pull steve master`
 
 ### Prerequisites
 * Download the labelme collection and extract it
@@ -67,9 +98,9 @@ Directory structure downloaded from labelme collection:
 ### Commands
 Prepare dataset:
 ```bash
-~/src/abyss/deep-learning/applications/labelme-to-coco \
+labelme-to-coco \
     /data/abyss/bae-prop-uw/Annotations/users/sbargoti/baeprop > /data/abyss/bae-prop-uw/baeprop-coco.json
-~/src/abyss/deep-learning/applications/coco-split \
+coco-split \
     /data/abyss/bae-prop-uw/baeprop-coco.json train,val 0.75,0.25 \
     --image-dir /data/abyss/bae-prop-uw/Images/users/sbargoti/baeprop
 ```
@@ -82,7 +113,7 @@ Note: Mask RCNN implementation does something where it will reset the heads laye
 It is recommended to use the `--weights 'last'` way of training the 'all' layers after the 'heads' layers to ensure it picks up the right one.
 
 ```bash
-~/src/abyss/deep-learning/applications/maskrcnn-trainval \
+maskrcnn-trainval \
     /data/abyss/bae-prop-uw/baeprop-coco_train.json \
     /data/abyss/bae-prop-uw/baeprop-coco_val.json \
     $MASK_RCNN_PATH/logs \
@@ -91,7 +122,7 @@ It is recommended to use the `--weights 'last'` way of training the 'all' layers
     --image-dir /data/abyss/bae-prop-uw/Images/users/sbargoti/baeprop \
     --epochs 1 --layers heads
 
-~/src/abyss/deep-learning/applications/maskrcnn-trainval \
+maskrcnn-trainval \
     /data/abyss/bae-prop-uw/baeprop-coco_train.json \
     /data/abyss/bae-prop-uw/baeprop-coco_val.json \
     $MASK_RCNN_PATH/logs \
@@ -104,7 +135,7 @@ Watch the training, see the error go down, and find the new model that has been 
 
 Predict:
 ```bash
-~/src/abyss/deep-learning/applications/maskrcnn-predict \
+maskrcnn-predict \
     $MASK_RCNN_PATH/../../configs/MaskRCNN_default_config.py \
     $MASK_RCNN_PATH/logs/default-model20180209T0337/mask_rcnn_default-model_0001.h5 \
     $MASK_RCNN_PATH/logs \
@@ -132,8 +163,7 @@ Output fields that can be used:
 
 ### Example: 
 ```bash
-cd ~/src/abyss/deep-learning/applications
-./coco-to-csv \
+coco-to-csv \
    /data/abyss/bae-prop-uw/baeprop-coco.json \
    /data/abyss/bae-prop-uw/annotations-csv \
    --fields id,bbox,category_id --verbose
