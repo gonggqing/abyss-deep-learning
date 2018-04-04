@@ -8,6 +8,7 @@ import pycocotools.mask as mask
 
 import abyss_maskrcnn.coco_classes as coco_classes
 
+
 def main(args):
     coco = COCO(args.coco_path)
     for ann in coco.anns.values():
@@ -15,17 +16,20 @@ def main(args):
     coco2 = coco_classes.CocoDataset.from_COCO(coco, image_dir=args.image_dir)
     coco2.save(args.output_path)
 
+
 def get_args():
     parser = argparse.ArgumentParser(
-     description="Split a COCO JSON database into multiple."
+        description="Split a COCO JSON database into multiple."
     )
     parser.add_argument('coco_path', help="Path to the coco JSON.")
     parser.add_argument('output_path', help="Output path for new coco JSON.")
-    parser.add_argument('--verbose', action='store_true', help="verbose output to stderr")
-    parser.add_argument("--image-dir", help="If images referenced relatively, give the iamge dir", default=None)
+    parser.add_argument('--verbose', action='store_true',
+                        help="verbose output to stderr")
+    parser.add_argument(
+        "--image-dir", help="If images referenced relatively, give the iamge dir", default=None)
     args = parser.parse_args()
     return args
 
+
 if __name__ == '__main__':
     main(get_args())
-

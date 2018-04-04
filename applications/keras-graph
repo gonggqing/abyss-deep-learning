@@ -5,6 +5,7 @@ import sys
 
 import matplotlib.pyplot as plt
 
+
 def file_split(f, delim=',', bufsize=1024):
     prev = ''
     while True:
@@ -22,6 +23,7 @@ def file_split(f, delim=',', bufsize=1024):
     if prev:
         yield prev
 
+
 def parse(line):
     if not line:
         return None
@@ -36,9 +38,8 @@ def parse(line):
             'step': steps.group(1),
             'max_step': steps.group(2),
         })
-    return data   
+    return data
 
-    
 
 def main():
     input_stream = sys.stdin
@@ -46,6 +47,7 @@ def main():
     for line in file_split(input_stream, delim=delim):
         line = line.strip()
         data = parse(line)
+
 
 if __name__ == "__main__":
     main()

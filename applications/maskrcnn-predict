@@ -15,8 +15,9 @@ import skimage.color.rgb_colors as rgb_colors
 import skvideo.io
 
 import abyss_maskrcnn.model as modellib
-import abyss_maskrcnn.utils as utils 
+import abyss_maskrcnn.utils as utils
 import abyss_maskrcnn.visualize as visualize
+
 
 def file_ext_type(source_path):
     basename = os.path.basename(source_path)
@@ -28,7 +29,9 @@ def file_ext_type(source_path):
     for type_name, type_extension_list in types.items():
         if extension in type_extension_list:
             return type_name
-    raise Exception("Type name unknown: {:s} for file {:s}".format(extension, basename))
+    raise Exception(
+        "Type name unknown: {:s} for file {:s}".format(extension, basename))
+
 
 def uint8_image(image):
     if image.dtype == np.uint16:
@@ -39,11 +42,14 @@ def uint8_image(image):
         return image
     return image.astype(np.uint8)
 
+
 def get_ax(rows=1, cols=1, size=8):
     return plt.subplots(rows, cols, figsize=(size*cols, size*rows))[1]
 
+
 def initialise_model(config, args):
-    model = modellib.MaskRCNN(mode="inference", config=config, model_dir=args.model_dir)
+    model = modellib.MaskRCNN(
+        mode="inference", config=config, model_dir=args.model_dir)
     if args.weights == 'last':
         model.load_weights(model.find_last()[1], by_name=True)
     elif args.weights is not None:
@@ -53,12 +59,14 @@ def initialise_model(config, args):
 # def filter_predictions(rgb, result, config):
 #     pass
 
-def rgb_labels(annotation): # for js-segment-annotator
+
+def rgb_labels(annotation):  # for js-segment-annotator
     return np.stack([
         np.bitwise_and(annotation, 255),
         np.bitwise_and(annotation >> 8, 255),
         np.bitwise_and(annotation >> 16, 255),
     ], axis=2).astype(np.uint8)[..., ::-1]
+
 
 def output_predictions(filename, result, frame_id):
     if output_predictions.stream is None:
@@ -73,15 +81,19 @@ def output_predictions(filename, result, frame_id):
         )
         output_predictions.stream.write(output_str + "\n")
         output_predictions.counter += 1
+
+
 output_predictions.stream = None
 output_predictions.counter = 0
+
 
 def predict(model, batch, args):
     results = model.detect(batch, verbose=0)
     label_images = []
     color_map = {
         class_id:
-        (args.overlay_colors[class_id], getattr(rgb_colors, args.overlay_colors[class_id]))
+        (args.overlay_colors[class_id], getattr(
+            rgb_colors, args.overlay_colors[class_id]))
         for class_id in args.order
     }
     for rgb, result in zip(batch, results):
@@ -95,8 +107,10 @@ def predict(model, batch, args):
                 mask = np.sum(result['masks'] == class_id, axis=2) > 0
                 label_image[mask] = class_id
         if args.overlay:
-            colors = [color_map[i][0] for i in args.order if i in result['class_ids']]
-            label_image = label2rgb(label_image, rgb, bg_label=0, colors=colors)
+            colors = [color_map[i][0]
+                      for i in args.order if i in result['class_ids']]
+            label_image = label2rgb(
+                label_image, rgb, bg_label=0, colors=colors)
             for idx in range(num_results):
                 label_image = mark_boundaries(
                     label_image,
@@ -117,11 +131,13 @@ def predict(model, batch, args):
         label_images.append(label_image)
     return results, label_images
 
+
 def main(args):
     if args.cpu:
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
-    spec = importlib.util.spec_from_file_location("maskrcnn_config", args.config)
+    spec = importlib.util.spec_from_file_location(
+        "maskrcnn_config", args.config)
     config_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(config_module)
     config = config_module.InferenceConfig()
@@ -135,7 +151,7 @@ def main(args):
     if args.display_config:
         config.display()
     model = initialise_model(config, args)
-    output_type = [] #TODO: Add stream support
+    output_type = []  # TODO: Add stream support
     if args.pickle:
         output_type += ['pickle']
     if args.image:
@@ -150,37 +166,47 @@ def main(args):
                         image_path = next(image_iter)
                     except StopIteration:
                         image_path = args.input[-1]
-                rgb = imread(image_path) # , cv2.IMREAD_UNCHANGED #TODO: find out why doesn't work with this option
+                # , cv2.IMREAD_UNCHANGED #TODO: find out why doesn't work with this option
+                rgb = imread(image_path)
                 if len(rgb.shape) == 3 and rgb.shape[2] > 3:
                     rgb = rgb[..., 0:3]
                 if rgb is None:
-                    print("WARNING: Couldn't open file: {:s}".format(image_path))
+                    print(
+                        "WARNING: Couldn't open file: {:s}".format(image_path))
                     continue
                 batch.append(rgb)
             for result, label_image in zip(*predict(model, batch, args)):
                 if args.verbose:
-                    print("{:s}: {:d} results".format(image_path, len(result['scores'])))
+                    print("{:s}: {:d} results".format(
+                        image_path, len(result['scores'])))
                 if not args.show:
-                    output_dir = args.output_dir if args.output_dir else os.path.dirname(image_path)
-                    image_name = '.'.join(os.path.basename(image_path).split('.')[0:-1])
+                    output_dir = args.output_dir if args.output_dir else os.path.dirname(
+                        image_path)
+                    image_name = '.'.join(os.path.basename(
+                        image_path).split('.')[0:-1])
                     results_dir = os.path.join(output_dir, 'results')
                     if not os.path.exists(results_dir):
                         os.mkdir(results_dir)
                     if 'image' in output_type:
-                        image_out_path = os.path.join(results_dir, 'img',  '{:s}.png'.format(image_name))
+                        image_out_path = os.path.join(
+                            results_dir, 'img',  '{:s}.png'.format(image_name))
                         imsave(image_out_path, label_image)
                     if 'json' in output_type:
-                        json_out_path = os.path.join(results_dir, 'results.json')
-                        raise NotImplementedError("JSON COCO Results output not yet implemented")
+                        json_out_path = os.path.join(
+                            results_dir, 'results.json')
+                        raise NotImplementedError(
+                            "JSON COCO Results output not yet implemented")
                     if 'pickle' in output_type:
-                        pickle_out_path = os.path.join(results_dir, 'pkl', '{:s}.pkl'.format(image_name))
+                        pickle_out_path = os.path.join(
+                            results_dir, 'pkl', '{:s}.pkl'.format(image_name))
                         with open(pickle_out_path, 'wb') as outfile:
                             pickle.dump(result, outfile, protocol=2)
-    elif args.input_type == "video": #TODO fix hackjob
+    elif args.input_type == "video":  # TODO fix hackjob
         image_iter = iter(args.input)
         for video_path in image_iter:
             video_path_parts = video_path.split('.')
-            video_out_path = '.'.join(video_path_parts[:-1]) + "_predicted." + video_path_parts[1]
+            video_out_path = '.'.join(
+                video_path_parts[:-1]) + "_predicted." + video_path_parts[1]
             reader = skvideo.io.FFmpegReader(video_path)
             writer = skvideo.io.FFmpegWriter(
                 video_out_path,
@@ -205,22 +231,26 @@ def main(args):
                         for result, label_image in zip(*predict(model, batch, args)):
                             current_frame = frame_idx+temp_frame_diff
                             if args.verbose:
-                                print('{} results in frame {}'.format(len(result['scores']), current_frame))
+                                print('{} results in frame {}'.format(
+                                    len(result['scores']), current_frame))
                             if args.output_predictions:
-                                output_predictions(os.path.join(output_dir, args.output_predictions), result, current_frame)
-                                   
+                                output_predictions(os.path.join(
+                                    output_dir, args.output_predictions), result, current_frame)
+
                             writer.writeFrame(label_image)
                             if 'pickle' in output_type:
-                                pickle_out_path = os.path.join(output_dir, 'image_{}_predicted.pkl'.format(str(current_frame).zfill(6)))
+                                pickle_out_path = os.path.join(
+                                    output_dir, 'image_{}_predicted.pkl'.format(str(current_frame).zfill(6)))
                                 with open(pickle_out_path, 'wb') as outfile:
                                     pickle.dump(result, outfile, protocol=2)
-                            temp_frame_diff += 1 
-                    
+                            temp_frame_diff += 1
+
             except Exception as e:
                 print(e)
                 print("Closing videos")
                 writer.close()
                 reader.close()
+
 
 def get_args():
     '''Get args from the command line args'''
@@ -242,48 +272,66 @@ def get_args():
             else:
                 setattr(namespace, 'input', values)
 
-    parser = argparse.ArgumentParser(description="Simultaneous training and validation of Resnet Mask RCNN")
-    parser.add_argument("config", help="Path to the coco JSON for the training set.")
-    parser.add_argument("model_dir", help="Path to save the model to. (needed but unused)")
-    parser.add_argument("weights", help="Path to the coco JSON for the validation set.")
+    parser = argparse.ArgumentParser(
+        description="Simultaneous training and validation of Resnet Mask RCNN")
+    parser.add_argument(
+        "config", help="Path to the coco JSON for the training set.")
+    parser.add_argument(
+        "model_dir", help="Path to save the model to. (needed but unused)")
+    parser.add_argument(
+        "weights", help="Path to the coco JSON for the validation set.")
     parser.add_argument('input', nargs='+', action=MyAction)
-    parser.add_argument("--batch", help="Use these class names instead of class numbers (with --show)", default=None)
+    parser.add_argument(
+        "--batch", help="Use these class names instead of class numbers (with --show)", default=None)
     parser.add_argument(
         "--class-names",
         default=None,
         help="Use these class names instead of class numbers (with --show)"
     )
-    parser.add_argument("--display-config", help="Display the config being used for inference", action='store_true')
-    parser.add_argument("--image", help="Output prediction as an image for each image", action='store_true')
-    parser.add_argument("--input-type", help="Either 'image' or 'video", default='image')
+    parser.add_argument(
+        "--display-config", help="Display the config being used for inference", action='store_true')
+    parser.add_argument(
+        "--image", help="Output prediction as an image for each image", action='store_true')
+    parser.add_argument(
+        "--input-type", help="Either 'image' or 'video", default='image')
     parser.add_argument(
         "--order",
         default=None,
         help="Output the labels top-down in this order (csv-list of class ids)"
     )
-    parser.add_argument("--output-dir", help="Output to this directory", default=None)
-    parser.add_argument("--output-predictions", help="CSV output of detections to this file", default=None)
-    parser.add_argument("--overlay", help="Output should be overlaid onto input image", action='store_true')
+    parser.add_argument(
+        "--output-dir", help="Output to this directory", default=None)
+    parser.add_argument("--output-predictions",
+                        help="CSV output of detections to this file", default=None)
+    parser.add_argument(
+        "--overlay", help="Output should be overlaid onto input image", action='store_true')
     parser.add_argument(
         "--overlay-colors",
         default='red,green,blue,magenta,cyan,yellow,indigo,darkorange,pink',
         help="csv-list, ordered: red,green,blue,magenta,cyan,yellow,indigo,darkorange,pink"
-        )
-    parser.add_argument("--pickle", help="Output as a numpy pickle for each image", action='store_true')
+    )
+    parser.add_argument(
+        "--pickle", help="Output as a numpy pickle for each image", action='store_true')
     parser.add_argument(
         "--rgb-labels",
         help="Output RGB labels instead of class numbers (for use with js-segment-annotator)",
         action='store_true'
     )
-    parser.add_argument("--cpu", help="Use CPU instead of GPU", action='store_true')
-    parser.add_argument("--show", help="Show output interactively", action='store_true')
-    parser.add_argument("--verbose", help="Output number of detections per image", action='store_true')
-    parser.add_argument("--video-skip", help="Output 1 in every N frames of a video", default=24)
+    parser.add_argument(
+        "--cpu", help="Use CPU instead of GPU", action='store_true')
+    parser.add_argument(
+        "--show", help="Show output interactively", action='store_true')
+    parser.add_argument(
+        "--verbose", help="Output number of detections per image", action='store_true')
+    parser.add_argument(
+        "--video-skip", help="Output 1 in every N frames of a video", default=24)
     args = parser.parse_args()
     args.video_skip = int(args.video_skip)
     args.overlay_colors = args.overlay_colors.split(',')
-    args.order = [int(i) for i in args.order.split(',')] if args.order else [i for i in range(1, len(args.overlay_colors))]
+    args.order = [int(i) for i in args.order.split(',')] if args.order else [
+        i for i in range(1, len(args.overlay_colors))]
     return args
+
 
 if __name__ == '__main__':
     main(get_args())

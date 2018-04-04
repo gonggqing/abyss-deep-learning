@@ -21,25 +21,30 @@ import abyss_maskrcnn.visualize as visualize
 
 # from imgaug import augmenters as iaa
 
+
 def sanity_check_masks(dataset, num_images=4):
     # Load and display random samples
     image_ids = np.random.choice(dataset.image_ids, num_images)
     for image_id in image_ids:
         image = dataset.load_image(image_id)
         mask, class_ids = dataset.load_mask(image_id)
-        visualize.display_top_masks(image, mask, class_ids, dataset.class_names)
+        visualize.display_top_masks(
+            image, mask, class_ids, dataset.class_names)
+
 
 def get_ax(rows=1, cols=1, size=8):
     return plt.subplots(rows, cols, figsize=(size*cols, size*rows))[1]
+
 
 def calc_position_error(mask1, mask2):
     pos1 = np.array(center_of_mass(mask1 > 0))
     pos2 = np.array(center_of_mass(mask2 > 0))
     return np.sqrt(np.sum((pos1 - pos2) ** 2.0))
 
+
 def compute_centroid_errors(gt_boxes, gt_class_ids, gt_masks,
-               pred_boxes, pred_class_ids, pred_scores, pred_masks,
-               iou_threshold=0.5):
+                            pred_boxes, pred_class_ids, pred_scores, pred_masks,
+                            iou_threshold=0.5):
     # Trim zero padding and sort predictions by score from high to low
     gt_boxes = utils.trim_zeros(gt_boxes)
     gt_masks = gt_masks[..., :gt_boxes.shape[0]]
@@ -74,25 +79,28 @@ def compute_centroid_errors(gt_boxes, gt_class_ids, gt_masks,
                 match_count += 1
                 gt_match[gt_idx] = 1
                 pred_match[pred_idx] = 1
-                position_error[gt_idx] = calc_position_error(gt_masks[..., gt_idx], pred_masks[..., pred_idx])
+                position_error[gt_idx] = calc_position_error(
+                    gt_masks[..., gt_idx], pred_masks[..., pred_idx])
                 break
     return np.mean([i for i in position_error.values()])
 
+
 def test(config, args):
-    model = modellib.MaskRCNN(mode="inference", config=config, model_dir=args.model_dir)
+    model = modellib.MaskRCNN(
+        mode="inference", config=config, model_dir=args.model_dir)
     if args.weights == 'last':
         model.load_weights(model.find_last()[1], by_name=True)
     elif args.weights is not None:
         model.load_weights(args.weights, by_name=True)
     print("Loaded weights! Beginning testing.", file=sys.stderr)
-    
+
     # Compute VOC-Style mAP @ IoU=0.5
     class_names = [
-        i[1] for i in 
+        i[1] for i in
         sorted([
             (cat['id'], cat['name'])
             for cat in args.dataset_test.class_info],
-                key=lambda x: x[0]
+            key=lambda x: x[0]
         )
     ]
     average_precisions = {'mean': 0.0, 'std': 0.0, 'individual': {}}
@@ -101,19 +109,22 @@ def test(config, args):
     for image_id in args.dataset_test.image_ids:
         # Load image and ground truth data
         image, image_shape, gt_class_ids, gt_bbox, gt_mask = \
-            modellib.load_image_gt(args.dataset_test, config,image_id, use_mini_mask=False)
+            modellib.load_image_gt(
+                args.dataset_test, config, image_id, use_mini_mask=False)
         molded_images = np.expand_dims(modellib.mold_image(image, config), 0)
         # Run object detection
         results = model.detect([image], verbose=0)
         r = results[0]
-        
+
         try:
             stats = (
-                gt_bbox[:,:4], gt_class_ids, gt_mask, 
+                gt_bbox[:, :4], gt_class_ids, gt_mask,
                 r["rois"], r["class_ids"], r["scores"], r["masks"]
             )
-            AP, precisions, recalls, overlaps = utils.compute_ap(*stats, iou_threshold=args.iou)
-            AR, positive_ids = utils.compute_recall(r["rois"], gt_bbox[:, :4], args.iou)
+            AP, precisions, recalls, overlaps = utils.compute_ap(
+                *stats, iou_threshold=args.iou)
+            AR, positive_ids = utils.compute_recall(
+                r["rois"], gt_bbox[:, :4], args.iou)
             CE = compute_centroid_errors(*stats, iou_threshold=args.iou)
             if args.show:
                 plt.figure()
@@ -133,32 +144,43 @@ def test(config, args):
             average_recalls['individual'][int(image_id)] = float(AR)
             centroid_errors['individual'][int(image_id)] = float(CE)
         except ValueError:
-            print("Skipping image {:d}, no positive gt's.".format(image_id), file=sys.stderr)
+            print("Skipping image {:d}, no positive gt's.".format(
+                image_id), file=sys.stderr)
         finally:
             if args.show:
                 plt.show()
     print("Overall mAP for IoU={:f}: ".format(args.iou), file=sys.stderr)
-    average_precisions['mean'] = float(np.mean([i for i in average_precisions['individual'].values()]))
-    average_recalls['mean'] = float(np.mean([i for i in average_recalls['individual'].values()]))
-    centroid_errors['mean'] = float(np.nanmean([i for i in centroid_errors['individual'].values()]))
-    average_precisions['std'] = float(np.std([i for i in average_precisions['individual'].values()]))
-    average_recalls['std'] = float(np.std([i for i in average_recalls['individual'].values()]))
-    centroid_errors['std'] = float(np.nanstd([i for i in centroid_errors['individual'].values()]))
+    average_precisions['mean'] = float(
+        np.mean([i for i in average_precisions['individual'].values()]))
+    average_recalls['mean'] = float(
+        np.mean([i for i in average_recalls['individual'].values()]))
+    centroid_errors['mean'] = float(np.nanmean(
+        [i for i in centroid_errors['individual'].values()]))
+    average_precisions['std'] = float(
+        np.std([i for i in average_precisions['individual'].values()]))
+    average_recalls['std'] = float(
+        np.std([i for i in average_recalls['individual'].values()]))
+    centroid_errors['std'] = float(
+        np.nanstd([i for i in centroid_errors['individual'].values()]))
     # print("mAP,{:f}".format(average_precisions['mean']), file=sys.stderr)
     # print("mAR,{:f}".format(average_recalls['mean']), file=sys.stderr)
     # print("mCE,{:f}".format(centroid_errors['mean']), file=sys.stderr)
     print(
         json.dumps(
-            {"precision": average_precisions, "recall": average_recalls, 'centroid_errors': centroid_errors},
+            {"precision": average_precisions, "recall": average_recalls,
+                'centroid_errors': centroid_errors},
             sort_keys=True, indent=4, separators=(',', ': ')
         )
     )
+
 
 def display_gt(dataset, image_id, ax=None):
     image = dataset.load_image(image_id)
     mask, class_ids = dataset.load_mask(image_id)
     bbox = utils.extract_bboxes(mask)
-    visualize.display_instances(image, bbox, mask, class_ids, dataset.class_names, ax=ax)
+    visualize.display_instances(
+        image, bbox, mask, class_ids, dataset.class_names, ax=ax)
+
 
 def main(args):
     if args.cpu:
@@ -166,12 +188,14 @@ def main(args):
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
     with redirect_stdout(sys.stderr):
         args.dataset_test = dataset_model()
-        args.dataset_test.load_coco(args.dataset_test_path, image_dir=args.image_dir, class_ids=args.categories)
+        args.dataset_test.load_coco(
+            args.dataset_test_path, image_dir=args.image_dir, class_ids=args.categories)
         args.dataset_test.prepare()
     # if args.config is None:
     #     config = DefaultConfig()
     # else:
-    spec = importlib.util.spec_from_file_location("maskrcnn_config", args.config)
+    spec = importlib.util.spec_from_file_location(
+        "maskrcnn_config", args.config)
     config_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(config_module)
     config = config_module.InferenceConfig()
@@ -181,35 +205,44 @@ def main(args):
         sanity_check_masks(args.dataset_test)
     test(config, args)
 
+
 def get_args():
     '''Get args from the command line args'''
-    parser = argparse.ArgumentParser(description="Statistical testing of Resnet Mask RCNN")
-    parser.add_argument("config", help="Use this config file (see default MaskRCNN.config.py)", default=None)
-    parser.add_argument("dataset_test_path", help="Path to the coco JSON for the testing set.")
+    parser = argparse.ArgumentParser(
+        description="Statistical testing of Resnet Mask RCNN")
+    parser.add_argument(
+        "config", help="Use this config file (see default MaskRCNN.config.py)", default=None)
+    parser.add_argument("dataset_test_path",
+                        help="Path to the coco JSON for the testing set.")
     parser.add_argument("model_dir", help="Path to save and load models from.")
     parser.add_argument(
         "weights",
         help="Path to pretrained weights, or 'last' to load last model trained.",
         default=None
     )
-    parser.add_argument("--categories", help="Only train on images that have this group of categories", default=None)
-    parser.add_argument("--cpu", help="Use CPU instead of GPU", action='store_true')
+    parser.add_argument(
+        "--categories", help="Only train on images that have this group of categories", default=None)
+    parser.add_argument(
+        "--cpu", help="Use CPU instead of GPU", action='store_true')
     parser.add_argument(
         "--image-dir",
         help="Base dir of the images referred to relatively from the COCO JSON",
         default=None
     )
-    parser.add_argument("--iou", help="IoU threshold for stats.", default=0.5, type=float)
+    parser.add_argument(
+        "--iou", help="IoU threshold for stats.", default=0.5, type=float)
     parser.add_argument(
         "--sanity-check",
         help="Show train and validation datasets to ensure that data is valid.",
         action='store_true'
     )
-    parser.add_argument("--show", help="Display outputs interactively.", action='store_true')
+    parser.add_argument(
+        "--show", help="Display outputs interactively.", action='store_true')
     args = parser.parse_args()
     if args.categories != None:
         args.categories = [int(i) for i in args.categories.split(',')]
     return args
+
 
 if __name__ == '__main__':
     main(get_args())

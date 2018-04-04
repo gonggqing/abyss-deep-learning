@@ -17,12 +17,16 @@ import numpy as np
 #  info: information about this dataset
 #  licenses: information in the various licenses for the imagery in this dataset
 
+
 def xml_text_value(element):
     '''extract text from XML element'''
     return "".join(element.itertext()).strip()
+
+
 def xml_float_value(element):
     '''extract float from XML element'''
     return float("".join(element.itertext()).strip())
+
 
 def bounding_box(polygon):
     'return the bounding box of a given polygon'
@@ -30,10 +34,12 @@ def bounding_box(polygon):
     max_x, max_y = np.max(polygon, axis=0)
     return [min_x, min_y, max_x - min_x, max_y - min_y]
 
+
 def area_polygon(polygon):
     x = [i[0] for i in polygon]
     y = [i[1] for i in polygon]
     return float(0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1))))
+
 
 def bool_or_text_to_int(item):
     if isinstance(item, str) and (item == 'yes' or item == 'true' or item == 'True' or item == '1'):
@@ -44,16 +50,18 @@ def bool_or_text_to_int(item):
         return 1
     return 0
 
+
 def replace_extension(path, extension):
     components = path.split('.')
     components[-1] = extension
     return '.'.join(components)
 
+
 def json_from_labelme(labelme_file, args, class_names, images, categories, annotations):
     data_in = labelme_file.read()
     annotation = ET.fromstring(data_in)
     path_rel = xml_text_value(annotation.find('folder')) + '/' + \
-     xml_text_value(annotation.find('filename'))
+        xml_text_value(annotation.find('filename'))
     if args.force_extension != None:
         path_rel = replace_extension(path_rel, args.force_extension)
     url = "http://labelme2.csail.mit.edu/Release3.0/Images/" + path_rel
@@ -121,16 +129,19 @@ def json_from_labelme(labelme_file, args, class_names, images, categories, annot
             images.append(record)
             annotations.extend(image_annotations)
         else:
-            print("Image {:s} didn't have annotations, not adding it (--strict)".format(record['file_name']), file=stderr)
+            print("Image {:s} didn't have annotations, not adding it (--strict)".format(
+                record['file_name']), file=stderr)
     if args.verbose:
         print("Annotations: %d" % len(image_annotations), file=stderr)
 
 
 def print_json(data, outfile=stdout, pretty=False):
     if pretty:
-        print(json.dumps(data, sort_keys=True, indent=4, separators=(',', ': ')), file=outfile)
+        print(json.dumps(data, sort_keys=True, indent=4,
+                         separators=(',', ': ')), file=outfile)
     else:
         print(json.dumps(data, separators=(',', ':')), file=outfile)
+
 
 def main(args):
     class_names = {}
@@ -140,15 +151,16 @@ def main(args):
     if args.verbose:
         print(args, file=stderr)
     for filename in os.listdir(args.xml_dir):
-        if filename.lower().endswith(".xml"): 
+        if filename.lower().endswith(".xml"):
             file_path = os.path.join(args.xml_dir, filename)
             if args.verbose:
                 print(file_path, file=stderr)
             with open(file_path, 'r') as f:
-                json_from_labelme(f, args, class_names, images, categories, annotations)
+                json_from_labelme(f, args, class_names,
+                                  images, categories, annotations)
     data_out = {
         "info": {
-            "contributor": "Abyss Solutions", 
+            "contributor": "Abyss Solutions",
             "date_created": "2018-02-08 10:30:00.000000",
             "description": "This is a dataset configured by Abyss Solutions.",
             "url": "http://www.abysssolutions.com.au/",
@@ -170,6 +182,7 @@ def main(args):
         data_out['info']['name'] = args.name
     print_json(data_out, outfile=stdout, pretty=args.pretty)
 
+
 def get_args():
     parser = argparse.ArgumentParser(
         description="Create a COCO JSON annotation file from a directory of LabelMe XMLs."
@@ -179,14 +192,18 @@ def get_args():
         "--force-extension",
         help="force image extensions, use if you have converted the image types", default=None
     )
-    parser.add_argument('--image-dir', help="Use absolute paths with images found in this dir", default=None)
-    parser.add_argument('--name', help="The name to identify this dataset by", \
-        default=None, type=str)
-    parser.add_argument('--no', help="The name of any category to exclude", \
-        default=None, type=str)
-    parser.add_argument('--pretty', action='store_true', help="pretty print json")
-    parser.add_argument('--strict', action='store_true', help="Don't allow images without annotations")
-    parser.add_argument('--verbose', action='store_true', help="verbose output to stderr")
+    parser.add_argument(
+        '--image-dir', help="Use absolute paths with images found in this dir", default=None)
+    parser.add_argument('--name', help="The name to identify this dataset by",
+                        default=None, type=str)
+    parser.add_argument('--no', help="The name of any category to exclude",
+                        default=None, type=str)
+    parser.add_argument('--pretty', action='store_true',
+                        help="pretty print json")
+    parser.add_argument('--strict', action='store_true',
+                        help="Don't allow images without annotations")
+    parser.add_argument('--verbose', action='store_true',
+                        help="verbose output to stderr")
 
     args = parser.parse_args()
     if args.no is not None:
@@ -195,6 +212,7 @@ def get_args():
             print('Excluding classes: ', file=stderr)
             print(args.no, file=stderr)
     return args
+
 
 if __name__ == '__main__':
     main(get_args())

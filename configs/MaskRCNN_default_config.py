@@ -5,6 +5,7 @@ import numpy as np
 
 from abyss_maskrcnn.config import Config
 
+
 class TrainConfig(Config):
     '''See Mask_RCNN/config.py for more parameters'''
     """Base configuration class. For custom configurations, create a
@@ -135,7 +136,7 @@ class TrainConfig(Config):
     # train the RPN.
     USE_RPN_ROIS = True
 
-    
+
 class InferenceConfig(TrainConfig):
     NAME = "default"  # Override in sub-classes
     GPU_COUNT = 1

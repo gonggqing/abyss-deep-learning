@@ -7,6 +7,7 @@ from pycocotools.coco import COCO
 
 from abyss_deep_learning.coco_classes import CocoDataset
 
+
 def main(args):
     coco_dir = os.path.dirname(args.coco_path)
     coco_name = '.'.join(os.path.basename(args.coco_path).split('.')[0:-1])
@@ -14,11 +15,13 @@ def main(args):
         print("loading {:s}".format(args.coco_path))
     if not os.path.exists(args.coco_path):
         raise Exception("No such COCO json exists")
-    database = CocoDataset.from_COCO(COCO(args.coco_path), image_dir=args.image_dir, limit_images=args.limit)
+    database = CocoDataset.from_COCO(
+        COCO(args.coco_path), image_dir=args.image_dir, limit_images=args.limit)
     args.split_names = args.split_names.split(',')
     args.split_ratios = (float(i) for i in args.split_ratios.split(','))
     for dataset_split, split_name in zip(database.split(args.split_ratios), args.split_names):
-        split_path = os.path.join(coco_dir, "{:s}_{:s}.json".format(coco_name, split_name))
+        split_path = os.path.join(
+            coco_dir, "{:s}_{:s}.json".format(coco_name, split_name))
         if args.verbose:
             print(
                 "writing: {:s} with {:d} images and {:d} annotations"
@@ -26,22 +29,28 @@ def main(args):
             )
         dataset_split.save(split_path)
 
+
 def get_args():
     parser = argparse.ArgumentParser(
         description="Split a COCO JSON database into multiple."
     )
     parser.add_argument('coco_path', help="Path to the coco JSON.")
-    parser.add_argument('split_names', help="CSV-delimited names of the splits")
-    parser.add_argument('split_ratios', help="CSV-delimited ratios of the splits (0.0 to 1.0)")
-    parser.add_argument("--image-dir", help="If images referenced relatively, give the image dir", default=None)
+    parser.add_argument(
+        'split_names', help="CSV-delimited names of the splits")
+    parser.add_argument(
+        'split_ratios', help="CSV-delimited ratios of the splits (0.0 to 1.0)")
+    parser.add_argument(
+        "--image-dir", help="If images referenced relatively, give the image dir", default=None)
     parser.add_argument(
         "--limit", help="Limit the amount of images to read from the dataset before splitting",
         default=None, type=int
     )
-    parser.add_argument('--verbose', action='store_true', help="verbose output to stderr")
+    parser.add_argument('--verbose', action='store_true',
+                        help="verbose output to stderr")
 
     args = parser.parse_args()
     return args
+
 
 if __name__ == '__main__':
     main(get_args())

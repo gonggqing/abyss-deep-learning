@@ -17,6 +17,7 @@ import abyss_maskrcnn.utils as utils
 #  Dataset
 ############################################################
 
+
 class CocoDataset(utils.Dataset):
     def __init__(self, *args, **kwargs):
         self.data = []
@@ -60,7 +61,8 @@ class CocoDataset(utils.Dataset):
 
         # Add images
         for i in image_ids:
-            path = os.path.join(image_dir, coco.imgs[i]['file_name']) if image_dir != None else coco.imgs[i]['path']
+            path = os.path.join(
+                image_dir, coco.imgs[i]['file_name']) if image_dir != None else coco.imgs[i]['path']
             self.add_image(
                 "coco", image_id=i,
                 path=path,
@@ -111,7 +113,8 @@ class CocoDataset(utils.Dataset):
             class_id = self.map_source_class_id(
                 "coco.{}".format(annotation['category_id']))
             if class_id:
-                mask = ann_to_mask(annotation, image_info["height"], image_info["width"])
+                mask = ann_to_mask(
+                    annotation, image_info["height"], image_info["width"])
                 # Some objects are so small that they're less than 1 pixel area
                 # and end up rounded out. Skip those objects.
                 if mask.max() < 1:
@@ -123,7 +126,8 @@ class CocoDataset(utils.Dataset):
                     # For crowd masks, ann_to_mask() sometimes returns a mask
                     # smaller than the given dimensions. If so, resize it.
                     if mask.shape[0] != image_info["height"] or mask.shape[1] != image_info["width"]:
-                        mask = np.ones([image_info["height"], image_info["width"]], dtype=bool)
+                        mask = np.ones(
+                            [image_info["height"], image_info["width"]], dtype=bool)
                 instance_masks.append(mask)
                 class_ids.append(class_id)
 
@@ -145,6 +149,8 @@ class CocoDataset(utils.Dataset):
 ############################################################
 # The following two functions are from pycocotools with a few changes.
 ############################################################
+
+
 def ann_rle_encode(ann, height, width):
     """
     Convert annotation which can be polygons, uncompressed RLE to RLE.
@@ -163,6 +169,7 @@ def ann_rle_encode(ann, height, width):
         # rle
         rle = ann['segmentation']
     return rle
+
 
 def ann_to_mask(ann, height, width):
     """

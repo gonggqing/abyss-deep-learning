@@ -15,6 +15,7 @@ from skimage.io import imread
 import matplotlib.pyplot as plt
 import numpy as np
 
+
 def bounding_box(polygon):
     'return the bounding box of a given polygon'
     min_x, min_y = np.min(polygon, axis=0)
@@ -52,31 +53,33 @@ def showAnns(self, anns, use_bbox=False):
             if 'segmentation' in ann:
                 if type(ann['segmentation']) == list:
                     # polygon
-                        for seg in ann['segmentation']:
-                            poly = np.array(seg).reshape((int(len(seg)/2), 2))
-                            if use_bbox:
-                                poly = poly_from_bbox(ann['bbox'])
-                            polygons.append(Polygon(poly))
-                            color.append(c)
+                    for seg in ann['segmentation']:
+                        poly = np.array(seg).reshape((int(len(seg)/2), 2))
+                        if use_bbox:
+                            poly = poly_from_bbox(ann['bbox'])
+                        polygons.append(Polygon(poly))
+                        color.append(c)
                 else:
                     # mask
                     t = self.imgs[ann['image_id']]
                     if type(ann['segmentation']['counts']) == list:
-                        rle = COCOmask.frPyObjects([ann['segmentation']], t['height'], t['width'])
+                        rle = COCOmask.frPyObjects(
+                            [ann['segmentation']], t['height'], t['width'])
                     else:
                         rle = [ann['segmentation']]
                     m = COCOmask.decode(rle)
-                    img = np.ones( (m.shape[0], m.shape[1], 3) )
+                    img = np.ones((m.shape[0], m.shape[1], 3))
                     if ann['iscrowd'] == 1:
-                        color_mask = np.array([2.0,166.0,101.0])/255
+                        color_mask = np.array([2.0, 166.0, 101.0])/255
                     if ann['iscrowd'] == 0:
                         color_mask = np.random.random((1, 3)).tolist()[0]
                     for i in range(3):
-                        img[:,:,i] = color_mask[i]
-                    axis.imshow(np.dstack( (img, m*0.5) ))
+                        img[:, :, i] = color_mask[i]
+                    axis.imshow(np.dstack((img, m*0.5)))
             if 'keypoints' in ann and type(ann['keypoints']) == list:
                 # turn skeleton into zero-based index
-                sks = np.array(self.loadCats(ann['category_id'])[0]['skeleton'])-1
+                sks = np.array(self.loadCats(
+                    ann['category_id'])[0]['skeleton'])-1
                 kp = np.array(ann['keypoints'])
                 x = kp[0::3]
                 y = kp[1::3]
@@ -84,11 +87,14 @@ def showAnns(self, anns, use_bbox=False):
                 for sk in sks:
                     if np.all(v[sk] > 0):
                         plt.plot(x[sk], y[sk], linewidth=3, color=c)
-                plt.plot(x[v > 0], y[v > 0], 'o', markersize=8, markerfacecolor=c, markeredgecolor='k', markeredgewidth=2)
-                plt.plot(x[v > 1], y[v > 1], 'o', markersize=8, markerfacecolor=c, markeredgecolor=c, markeredgewidth=2)
+                plt.plot(x[v > 0], y[v > 0], 'o', markersize=8,
+                         markerfacecolor=c, markeredgecolor='k', markeredgewidth=2)
+                plt.plot(x[v > 1], y[v > 1], 'o', markersize=8,
+                         markerfacecolor=c, markeredgecolor=c, markeredgewidth=2)
         p = PatchCollection(polygons, facecolor=color, linewidths=0, alpha=0.4)
         axis.add_collection(p)
-        p = PatchCollection(polygons, facecolor='none', edgecolors=color, linewidths=2)
+        p = PatchCollection(polygons, facecolor='none',
+                            edgecolors=color, linewidths=2)
         axis.add_collection(p)
     elif dataset_type == 'captions':
         for ann in anns:
@@ -98,6 +104,7 @@ def showAnns(self, anns, use_bbox=False):
 def info(string):
     print(string, file=stderr)
 
+
 def foreach_coco_image(dataset, function):
     image_ids = dataset.getImgIds()
     images = dataset.loadImgs(image_ids)
@@ -105,18 +112,22 @@ def foreach_coco_image(dataset, function):
         annotations = dataset.loadAnns(dataset.getAnnIds(imgIds=[image['id']]))
         function(dataset, image, annotations)
 
+
 def calculate_rgb_means(dataset, image_dir=None):
     '''Calculate the pixel color means in the dataset'''
     means = []
+
     def _calc_rgb(_dataset, image, _annotations):
         print(image['path'], file=sys.stderr)
-        image_path = image['path'] if 'path' in image else os.path.join(image_dir, image['file_name'])
+        image_path = image['path'] if 'path' in image else os.path.join(
+            image_dir, image['file_name'])
         rgb = imread(image_path)
         if not isinstance(rgb, np.ndarray):
             rgb = imread(image_path, plugin='matplotlib') * 255
         means.append(np.mean(rgb, axis=(0, 1)))
     foreach_coco_image(dataset, _calc_rgb)
     return np.mean(np.array(means), axis=0).tolist()
+
 
 def coco_info(dataset, args):
     if args.verbose:
@@ -129,8 +140,10 @@ def coco_info(dataset, args):
         'category_ids': [cat['id'] for cat in dataset.cats.values()]
     }
     if args.rgb_means:
-        db_info['rgb_means'] = calculate_rgb_means(dataset, image_dir=args.image_dir)
+        db_info['rgb_means'] = calculate_rgb_means(
+            dataset, image_dir=args.image_dir)
     print(json.dumps(db_info))
+
 
 def main(args):
     with redirect_stdout(sys.stderr):
@@ -151,12 +164,14 @@ def main(args):
     info("Loaded {:d} images".format(len(images)))
     for _i, image in enumerate(images):
         plt.figure(figsize=(15, 11))
-        image_path = image['path'] if 'path' in image else os.path.join(args.image_dir, image['file_name'])
+        image_path = image['path'] if 'path' in image else os.path.join(
+            args.image_dir, image['file_name'])
         rgb = imread(image_path, plugin='matplotlib')
         ann_ids = coco_db.getAnnIds(imgIds=[image['id']], catIds=args.cats)
         annotations = coco_db.loadAnns(ids=ann_ids)
         if not annotations:
-            info("skipping {:s} cause of 0 annotations".format(image['file_name']))
+            info("skipping {:s} cause of 0 annotations".format(
+                image['file_name']))
         # remove duplicates
         #     groups = []
         #     uniquekeys = []
@@ -165,30 +180,45 @@ def main(args):
         #         groups.append(list(g))      # Store group iterator as a list
         #         uniquekeys.append(k)
         #     annotations = [sorted(g, key=lambda a: a['id'])[0] for g in groups]
-        info("[%d \"%s\"] %d annotations" % (image['id'], image['file_name'], len(annotations)))
+        info("[%d \"%s\"] %d annotations" %
+             (image['id'], image['file_name'], len(annotations)))
         if not args.dontshow:
             plt.imshow(rgb)
             try:
                 showAnns(coco_db, annotations, use_bbox=False)
-                plt.title("[{:d}] {:s}".format(image['id'], image['file_name']))
+                plt.title("[{:d}] {:s}".format(
+                    image['id'], image['file_name']))
             except Exception as e:
                 print(e, file=stderr)
-                plt.title("ERROR [{:d}] {:s}".format(image['id'], image['file_name']))
+                plt.title("ERROR [{:d}] {:s}".format(
+                    image['id'], image['file_name']))
             plt.show()
+
+
 def get_args():
     '''Get args from the command line args'''
-    parser = argparse.ArgumentParser(description="Extract labels from COCO JSON and dump them in to annotation images")
+    parser = argparse.ArgumentParser(
+        description="Extract labels from COCO JSON and dump them in to annotation images")
     parser.add_argument("coco_path", help="The coco JSON to parse.")
-    parser.add_argument("--ids", help="View this image ID, if not given then view all.", default='')
-    parser.add_argument("--cats", help="Filter images by categories, CSV-delimited", default='')
-    parser.add_argument("--dontshow", help="Filter images by categories, CSV-delimited", action='store_true')
-    parser.add_argument("--info", help="Print coco info and exit", action='store_true')
-    parser.add_argument("--rgb-means", help="Print coco rgb means (implies --info)", action='store_true')
-    parser.add_argument("--image-dir", help="If images referenced relatively, give the iamge dir", default=None)
-    parser.add_argument("--verbose", help="Print extra --info", action='store_true')
+    parser.add_argument(
+        "--ids", help="View this image ID, if not given then view all.", default='')
+    parser.add_argument(
+        "--cats", help="Filter images by categories, CSV-delimited", default='')
+    parser.add_argument(
+        "--dontshow", help="Filter images by categories, CSV-delimited", action='store_true')
+    parser.add_argument(
+        "--info", help="Print coco info and exit", action='store_true')
+    parser.add_argument(
+        "--rgb-means", help="Print coco rgb means (implies --info)", action='store_true')
+    parser.add_argument(
+        "--image-dir", help="If images referenced relatively, give the iamge dir", default=None)
+    parser.add_argument(
+        "--verbose", help="Print extra --info", action='store_true')
     args = parser.parse_args()
     args.ids = [int(i) for i in args.ids.split(',') if len(i)]
     args.cats = [int(i) for i in args.cats.split(',') if len(i)]
     return args
+
+
 if __name__ == '__main__':
     main(get_args())
