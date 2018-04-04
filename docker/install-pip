@@ -1,6 +1,7 @@
 bidict
 cython
 h5py
+imgaug
 ipython
 jupyter
 keras
@@ -9,9 +10,9 @@ numpy
 opencv-contrib-python
 opencv-python
 pip
-scipy
 scikit-image
 scikit-video
+scipy
 setuptools
 six
 tensorflow-gpu==1.4.1
