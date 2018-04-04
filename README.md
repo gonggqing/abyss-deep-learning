@@ -1,4 +1,7 @@
 # deep-learning
+Provides tools to manipulate COCO JSON, VOC CSV datasets as well as Mask RCNN train-val, test and predict.
+
+As of April 2018 the MASK_RCNN_PATH environment variable is no longer needed as the distutils repo has been merged to master.
 
 ## Installation
 ### Local
@@ -95,9 +98,9 @@ Directory structure downloaded from labelme collection:
 ### Commands
 Prepare dataset:
 ```bash
-~/src/abyss/deep-learning/applications/labelme-to-coco \
+labelme-to-coco \
     /data/abyss/bae-prop-uw/Annotations/users/sbargoti/baeprop > /data/abyss/bae-prop-uw/baeprop-coco.json
-~/src/abyss/deep-learning/applications/coco-split \
+coco-split \
     /data/abyss/bae-prop-uw/baeprop-coco.json train,val 0.75,0.25 \
     --image-dir /data/abyss/bae-prop-uw/Images/users/sbargoti/baeprop
 ```
@@ -110,7 +113,7 @@ Note: Mask RCNN implementation does something where it will reset the heads laye
 It is recommended to use the `--weights 'last'` way of training the 'all' layers after the 'heads' layers to ensure it picks up the right one.
 
 ```bash
-~/src/abyss/deep-learning/applications/maskrcnn-trainval \
+maskrcnn-trainval \
     /data/abyss/bae-prop-uw/baeprop-coco_train.json \
     /data/abyss/bae-prop-uw/baeprop-coco_val.json \
     $MASK_RCNN_PATH/logs \
@@ -119,7 +122,7 @@ It is recommended to use the `--weights 'last'` way of training the 'all' layers
     --image-dir /data/abyss/bae-prop-uw/Images/users/sbargoti/baeprop \
     --epochs 1 --layers heads
 
-~/src/abyss/deep-learning/applications/maskrcnn-trainval \
+maskrcnn-trainval \
     /data/abyss/bae-prop-uw/baeprop-coco_train.json \
     /data/abyss/bae-prop-uw/baeprop-coco_val.json \
     $MASK_RCNN_PATH/logs \
@@ -132,7 +135,7 @@ Watch the training, see the error go down, and find the new model that has been 
 
 Predict:
 ```bash
-~/src/abyss/deep-learning/applications/maskrcnn-predict \
+maskrcnn-predict \
     $MASK_RCNN_PATH/../../configs/MaskRCNN_default_config.py \
     $MASK_RCNN_PATH/logs/default-model20180209T0337/mask_rcnn_default-model_0001.h5 \
     $MASK_RCNN_PATH/logs \
@@ -160,8 +163,7 @@ Output fields that can be used:
 
 ### Example: 
 ```bash
-cd ~/src/abyss/deep-learning/applications
-./coco-to-csv \
+coco-to-csv \
    /data/abyss/bae-prop-uw/baeprop-coco.json \
    /data/abyss/bae-prop-uw/annotations-csv \
    --fields id,bbox,category_id --verbose
