@@ -57,10 +57,10 @@ You should now be in an environment that will allow you to run any of the below 
 ### Important notes
 *  skimage.io.imread sometimes does not read the image properly if it is not PNG; typically this happens if JPGs are large.
     It's highly suggested to convert all images to PNGs before starting:
-    `bash for i in *.jpg; do convert $i ${i:0:-4}.png; done`
+    `for i in *.jpg; do convert $i ${i:0:-4}.png; done`
 *  There are changes you will need to pull from steve's fork of the original Mask_RCNN code:
-   `bash git remote add steve https://github.com/spotiris/Mask_RCNN.git`
-   `bash git pull steve master`
+   `git remote add steve https://github.com/spotiris/Mask_RCNN.git`
+   `git pull steve master`
 
 ### Prerequisites
 * Download the labelme collection and extract it
