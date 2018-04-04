@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-
-import sys
-import matplotlib.pyplot as plt
+from __future__ import print_function
 import re
+import sys
+
+import matplotlib.pyplot as plt
 
 def file_split(f, delim=',', bufsize=1024):
     prev = ''

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
+from __future__ import print_function
+from math import floor
+from sys import stderr
 import argparse
 import os
-from math import floor
+
 from pycocotools.coco import COCO
-from sys import stderr
-# import importlib.util
 
 def export_csv(image, annotations, args):
     for annotation in annotations:

@@ -2,10 +2,11 @@
 ''' convert labelme format to coco json'''
 from __future__ import print_function
 from sys import stdout, stderr
-import xml.etree.ElementTree as ET
 import argparse
 import json
 import os
+import xml.etree.ElementTree as ET
+
 import numpy as np
 
 # A single JSON file contains all the label information for a dataset.

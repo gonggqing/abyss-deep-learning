@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
+from __future__ import print_function
+from contextlib import redirect_stdout
+from pprint import pprint
 import argparse
+import importlib
 import json
 import os
 import sys
-import importlib
 
-from pprint import pprint
-from contextlib import redirect_stdout
 from scipy.ndimage.measurements import center_of_mass
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Note the directory MASK_RCNN_PATH should be exported 
-# e.g. export MASK_RCNN_PATH=/home/whoever/src/abyss/deep-learning/third-party/Mask_RCNN
-sys.path.append(os.environ['MASK_RCNN_PATH'])
-from config import Config as DefaultConfig
-import utils
-import model as modellib
-import visualize
-import coco
+from abyss_maskrcnn.config import Config as DefaultConfig
 import abyss_deep_learning.abyss_dataset as dataset_model
+import abyss_maskrcnn.coco as coco
+import abyss_maskrcnn.model as modellib
+import abyss_maskrcnn.utils as utils
+import abyss_maskrcnn.visualize as visualize
 
 # from imgaug import augmenters as iaa
 

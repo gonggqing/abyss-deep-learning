@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
+from __future__ import print_function
 import argparse
 import sys
-import pycocotools.mask as mask
-import coco_classes
+
 from pycocotools.coco import COCO
+import pycocotools.mask as mask
+
+import abyss_maskrcnn.coco_classes as coco_classes
 
 def main(args):
     coco = COCO(args.coco_path)

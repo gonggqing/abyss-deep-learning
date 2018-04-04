@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
+from __future__ import print_function
 import argparse
 import os
+
 from pycocotools.coco import COCO
+
 from abyss_deep_learning.coco_classes import CocoDataset
-# import importlib.util
-# def import_coco_classes(path='../lib/coco_classes.py'):
-#     spec = importlib.util.spec_from_file_location("coco_classes", path)
-#     coco_classes_module = importlib.util.module_from_spec(spec)
-#     spec.loader.exec_module(coco_classes_module)
-#     return coco_classes_module
-# coco_classes = import_coco_classes()
-# CocoDataset = coco_classes.CocoDataset
 
 def main(args):
     coco_dir = os.path.dirname(args.coco_path)

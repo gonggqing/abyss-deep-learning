@@ -9,7 +9,7 @@ from skimage.color import label2rgb
 from skimage.io import imread
 from skimage.measure import label
 from skimage.transform import rescale
-from coco_classes import CocoDataset
+from abyss_deep_learning.coco_classes import CocoDataset
 
 class SkipPairException(Exception):
     pass
