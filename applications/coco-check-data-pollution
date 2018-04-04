@@ -1,0 +1,12 @@
+#!/bin/bash
+
+#Check no same images in COCO datasets
+for i in $(seq $# ); do
+ for j in $(seq $((i + 1)) $#  ); do
+  path1="${*:$i:1}"
+  path2="${*:$j:1}"
+  echo "Checking $path1 agains $path2:"
+  comm -12 <(jq '.images[].path' "$path1" | sort) <(jq '.images[].path' "$path2" | sort)
+  echo ""
+ done
+done

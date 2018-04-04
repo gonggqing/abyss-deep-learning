@@ -3,10 +3,7 @@ import sys
 
 import numpy as np
 
-# Note the directory MASK_RCNN_PATH should be exported 
-# e.g. export MASK_RCNN_PATH=/home/whoever/src/abyss/deep-learning/third-party/Mask_RCNN
-sys.path.append(os.environ['MASK_RCNN_PATH'])
-from config import Config
+from abyss_maskrcnn.config import Config
 
 class TrainConfig(Config):
     '''See Mask_RCNN/config.py for more parameters'''
@@ -35,7 +32,7 @@ class TrainConfig(Config):
     # Validation stats are also calculated at each epoch end and they
     # might take a while, so don't set this too small to avoid spending
     # a lot of time on validation stats.
-    STEPS_PER_EPOCH = 50
+    # STEPS_PER_EPOCH = 50 # No longer needed, set in maskrcnn-trainval
 
     # Number of validation steps to run at the end of every training epoch.
     # A bigger number improves accuracy of validation stats, but slows
@@ -47,7 +44,7 @@ class TrainConfig(Config):
     BACKBONE_STRIDES = [4, 8, 16, 32, 64]
 
     # Number of classification classes (including background)
-    NUM_CLASSES = 1 + 1 # Override in sub-classes
+    # NUM_CLASSES = 1 + 1 # No longer needed, set in maskrcnn-trainval
 
     # Length of square anchor side in pixels
     RPN_ANCHOR_SCALES = (32, 64, 128, 256, 512)
@@ -143,7 +140,6 @@ class InferenceConfig(TrainConfig):
     NAME = "default"  # Override in sub-classes
     GPU_COUNT = 1
     IMAGES_PER_GPU = 1
-    NUM_CLASSES = 1 + 1 # Override in sub-classes
     USE_MINI_MASK = False
     IMAGE_MIN_DIM = 800
     IMAGE_MAX_DIM = 1024

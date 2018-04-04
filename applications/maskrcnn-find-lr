@@ -1,0 +1,62 @@
+#!/bin/bash
+# Find good LR
+
+function random_lrs() {
+    python3 <<EOF
+from numpy.random import uniform
+print(" ".join([str(10 ** -i) for i in sorted(uniform($LR_FROM, $LR_TO, $NUM_LR))]))
+EOF
+}
+
+function train_model() {
+    local lr_mult="$1"
+    mkdir -p "find-lr/$CODENAME"
+
+    maskrcnn-trainval \
+    "$CONFIG" \
+    "$DATASET_TRAIN" \
+    "$DATASET_VAL" \
+    1 "find-lr" "$MODEL" \
+     --layers all --fresh-heads  --lr-mult "$lr_mult"
+}
+
+
+
+
+function main() {
+    sed  -i -r 's/"lr": ([0-9.e-]+)/"lr": 1.0/' "$CONFIG"
+    for learning_rate in $( random_lrs ) ; do
+        echo "Trying learning rate: $learning_rate"
+        train_model "$learning_rate"
+    done
+}
+
+
+CODENAME=white-whale
+CONFIG=configs/test.py
+DATASET_TRAIN=20171019T000000/dataset_train.json
+DATASET_VAL=20171019T000000/dataset_val.json
+MODEL=mask_rcnn_coco.h5
+
+LR_FROM=5
+LR_TO=9
+NUM_LR=10
+
+main | tee "find-lr.log"
+
+print_lines=0
+cat find-lr.log |
+while IFS="\n" read -r line ; do
+ if [[ $line == *"Trying"* ]] ; then
+  print_lines=1
+  echo -e "\n\n\n\n"
+ fi
+ if [[ $line == *'15/20'* ]] ; then
+  print_lines=12
+ fi
+ if (( print_lines > 0 )) ; then
+  echo "$line"
+  print_lines=$(( print_lines - 1 ))
+ fi
+done | less
+

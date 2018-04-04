@@ -19,7 +19,7 @@ import utils
 import model as modellib
 import visualize
 import coco
-from abyss_dataset import CocoDataset as dataset_model
+import abyss_deep_learning.abyss_dataset as dataset_model
 
 # from imgaug import augmenters as iaa
 

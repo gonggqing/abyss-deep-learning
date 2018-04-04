@@ -13,12 +13,9 @@ import skimage.color.rgb_colors as rgb_colors
 import matplotlib.pyplot as plt
 import skvideo.io
 
-# Note the directory MASK_RCNN_PATH should be exported 
-# e.g. export MASK_RCNN_PATH=/home/whoever/src/abyss/deep-learning/third-party/Mask_RCNN
-sys.path.append(os.environ['MASK_RCNN_PATH'])
-import model as modellib
-import utils
-import visualize
+import abyss_maskrcnn.model as modellib
+import abyss_maskrcnn.utils as utils 
+import abyss_maskrcnn.visualize as visualize
 
 def file_ext_type(source_path):
     basename = os.path.basename(source_path)
@@ -77,7 +74,7 @@ def output_predictions(filename, result, frame_id):
         output_predictions.counter += 1
 output_predictions.stream = None
 output_predictions.counter = 0
-    
+
 def predict(model, batch, args):
     results = model.detect(batch, verbose=0)
     label_images = []
@@ -91,7 +88,6 @@ def predict(model, batch, args):
         num_results = len(result['scores'])
         label_image = np.zeros(rgb.shape[0:2], dtype=np.uint8)
         if num_results > 0:
-            
             for idx, class_id in enumerate(result['class_ids']):
                 result['masks'][..., idx] *= class_id
             for class_id in reversed(args.order):
@@ -132,6 +128,9 @@ def main(args):
         args.class_names = [str(i) for i in range(config.NUM_CLASSES)]
     else:
         args.class_names = ['background'] + args.class_names.split(',')
+    config.NUM_CLASSES = len(args.class_names)
+    print(args.class_names)
+    print(config.NUM_CLASSES)
     if args.display_config:
         config.display()
     model = initialise_model(config, args)
