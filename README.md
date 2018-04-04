@@ -1,4 +1,21 @@
-# deep-learning
+deep-learning
+=================
+## Contents
+   * [deep-learning](#deep-learning)
+      * [Introduction](#introduction)
+      * [Installation](#installation)
+         * [Local](#local)
+         * [Docker](#docker)
+      * [Applications](#applications)
+      * [Example: BAE Prop data with labelme labels](#example-bae-prop-data-with-labelme-labels)
+         * [Important notes](#important-notes)
+         * [Prerequisites](#prerequisites)
+         * [Overview](#overview)
+         * [Commands](#commands)
+      * [coco-to-csv: Convert COCO JSON into CSV](#coco-to-csv-convert-coco-json-into-csv)
+         * [Example:](#example)
+
+## Introduction
 Provides tools to manipulate COCO JSON, VOC CSV datasets as well as Mask RCNN train-val, test and predict.
 
 As of April 2018 the MASK_RCNN_PATH environment variable is no longer needed as the distutils repo has been merged to master.
