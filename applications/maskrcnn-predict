@@ -146,8 +146,6 @@ def main(args):
     else:
         args.class_names = ['background'] + args.class_names.split(',')
     config.NUM_CLASSES = len(args.class_names)
-    print(args.class_names)
-    print(config.NUM_CLASSES)
     if args.display_config:
         config.display()
     model = initialise_model(config, args)
@@ -172,13 +170,15 @@ def main(args):
                     rgb = rgb[..., 0:3]
                 if rgb is None:
                     print(
-                        "WARNING: Couldn't open file: {:s}".format(image_path))
+                        "WARNING: Couldn't open file: {:s}".format(image_path),
+                        file=sys.stderr)
                     continue
                 batch.append(rgb)
             for result, label_image in zip(*predict(model, batch, args)):
                 if args.verbose:
                     print("{:s}: {:d} results".format(
-                        image_path, len(result['scores'])))
+                        image_path, len(result['scores'])),
+                        file=sys.stderr)
                 if not args.show:
                     output_dir = args.output_dir if args.output_dir else os.path.dirname(
                         image_path)
@@ -218,21 +218,25 @@ def main(args):
                 for frame in frame_iter:
                     frame_idx += 1
                     if args.verbose:
-                        print('Processing frame {}'.format(frame_idx))
+                        print('Processing frame {}'.format(frame_idx),
+                            file=sys.stderr)
                     batch = [frame]
-                    # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE))
+                    # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE),
+                        # file=sys.stderr)
                     for batch_idx in range(config.BATCH_SIZE):
                         if batch_idx > 0:
                             batch += [next(frame_iter)]
                             frame_idx += 1
-                            # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE))
+                            # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE),
+                                # file=sys.stderr)
                     if frame_idx % args.video_skip == 0:
                         temp_frame_diff = -1
                         for result, label_image in zip(*predict(model, batch, args)):
                             current_frame = frame_idx+temp_frame_diff
                             if args.verbose:
                                 print('{} results in frame {}'.format(
-                                    len(result['scores']), current_frame))
+                                        len(result['scores']), current_frame),
+                                    file=sys.stderr)
                             if args.output_predictions:
                                 output_predictions(os.path.join(
                                     output_dir, args.output_predictions), result, current_frame)

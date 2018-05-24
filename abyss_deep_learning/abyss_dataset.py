@@ -2,9 +2,10 @@
 abyss-dataset
 """
 
+from sys import stderr
+from itertools import cycle
 import os
 import time
-from sys import stderr
 
 import numpy as np
 from pycocotools import mask as maskUtils
@@ -20,10 +21,14 @@ import abyss_maskrcnn.utils as utils
 
 class CocoDataset(utils.Dataset):
     def __init__(self, *args, **kwargs):
+        '''Call load_coco'''
         self.data = []
         super(CocoDataset, self).__init__(*args, **kwargs)
 
-    def load_coco(self, dataset_path, image_dir=None, class_ids=None, preload=False, return_coco=False):
+    def load_coco(
+        self, dataset_path, image_dir=None,
+        class_ids=None,
+        preload=False, return_coco=False):
         """Load a subset of the COCO dataset.
         dataset_path: Thepath to the COCO dataset JSON.
         image_dir: The base path of the RGB images, if None then look for 'path' key in JSON
@@ -145,6 +150,28 @@ class CocoDataset(utils.Dataset):
         if info["source"] == "coco":
             return "http://cocodataset.org/#explore?id={}".format(info["id"])
         return super(CocoDataset, self).image_reference(image_id)
+
+    def apply(self, func_input, func_target=None, imgIds=[]):
+        '''Applies functions to input and target, if the DB is preloaded'''
+        assert self.data, "apply() only works on preloaded images"
+        if not func_target:
+            func_target = lambda x: x
+        imgIds = imgIds or self.image_ids
+        for image_id in imgIds:
+            self.data[image_id] = (func_input(image_id[0]), func_target(image_id[1]))
+
+    def generator(self, imgIds=[], batch_size=1):
+        imgIds = imgIds or self.image_ids
+        # catIds = catIds or self.class_ids
+
+        batch = []
+        for image_id in cycle(imgIds):
+            pair = (self.load_image(image_id),) + self.load_mask(image_id)
+            batch.append(pair)
+            if len(batch) >= batch_size:
+                yield tuple(map(np.array, tuple(map(tuple, zip(*batch)))))
+                batch = []
+
 
 ############################################################
 # The following two functions are from pycocotools with a few changes.

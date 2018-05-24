@@ -1,8 +1,10 @@
+acl
 curl
 ffmpeg
 git
 libcudnn6
 libcudnn6-dev
+libsm6
 openssh-server
 python3-minimal
 python3-pip

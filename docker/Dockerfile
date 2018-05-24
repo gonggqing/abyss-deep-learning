@@ -10,6 +10,7 @@ COPY install-pip /tmp/install-pip
 COPY jupyter /home/docker/.jupyter
 
 RUN apt-get update &&  apt-get install -y --fix-missing $(cat /tmp/install-apt)
+RUN pip3 install -U pip
 # RUN pip install -U $(cat /tmp/install-pip)
 RUN pip3 install -U $(cat /tmp/install-pip)
 RUN bash /tmp/setup_permissions.sh

@@ -52,7 +52,7 @@ def decode_rgb_labels(encoded_image):
 def process_pair(image_path, annotation_path, args):
     rgb = imread(image_path)
     if args.rescale:
-        rgb = rescale(rgb, args.rescale)
+        rgb = rescale(rgb, args.rescale)[..., 0:3]
     image_size = rgb.shape[0:2]  # [1::-1]
     labels_image = imread(annotation_path)
     if len(labels_image.shape) == 2:
@@ -88,9 +88,9 @@ def process_pair(image_path, annotation_path, args):
                 categories[instance_idx] = args.label
                 masks[instance_idx] = instance_mask
     if args.display:
-        print("# TODO this is showing only the last class_mask mask??", file=sys.stderr)
-        image_masked = rgb.copy()
-        image_masked[np.logical_not(class_mask), :] = 0
+        # print("# TODO this is showing only the last class_mask mask??", file=sys.stderr)
+        # image_masked = rgb.copy()
+        # image_masked[np.logical_not(class_mask), :] = 0
         plt.figure()
         plt.subplot(3, 1, 1)
         plt.imshow(rgb)

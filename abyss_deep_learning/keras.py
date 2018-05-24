@@ -2,6 +2,7 @@ import numpy as np
 from itertools import product
 from numpy.lib.stride_tricks import as_strided as ast
 from skimage.color import rgb2gray
+import keras.backend as K
 
 
 def remove_mean_gen(gen, mean):
@@ -44,3 +45,47 @@ def resize_generator(gen, divide):
         for i in range(targets_shape[0]):
             targets_small[i, ...] = targets[i, ::divide, ::divide]
         yield inputs, targets_small
+
+
+def reset_weights(model):
+    session = K.get_session()
+    for layer in model.layers: 
+        if hasattr(layer, 'kernel_initializer'):
+            layer.kernel.initializer.run(session=session)
+
+def bilinear_upsample_weights(filter_size, number_of_classes):
+    def upsample_filt(size):
+        """
+        Make a 2D bilinear kernel suitable for upsampling of the given (h, w) size.
+        """
+        factor = (size + 1) // 2
+        if size % 2 == 1:
+            center = factor - 1
+        else:
+            center = factor - 0.5
+        og = np.ogrid[:size, :size]
+        return (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) / factor)
+    """
+    Create weights matrix for transposed convolution with bilinear filter
+    initialization.
+    """
+    weights = np.zeros((filter_size,
+                        filter_size,
+                        number_of_classes,
+                        number_of_classes), dtype=np.float32)
+    upsample_kernel = upsample_filt(filter_size)
+    for i in range(number_of_classes):
+        weights[:, :, i, i] = upsample_kernel
+    return weights
+
+def initialize_conv_transpose2d(model, layer_names, trainable=True):
+    for name in layer_names:
+        layer = model.get_layer(name=name)
+        v = layer.get_weights()
+        if len(layer.weights) > 1:
+            layer.set_weights(
+                [bilinear_upsample_weights(v[0].shape[0], v[0].shape[2]), v[1]])
+        else:
+            layer.set_weights(
+                [bilinear_upsample_weights(v[0].shape[0], v[0].shape[2])])
+        layer.trainable = trainable

@@ -12,16 +12,6 @@ from scipy.ndimage.measurements import center_of_mass
 import matplotlib.pyplot as plt
 import numpy as np
 
-from abyss_maskrcnn.config import Config as DefaultConfig
-import abyss_deep_learning.abyss_dataset as dataset_model
-import abyss_maskrcnn.coco as coco
-import abyss_maskrcnn.model as modellib
-import abyss_maskrcnn.utils as utils
-import abyss_maskrcnn.visualize as visualize
-
-# from imgaug import augmenters as iaa
-
-
 def sanity_check_masks(dataset, num_images=4):
     # Load and display random samples
     image_ids = np.random.choice(dataset.image_ids, num_images)
@@ -86,6 +76,7 @@ def compute_centroid_errors(gt_boxes, gt_class_ids, gt_masks,
 
 
 def test(config, args):
+    config.NUM_CLASSES = args.dataset_test.num_classes
     model = modellib.MaskRCNN(
         mode="inference", config=config, model_dir=args.model_dir)
     if args.weights == 'last':
@@ -245,4 +236,15 @@ def get_args():
 
 
 if __name__ == '__main__':
-    main(get_args())
+    # Put ahead to make --help faster
+    ARGS = get_args()
+
+from abyss_deep_learning.abyss_dataset import CocoDataset as dataset_model
+from abyss_maskrcnn.config import Config as DefaultConfig
+import abyss_maskrcnn.coco as coco
+import abyss_maskrcnn.model as modellib
+import abyss_maskrcnn.utils as utils
+import abyss_maskrcnn.visualize as visualize
+
+if __name__ == '__main__':
+    main(ARGS)

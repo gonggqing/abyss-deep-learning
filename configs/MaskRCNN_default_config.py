@@ -24,7 +24,7 @@ class TrainConfig(Config):
     # handle 2 images of 1024x1024px.
     # Adjust based on your GPU memory and image sizes. Use the highest
     # number that your GPU can handle for best performance.
-    IMAGES_PER_GPU = 2
+    IMAGES_PER_GPU = 1
 
     # Number of training steps per epoch
     # This doesn't need to match the size of the training set. Tensorboard
@@ -136,9 +136,42 @@ class TrainConfig(Config):
     # train the RPN.
     USE_RPN_ROIS = True
 
+    BACKBONE = ["resnet50", "resnet101"][0]
+
+    # Specifies the backbone to use, choose one of existing
+
+    # Data augmentation parameters (see http://imgaug.readthedocs.io/en/latest/index.html)
+    # Vertically flip the data 50% of the time (None to disable)
+    AUGMENTATION_FLIP_UD = 0.50
+    # Horizontally flip the data 50% of the time  (None to disable)
+    AUGMENTATION_FLIP_LR = 0.50
+    # Zoom, translate, shear and rotate the data  (None to disable)
+    # The example below scales both axes from 80-120%, translates in both axes -20% to 20%,
+    # rotates from -5 to 5 degrees and shears -5 to 5 degrees
+    # Order must be 0 in order to disable mask interpolation
+    AUGMENTATION_AFFINE = {
+        "order": 0,
+        "rotate": (-5, 5),
+        "scale": {"x": (0.8, 1.2), "y": (0.8, 1.2)},
+        "shear": (-5, 5),
+        # "translate_percent": {"x": (-0.1, 0.1), "y": (-0.1, 0.1)},
+    }
+
+    # Decrease the LR if it has not decreased in a given number of epochs
+    # See keras.callbacks.ReduceLROnPlateau
+    LR_PLATEAU = {
+        "monitor": 'val_loss',
+        "factor": 0.5,
+        "patience": 20,
+        "verbose": 1,
+        "mode": 'auto',
+        "epsilon": 0.0001,
+        "cooldown": 5,
+        "min_lr": 1e-7
+    }
+
 
 class InferenceConfig(TrainConfig):
-    NAME = "default"  # Override in sub-classes
     GPU_COUNT = 1
     IMAGES_PER_GPU = 1
     USE_MINI_MASK = False
