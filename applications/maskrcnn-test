@@ -127,6 +127,7 @@ def test(config, args):
                 plt.subplot(1, 2, 2)
                 display_gt(args.dataset_test, image_id)
                 plt.title('ground truth')
+
             # visualize.plot_overlaps(gt_class_ids, r['class_ids'], r['scores'], overlaps, class_names, threshold=0.5)
             # print("AP,{:d},{:f}".format(image_id, AP), file=sys.stderr)
             # print("AR,{:d},{:f}".format(image_id, AR), file=sys.stderr)
@@ -178,9 +179,8 @@ def main(args):
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
     with redirect_stdout(sys.stderr):
-        args.dataset_test = dataset_model.CocoDataset()
-        args.dataset_test.load_coco(
-            args.dataset_test_path, image_dir=args.image_dir, class_ids=args.categories)
+        args.dataset_test = dataset_model()
+        args.dataset_test.load_coco(args.dataset_test_path, image_dir=args.image_dir, class_ids=args.categories)
         args.dataset_test.prepare()
     # if args.config is None:
     #     config = DefaultConfig()
