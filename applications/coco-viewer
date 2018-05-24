@@ -166,6 +166,8 @@ def main(args):
         plt.figure(figsize=(15, 11))
         image_path = image['path'] if 'path' in image else os.path.join(
             args.image_dir, image['file_name'])
+        if not os.path.exists(image_path):
+            image_path = os.path.join(args.image_dir, image_path)
         rgb = imread(image_path, plugin='matplotlib')
         ann_ids = coco_db.getAnnIds(imgIds=[image['id']], catIds=args.cats)
         annotations = coco_db.loadAnns(ids=ann_ids)
