@@ -24,49 +24,92 @@ def result_to_series(result):
         })
     return pd.DataFrame(frame, columns=frame[0].keys())
 
-def calculate_tfpn(predicted, object_gts, iou_thresh=0.5, bipartite=False):
+def calculate_tfpn(predicted, object_gts, iou_thresh=0.5, matching='one-to-one'):
     '''Calculate True Positive, False Positive and False Negatives given two objects of the same class
-       Definitions:
-        TP = number of detections with IoU>0.5
-        FP = number of detections with IoU<=0.5 (when bipartite=False)
-        FP = number of detections with IoU<=0.5 or detected more than once (when bipartite=True)
-        FN = number of objects that not detected or detected with IoU<=0.5
-        input is pandas.DataFrame as returned by result_to_series
+        inputs are pandas.DataFrame as returned by result_to_series
     '''
+    def raise_(ex):
+        raise ex
     # ious index is [pred_idx, gt_idx]
     ious = compute_overlaps(_flat_np(predicted['roi']), _flat_np(object_gts['roi']))
-    if bipartite:
-        # Data association (bipartite matching: one prediction to one ground truth)
-        TP = np.zeros(len(predicted), dtype=np.bool)
-        FP = np.zeros(len(predicted), dtype=np.bool)
-        FN = np.product(ious <= iou_thresh, axis=0) > 0
-        nulls = np.prod(ious <= 1e-6, axis=1) > 0  #Need this so linear_sum_assignment works
-        
-        pred_idxs = np.arange(len(predicted))[~nulls]
-        pred_idx_ptr, gt_idx = linear_sum_assignment(1 - ious[~nulls, :])
-        matched_ious = ious[pred_idxs[pred_idx_ptr], gt_idx]
-        matched_idxs = pred_idxs[pred_idx_ptr]
-        
-        TP[matched_idxs] = matched_ious > iou_thresh
-        FP[matched_idxs] = (matched_ious <= iou_thresh)
-        FP |= nulls
-    else:
-        # Data association (many predictions to many ground truths) 
-        TP = np.sum(ious > iou_thresh, axis=1) > 0
-        FP = np.product(ious <= iou_thresh, axis=1) > 0
-        FN = np.product(ious <= iou_thresh, axis=0) > 0
-    return (TP, FP, FN)
+    TP, FP, FN = {
+        'one-to-one': matching_one_to_one,
+        'one-to-many': lambda _, __: raise_(NotImplementedError("one-to-many not yet implemented")),
+        'many-to-one': matching_many_to_one,
+        'many-to-many': matching_many_to_many
+    }[matching](ious, iou_thresh)
+    return TP, FP, FN
 
-def calc_image_stats(predicted, object_gts):
+def calc_image_stats(predicted, object_gts, matching, iou_thresh=0.5):
     image_stats = {}
     for class_id in np.unique(predicted['class_id']):
         (TP, FP, FN) = calculate_tfpn(
-        predicted[predicted['class_id'] == class_id],
-        object_gts[predicted['class_id'] == class_id],
-        bipartite=True)
+            predicted[predicted['class_id'] == class_id],
+            object_gts[object_gts['class_id'] == class_id],
+            iou_thresh=iou_thresh, matching=matching)
         image_stats[class_id] = {
             'TP': TP,
             'FP': FP,
             'FN': FN,
         }
     return image_stats
+
+def matching_one_to_one(ious, iou_thresh):
+    '''Definitions (one-to-one):
+        TP = number of detections with (IoU > 0.5)
+        FP = number of detections with (IoU <= 0.5 or detected more than once)
+        FN = number of objects that (not detected or detected with IoU<=0.5)'''
+
+    TP = np.zeros(ious.shape[0], dtype=np.bool)
+    FP = np.zeros(ious.shape[0], dtype=np.bool)
+    FN = np.zeros(ious.shape[1], dtype=np.bool)
+
+    ious[ious < iou_thresh] = 0
+    pred_idx_ptr, gt_idx = linear_sum_assignment(1 - ious)
+    pred_idx = np.arange(len(TP))[pred_idx_ptr]
+    match_costs = ious[pred_idx, gt_idx]
+    sufficient_area = match_costs > iou_thresh
+    pred_idx = pred_idx[sufficient_area]
+    gt_idx = gt_idx[sufficient_area]
+    # pred_idx_unmatched = np.array(list(set(range(ious.shape[0])) - set(pred_idx.tolist())))
+    gt_idx_unmatched = np.array(list(set(range(ious.shape[1])) - set(gt_idx.tolist())))
+
+    TP[pred_idx] = True
+    FP = ~TP
+    if gt_idx_unmatched.size:
+        FN[gt_idx_unmatched] = True
+    return TP, FP, FN
+
+def matching_many_to_one(ious, iou_thresh):
+    '''Definitions (many-to-one):
+        TP = number of detections with IoU > iou_thresh
+        FP = number of detections with IoU <= iou_thresh
+        FN = number of objects with IoU <= iou_thresh'''
+    ious[ious < iou_thresh] = 0
+    FP = np.sum(ious, axis=1) < 1e-6
+    TP = ~FP
+    FN = np.zeros(ious.shape[1], dtype=np.bool)
+
+    gt_idx = np.arange(len(FN))
+    gt_idx_ptr = np.argmax(ious[TP, :], axis=1)
+    gt_idx = gt_idx[gt_idx_ptr]
+    gt_idx_unmatched = np.array(list(set(range(ious.shape[1])) - set(gt_idx.tolist())))
+    if gt_idx_unmatched.size:
+        FN[gt_idx_unmatched] = True
+    return TP, FP, FN
+
+def matching_many_to_many(ious, iou_thresh):
+    '''Definitions (many-to-many):
+        TP = number of detections with IoU > iou_thresh
+        FP = number of detections with IoU <= iou_thresh
+        FN = number of objects with IoU <= iou_thresh'''
+    ious[ious < iou_thresh] = 0
+    FP = np.zeros(ious.shape[0], dtype=np.bool)
+    TP = np.zeros(ious.shape[0], dtype=np.bool)
+    FN = np.ones(ious.shape[1], dtype=np.bool)
+    conditions = ious > iou_thresh
+    pred_idx, gt_idx = np.nonzero(conditions)
+    TP[np.unique(pred_idx)] = True
+    FN[np.unique(gt_idx)] = False
+    FP = ~TP
+    return TP, FP, FN
