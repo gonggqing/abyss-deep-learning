@@ -2,22 +2,22 @@
 abyss-dataset
 """
 
-from sys import stderr
 from itertools import cycle
+from random import shuffle
+from sys import stderr
 import os
 import time
 
-import numpy as np
 from pycocotools import mask as maskUtils
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
+import numpy as np
 
 import abyss_maskrcnn.utils as utils
 
 ############################################################
 #  Dataset
 ############################################################
-
 
 class CocoDataset(utils.Dataset):
     def __init__(self, *args, **kwargs):
@@ -160,10 +160,12 @@ class CocoDataset(utils.Dataset):
         for image_id in imgIds:
             self.data[image_id] = (func_input(image_id[0]), func_target(image_id[1]))
 
-    def generator(self, imgIds=[], batch_size=1):
+    def generator(self, imgIds=[], batch_size=1, shuffle_ids=False):
         imgIds = imgIds or self.image_ids
+        imgIds = list(imgIds) # make a copy
         # catIds = catIds or self.class_ids
-
+        if shuffle_ids:
+            shuffle(imgIds)
         batch = []
         for image_id in cycle(imgIds):
             pair = (self.load_image(image_id),) + self.load_mask(image_id)
