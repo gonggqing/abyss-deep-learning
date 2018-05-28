@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import print_function
+from collections import defaultdict
 from contextlib import redirect_stdout
 from pprint import pprint
 import argparse
@@ -48,19 +49,37 @@ def compute_centroid_errors(gt_boxes, gt_class_ids, gt_masks,
 
 def calc_stats(dataset):
     TP, FP, FN = dataset['TP'].sum(), dataset['FP'].sum(), dataset['FN'].sum()
-    return {
-        'precision': TP / (TP + FP),
-        'recall': TP / (TP + FN), # True positive rate
-        'F1': 2 * TP / (2*TP + FP + FN),
+    out = {
+        'precision': TP / max(1, TP + FP),
+        'recall': TP / max(1, TP + FN), # True positive rate
+        'F1': 2 * TP / max(1, 2*TP + FP + FN),
     }
+    for metric in out.keys():
+        if not np.isfinite(out[metric]):
+            out[metric] = 0.0
+    return out
 
-def calc_dataset_metrics(dataset, matching='one-to-one'):
+def calc_dataset_metrics(dataset):
     dataset_stats = []
-    for class_id, group in dataset[dataset['match'] == matching].groupby('class_id'):
+    for (match, class_id, score_thresh), group in dataset.groupby(('match', 'class_id', 'score_thresh')):
         class_stats = calc_stats(group)
         class_stats['class_id'] = class_id
+        class_stats['match'] = match
+        class_stats['score_thresh'] = score_thresh
         dataset_stats.append(class_stats)
-    return pd.DataFrame(dataset_stats).set_index('class_id')
+    return pd.DataFrame(dataset_stats)
+
+def output_metrics(dataset_metrics):
+    results = defaultdict(lambda: defaultdict(dict))
+    for index, value in dataset_metrics.groupby(('match', 'score_thresh', 'class_id')):
+        for i, key in enumerate(index):
+            if i == 0:
+                nested = results[str(key)]
+            elif i == len(index) - 1:
+                nested[str(key)] = value[['precision', 'recall', 'F1']].to_dict(orient='list')
+            else:
+                nested = nested[str(key)]
+    return results
 
 def test(config, args):
     config.NUM_CLASSES = args.dataset_test.num_classes
@@ -81,35 +100,55 @@ def test(config, args):
         )
     ]
     match_kinds = ['one-to-one', 'many-to-one', 'many-to-many']
-    dataset_stats = []
-    for image_id in args.dataset_test.image_ids:
-        # Load image and ground truth data
-        image, image_shape, gt_class_ids, gt_bbox, gt_mask = \
-            modellib.load_image_gt(
-                args.dataset_test, config, image_id, use_mini_mask=False)
-        molded_images = np.expand_dims(modellib.mold_image(image, config), 0)
-        predicted = model.detect([image], verbose=0)[0]
-        # print(predicted)
-        predicted = result_to_series(predicted)
-        object_gts = result_to_series({
-            'rois': gt_bbox[:, :4],
-            'masks': gt_mask,
-            'class_ids': gt_class_ids
-        })
-        for matching in match_kinds:
-            image_stats = calc_image_stats(
-                predicted, object_gts, iou_thresh=args.iou, matching=matching)
-            for class_stats in image_stats:
-                class_stats['image_id'] = image_id
-            dataset_stats.append(pd.DataFrame(image_stats))
-    
-    dataset_stats = pd.concat(dataset_stats).reset_index(drop=True)
-    dataset_metrics = {
-        match_kind: calc_dataset_metrics(dataset_stats, match_kind).to_dict()
-        for match_kind in match_kinds
-    }
+    results = []
+    unique_scores = []
+    for image_count, image_id in enumerate(args.dataset_test.image_ids):
+        try:
+            if args.num_images is not None and image_count > args.num_images:
+                break
+            # Load image and ground truth data
+            image, image_shape, gt_class_ids, gt_bbox, gt_mask = \
+                modellib.load_image_gt(
+                    args.dataset_test, config, image_id, use_mini_mask=False)
+            # molded_images = np.expand_dims(modellib.mold_image(image, config), 0)
+            predicted = model.detect([image], verbose=0)[0]
+            predicted = result_to_series(predicted) if len(predicted['class_ids']) else None
+            if predicted is not None:
+                unique_scores.append(predicted['score'])
+            object_gts = result_to_series({
+                'rois': gt_bbox[:, :4],
+                'masks': gt_mask,
+                'class_ids': gt_class_ids
+            }) if len(gt_class_ids) else None
+            results.append((image_id, predicted, object_gts))
+        except ValueError as e:
+            print("GOT AN ERROR", file=sys.stderr)
+            print(e, file=sys.stderr)
 
-    print(json.dumps( #TODO Uncomment
+    unique_scores = np.sort(pd.concat(unique_scores).unique())
+    image_stats = []
+    for score_thresh in unique_scores[-10:]:
+        for matching in match_kinds:
+            for image_id, predicted, object_gts in results:
+                subset = predicted[predicted['score'] > score_thresh] if predicted is not None else None
+                if subset is None or len(subset) == 0:
+                    predicted = None
+                # print(predicted)
+                stats = calc_image_stats(subset, object_gts, iou_thresh=args.iou, matching=matching)
+                for class_stats in stats:
+                    class_stats['image_id'] = image_id
+                    class_stats['score_thresh'] = score_thresh
+                image_stats.append(pd.DataFrame(stats))
+    
+    dataset_stats = pd.concat(image_stats).reset_index(drop=True)
+    dataset_stats.to_csv('/tmp/dataset_stats.pkl')
+
+    # print(dataset_stats, file=sys.stderr)
+    dataset_metrics = calc_dataset_metrics(dataset_stats)
+    dataset_metrics.to_csv('/tmp/dataset_metrics.pkl')
+    # print(dataset_metrics, file=sys.stderr)
+    dataset_metrics = output_metrics(dataset_metrics)
+    print(json.dumps(
         dataset_metrics, sort_keys=True, indent=0, separators=(',', ':'), cls=JsonNumpyEncoder))
 
 def main(args):
@@ -158,6 +197,8 @@ def get_args():
     )
     parser.add_argument(
         "--iou", help="IoU threshold for stats.", default=0.5, type=float)
+    parser.add_argument(
+        "--num-images", help="Number of images to test (default all)", default=None, type=int)
     parser.add_argument(
         "--sanity-check",
         help="Show train and validation datasets to ensure that data is valid.",
