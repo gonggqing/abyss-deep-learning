@@ -11,6 +11,10 @@ import sys
 from scipy.ndimage.measurements import center_of_mass
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+
+from abyss.utils import JsonNumpyEncoder
+from abyss_deep_learning.metrics import result_to_series, calc_image_stats
 
 def sanity_check_masks(dataset, num_images=4):
     # Load and display random samples
@@ -25,55 +29,38 @@ def sanity_check_masks(dataset, num_images=4):
 def get_ax(rows=1, cols=1, size=8):
     return plt.subplots(rows, cols, figsize=(size*cols, size*rows))[1]
 
+def display_gt(dataset, image_id, ax=None):
+    image = dataset.load_image(image_id)
+    mask, class_ids = dataset.load_mask(image_id)
+    bbox = utils.extract_bboxes(mask)
+    visualize.display_instances(
+        image, bbox, mask, class_ids, dataset.class_names, ax=ax)
 
 def calc_position_error(mask1, mask2):
     pos1 = np.array(center_of_mass(mask1 > 0))
     pos2 = np.array(center_of_mass(mask2 > 0))
     return np.sqrt(np.sum((pos1 - pos2) ** 2.0))
 
-
 def compute_centroid_errors(gt_boxes, gt_class_ids, gt_masks,
                             pred_boxes, pred_class_ids, pred_scores, pred_masks,
-                            iou_threshold=0.5):
-    # Trim zero padding and sort predictions by score from high to low
-    gt_boxes = utils.trim_zeros(gt_boxes)
-    gt_masks = gt_masks[..., :gt_boxes.shape[0]]
-    pred_boxes = utils.trim_zeros(pred_boxes)
-    pred_scores = pred_scores[:pred_boxes.shape[0]]
-    indices = np.argsort(pred_scores)[::-1]
-    pred_boxes = pred_boxes[indices]
-    pred_class_ids = pred_class_ids[indices]
-    pred_scores = pred_scores[indices]
-    pred_masks = pred_masks[..., indices]
+                            iou_thresh=0.5):
+    raise NotImplementedError()
 
-    # Compute IoU overlaps [pred_masks, gt_masks]
-    overlaps = utils.compute_overlaps_masks(pred_masks, gt_masks)
+def calc_stats(dataset):
+    TP, FP, FN = dataset['TP'].sum(), dataset['FP'].sum(), dataset['FN'].sum()
+    return {
+        'precision': TP / (TP + FP),
+        'recall': TP / (TP + FN), # True positive rate
+        'F1': 2 * TP / (2*TP + FP + FN),
+    }
 
-    # Loop through ground truth boxes and find matching predictions
-    match_count = 0
-    pred_match = np.zeros([pred_boxes.shape[0]])
-    gt_match = np.zeros([gt_boxes.shape[0]])
-    position_error = {}
-    for pred_idx in range(len(pred_boxes)):
-        # Find best matching ground truth box
-        for gt_idx in np.argsort(overlaps[pred_idx])[::-1]:
-            # If ground truth box is already matched, go to next one
-            if gt_match[gt_idx] == 1:
-                continue
-            # If we reach IoU smaller than the threshold, end the loop
-            iou = overlaps[pred_idx, gt_idx]
-            if iou < iou_threshold:
-                break
-            # Do we have a match?
-            if pred_class_ids[pred_idx] == gt_class_ids[gt_idx]:
-                match_count += 1
-                gt_match[gt_idx] = 1
-                pred_match[pred_idx] = 1
-                position_error[gt_idx] = calc_position_error(
-                    gt_masks[..., gt_idx], pred_masks[..., pred_idx])
-                break
-    return np.mean([i for i in position_error.values()])
-
+def calc_dataset_metrics(dataset, matching='one-to-one'):
+    dataset_stats = []
+    for class_id, group in dataset[dataset['match'] == matching].groupby('class_id'):
+        class_stats = calc_stats(group)
+        class_stats['class_id'] = class_id
+        dataset_stats.append(class_stats)
+    return pd.DataFrame(dataset_stats).set_index('class_id')
 
 def test(config, args):
     config.NUM_CLASSES = args.dataset_test.num_classes
@@ -85,7 +72,6 @@ def test(config, args):
         model.load_weights(args.weights, by_name=True)
     print("Loaded weights! Beginning testing.", file=sys.stderr)
 
-    # Compute VOC-Style mAP @ IoU=0.5
     class_names = [
         i[1] for i in
         sorted([
@@ -94,84 +80,37 @@ def test(config, args):
             key=lambda x: x[0]
         )
     ]
-    average_precisions = {'mean': 0.0, 'std': 0.0, 'individual': {}}
-    average_recalls = {'mean': 0.0, 'std': 0.0, 'individual': {}}
-    centroid_errors = {'mean': 0.0, 'std': 0.0, 'individual': {}}
+    match_kinds = ['one-to-one', 'many-to-one', 'many-to-many']
+    dataset_stats = []
     for image_id in args.dataset_test.image_ids:
         # Load image and ground truth data
         image, image_shape, gt_class_ids, gt_bbox, gt_mask = \
             modellib.load_image_gt(
                 args.dataset_test, config, image_id, use_mini_mask=False)
         molded_images = np.expand_dims(modellib.mold_image(image, config), 0)
-        # Run object detection
-        results = model.detect([image], verbose=0)
-        r = results[0]
+        predicted = model.detect([image], verbose=0)[0]
+        # print(predicted)
+        predicted = result_to_series(predicted)
+        object_gts = result_to_series({
+            'rois': gt_bbox[:, :4],
+            'masks': gt_mask,
+            'class_ids': gt_class_ids
+        })
+        for matching in match_kinds:
+            image_stats = calc_image_stats(
+                predicted, object_gts, iou_thresh=args.iou, matching=matching)
+            for class_stats in image_stats:
+                class_stats['image_id'] = image_id
+            dataset_stats.append(pd.DataFrame(image_stats))
+    
+    dataset_stats = pd.concat(dataset_stats).reset_index(drop=True)
+    dataset_metrics = {
+        match_kind: calc_dataset_metrics(dataset_stats, match_kind).to_dict()
+        for match_kind in match_kinds
+    }
 
-        try:
-            stats = (
-                gt_bbox[:, :4], gt_class_ids, gt_mask,
-                r["rois"], r["class_ids"], r["scores"], r["masks"]
-            )
-            AP, precisions, recalls, overlaps = utils.compute_ap(
-                *stats, iou_threshold=args.iou)
-            AR, positive_ids = utils.compute_recall(
-                r["rois"], gt_bbox[:, :4], args.iou)
-            CE = compute_centroid_errors(*stats, iou_threshold=args.iou)
-            if args.show:
-                plt.figure()
-                plt.subplot(1, 2, 1)
-                visualize.display_instances(
-                    image, r['rois'], r['masks'], r['class_ids'], class_names, r['scores']
-                )
-                plt.title('predicted')
-                plt.subplot(1, 2, 2)
-                display_gt(args.dataset_test, image_id)
-                plt.title('ground truth')
-            # visualize.plot_overlaps(gt_class_ids, r['class_ids'], r['scores'], overlaps, class_names, threshold=0.5)
-            # print("AP,{:d},{:f}".format(image_id, AP), file=sys.stderr)
-            # print("AR,{:d},{:f}".format(image_id, AR), file=sys.stderr)
-            # print("CE,{:d},{:f}".format(image_id, CE), file=sys.stderr)
-            average_precisions['individual'][int(image_id)] = float(AP)
-            average_recalls['individual'][int(image_id)] = float(AR)
-            centroid_errors['individual'][int(image_id)] = float(CE)
-        except ValueError:
-            print("Skipping image {:d}, no positive gt's.".format(
-                image_id), file=sys.stderr)
-        finally:
-            if args.show:
-                plt.show()
-    print("Overall mAP for IoU={:f}: ".format(args.iou), file=sys.stderr)
-    average_precisions['mean'] = float(
-        np.mean([i for i in average_precisions['individual'].values()]))
-    average_recalls['mean'] = float(
-        np.mean([i for i in average_recalls['individual'].values()]))
-    centroid_errors['mean'] = float(np.nanmean(
-        [i for i in centroid_errors['individual'].values()]))
-    average_precisions['std'] = float(
-        np.std([i for i in average_precisions['individual'].values()]))
-    average_recalls['std'] = float(
-        np.std([i for i in average_recalls['individual'].values()]))
-    centroid_errors['std'] = float(
-        np.nanstd([i for i in centroid_errors['individual'].values()]))
-    # print("mAP,{:f}".format(average_precisions['mean']), file=sys.stderr)
-    # print("mAR,{:f}".format(average_recalls['mean']), file=sys.stderr)
-    # print("mCE,{:f}".format(centroid_errors['mean']), file=sys.stderr)
-    print(
-        json.dumps(
-            {"precision": average_precisions, "recall": average_recalls,
-                'centroid_errors': centroid_errors},
-            sort_keys=True, indent=4, separators=(',', ': ')
-        )
-    )
-
-
-def display_gt(dataset, image_id, ax=None):
-    image = dataset.load_image(image_id)
-    mask, class_ids = dataset.load_mask(image_id)
-    bbox = utils.extract_bboxes(mask)
-    visualize.display_instances(
-        image, bbox, mask, class_ids, dataset.class_names, ax=ax)
-
+    print(json.dumps( #TODO Uncomment
+        dataset_metrics, sort_keys=True, indent=0, separators=(',', ':'), cls=JsonNumpyEncoder))
 
 def main(args):
     if args.cpu:
@@ -182,16 +121,13 @@ def main(args):
         args.dataset_test.load_coco(
             args.dataset_test_path, image_dir=args.image_dir, class_ids=args.categories)
         args.dataset_test.prepare()
-    # if args.config is None:
-    #     config = DefaultConfig()
-    # else:
     spec = importlib.util.spec_from_file_location(
         "maskrcnn_config", args.config)
     config_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(config_module)
     config = config_module.InferenceConfig()
     if args.sanity_check:
-        pprint(args)
+        pprint(args, file=sys.stderr)
         config.display()
         sanity_check_masks(args.dataset_test)
     test(config, args)
@@ -240,7 +176,6 @@ if __name__ == '__main__':
     ARGS = get_args()
 
 from abyss_deep_learning.abyss_dataset import CocoDataset as dataset_model
-from abyss_maskrcnn.config import Config as DefaultConfig
 import abyss_maskrcnn.coco as coco
 import abyss_maskrcnn.model as modellib
 import abyss_maskrcnn.utils as utils

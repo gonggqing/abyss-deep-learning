@@ -41,7 +41,7 @@ def calculate_tfpn(predicted, object_gts, matching='one-to-one', iou_thresh=0.5,
     return TP, FP, FN
 
 def calc_image_stats(predicted, object_gts, matching, iou_thresh=0.5, score_thresh=None):
-    image_stats = {}
+    image_stats = []
     for class_id in np.unique(predicted['class_id']):
         class_mask_pred = predicted['class_id'] == class_id
         (TP, FP, FN) = calculate_tfpn(
@@ -50,11 +50,13 @@ def calc_image_stats(predicted, object_gts, matching, iou_thresh=0.5, score_thre
             iou_thresh=iou_thresh, matching=matching,
             scores=predicted[class_mask_pred]['score'],
             score_thresh=score_thresh)
-        image_stats[str(class_id)] = {
-            'TP': TP,
-            'FP': FP,
-            'FN': FN,
-        }
+        image_stats.append({
+            'match': matching,
+            'class_id': class_id,
+            'TP': int(np.sum(TP)),
+            'FP': int(np.sum(FP)),
+            'FN': int(np.sum(FN)),
+        })
     return image_stats
 
 def matching_one_to_one(ious, iou_thresh, scores=None, score_thresh=None):
@@ -96,7 +98,7 @@ def matching_many_to_one(ious, iou_thresh, scores=None, score_thresh=None):
     ious[ious < iou_thresh] = 0
     if scores is not None:
         ious[scores <= score_thresh, :] = 0
-    FP = np.sum(ious, axis=1) < 1e-6
+    FP = np.sum(ious, axis=1) != 0
     TP = ~FP
     FN = np.zeros(ious.shape[1], dtype=np.bool)
 
