@@ -25,6 +25,7 @@ def sanity_check_masks(dataset, num_images=4):
         mask, class_ids = dataset.load_mask(image_id)
         visualize.display_top_masks(
             image, mask, class_ids, dataset.class_names)
+        plt.show()
 
 
 def get_ax(rows=1, cols=1, size=8):
@@ -102,6 +103,7 @@ def test(config, args):
     match_kinds = ['one-to-one', 'many-to-one', 'many-to-many']
     results = []
     unique_scores = []
+    print('Processing through {} images'.format(len(args.dataset_test.image_ids)))
     for image_count, image_id in enumerate(args.dataset_test.image_ids):
         try:
             if args.num_images is not None and image_count > args.num_images:
@@ -112,6 +114,7 @@ def test(config, args):
                     args.dataset_test, config, image_id, use_mini_mask=False)
             # molded_images = np.expand_dims(modellib.mold_image(image, config), 0)
             predicted = model.detect([image], verbose=0)[0]
+            r = predicted
             predicted = result_to_series(predicted) if len(predicted['class_ids']) else None
             if predicted is not None:
                 unique_scores.append(predicted['score'])
@@ -121,13 +124,29 @@ def test(config, args):
                 'class_ids': gt_class_ids
             }) if len(gt_class_ids) else None
             results.append((image_id, predicted, object_gts))
+
+            if args.show:
+                if r is not None:
+                    plt.figure()
+                    plt.subplot(1, 2, 1)
+                    
+                    visualize.display_instances(
+                        image, r['rois'], r['masks'], r['class_ids'], class_names, r['scores']
+                    )
+                    plt.title('predicted')
+                    plt.subplot(1, 2, 2)
+                    display_gt(args.dataset_test, image_id)
+                    plt.title('ground truth')
+                    plt.show()
+
+
         except ValueError as e:
             print("GOT AN ERROR", file=sys.stderr)
             print(e, file=sys.stderr)
 
     unique_scores = np.sort(pd.concat(unique_scores).unique())
     image_stats = []
-    for score_thresh in unique_scores[-10:]:
+    for score_thresh in np.linspace(unique_scores[0], unique_scores[-1], 50):
         for matching in match_kinds:
             for image_id, predicted, object_gts in results:
                 subset = predicted[predicted['score'] > score_thresh] if predicted is not None else None
@@ -166,7 +185,7 @@ def main(args):
     spec.loader.exec_module(config_module)
     config = config_module.InferenceConfig()
     if args.sanity_check:
-        pprint(args, file=sys.stderr)
+        print(args, file=sys.stderr)
         config.display()
         sanity_check_masks(args.dataset_test)
     test(config, args)
