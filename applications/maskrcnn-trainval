@@ -61,6 +61,7 @@ def main(args):
             return_coco=True
         )
         args.dataset_train.prepare()
+        print('Total num classes: ', args.dataset_train.num_classes)
         # print("Loaded coco_train {:d} images".format(len(args.coco_train.imgs)))
         args.dataset_val = dataset_model()
         args.coco_val = args.dataset_val.load_coco(

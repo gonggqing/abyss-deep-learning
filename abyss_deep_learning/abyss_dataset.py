@@ -44,11 +44,6 @@ class CocoDataset(utils.Dataset):
         #     self.auto_download(os.path.dirname(dataset_path), subset, year)
         coco = COCO(dataset_path)
 
-        # Load all classes or a subset?
-        if not class_ids:
-            # All classes
-            class_ids = sorted(coco.getCatIds())
-
         # All images or a subset?
         if class_ids:
             image_ids = []
@@ -58,6 +53,7 @@ class CocoDataset(utils.Dataset):
             image_ids = list(set(image_ids))
         else:
             # All images
+            class_ids = sorted(coco.getCatIds())
             image_ids = list(coco.imgs.keys())
 
         # Add classes
