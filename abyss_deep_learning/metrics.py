@@ -26,7 +26,7 @@ def result_to_series(result):
         return None
     return pd.DataFrame(frame, columns=frame[0].keys())
 
-def calculate_tfpn(predicted, object_gts, matching='one-to-one', iou_thresh=0.5):#, scores=None, score_thresh=None):
+def calculate_tfpn(predicted, object_gts, matching='one-to-one', iou_thresh=0.5):#, score_thresh=None):
     '''Calculate True Positive, False Positive and False Negatives given two objects of the same class
         inputs are pandas.DataFrame as returned by result_to_series
     '''
@@ -44,6 +44,7 @@ def calculate_tfpn(predicted, object_gts, matching='one-to-one', iou_thresh=0.5)
             'many-to-one': matching_many_to_one,
             'many-to-many': matching_many_to_many
         }[matching](ious, iou_thresh) #, scores=scores, score_thresh=score_thresh)
+        scores = predicted['scores']
     elif predicted is None and object_gts is not None:
         TP, FP, FN = 0, 0, len(object_gts)
     elif predicted is not None and object_gts is None:
@@ -108,7 +109,6 @@ def calc_image_stats(predicted, object_gts, matching, iou_thresh=0.5, score_thre
     return image_stats
 
 def matching_one_to_one(ious, iou_thresh):
-    #, scores=None, score_thresh=None):
     '''Definitions (one-to-one):
         TP = number of detections with (IoU > 0.5)
         FP = number of detections with (IoU <= 0.5 or detected more than once)
@@ -119,16 +119,12 @@ def matching_one_to_one(ious, iou_thresh):
     FN = np.zeros(ious.shape[1], dtype=np.bool)
     # print(ious)
     invalid = ious <= iou_thresh
-    # if score_thresh:
-    #     invalid[scores <= score_thresh, :] = True
     ious[invalid] = 0
     # print(ious)
     pred_idx_ptr, gt_idx = linear_sum_assignment(1 - ious)
     pred_idx = np.arange(len(TP))[pred_idx_ptr]
     match_costs = ious[pred_idx, gt_idx]
     valid = match_costs > iou_thresh
-    # if scores is not None:
-    #     valid &= scores[pred_idx] > score_thresh
     pred_idx = pred_idx[valid]
     gt_idx = gt_idx[valid]
     # pred_idx_unmatched = np.array(list(set(range(ious.shape[0])) - set(pred_idx.tolist())))
@@ -139,6 +135,7 @@ def matching_one_to_one(ious, iou_thresh):
     if gt_idx_unmatched.size:
         FN[gt_idx_unmatched] = True
     # printTPFPFN(TP, FP, FN)
+    # Y_true = 
     return TP, FP, FN
 
 def printTPFPFN(TP, FP, FN):

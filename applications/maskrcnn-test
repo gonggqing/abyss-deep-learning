@@ -127,7 +127,7 @@ def test(config, args):
 
     unique_scores = np.sort(pd.concat(unique_scores).unique())
     image_stats = []
-    for score_thresh in unique_scores[-10:]:
+    for score_thresh in np.linspace(unique_scores[0], unique_scores[-1], 20):
         for matching in match_kinds:
             for image_id, predicted, object_gts in results:
                 subset = predicted[predicted['score'] > score_thresh] if predicted is not None else None

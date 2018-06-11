@@ -160,19 +160,15 @@ class CocoDataset(utils.Dataset):
         for image_id in imgIds:
             self.data[image_id] = (func_input(image_id[0]), func_target(image_id[1]))
 
-    def generator(self, imgIds=[], batch_size=1, shuffle_ids=False):
+    def generator(self, imgIds=[], shuffle_ids=False):
         imgIds = imgIds or self.image_ids
         imgIds = list(imgIds) # make a copy
         # catIds = catIds or self.class_ids
         if shuffle_ids:
             shuffle(imgIds)
-        batch = []
         for image_id in cycle(imgIds):
-            pair = (self.load_image(image_id),) + self.load_mask(image_id)
-            batch.append(pair)
-            if len(batch) >= batch_size:
-                yield tuple(map(np.array, tuple(map(tuple, zip(*batch)))))
-                batch = []
+            yield (self.load_image(image_id),) + self.load_mask(image_id)
+
 
 
 ############################################################
