@@ -44,7 +44,7 @@ def calculate_tfpn(predicted, object_gts, matching='one-to-one', iou_thresh=0.5)
             'many-to-one': matching_many_to_one,
             'many-to-many': matching_many_to_many
         }[matching](ious, iou_thresh) #, scores=scores, score_thresh=score_thresh)
-        scores = predicted['scores']
+        # scores = predicted['scores']
     elif predicted is None and object_gts is not None:
         TP, FP, FN = 0, 0, len(object_gts)
     elif predicted is not None and object_gts is None:
