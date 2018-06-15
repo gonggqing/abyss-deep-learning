@@ -124,10 +124,24 @@ def augmentation_gen(gen, aug_config, enable=True):
     if not enable:
         while True:
             yield from gen
-    seq = iaa.Sequential([
-        iaa.Fliplr(aug_config['flip_lr_percentage']),
-        iaa.Flipud(aug_config['flip_ud_percentage']),
-        iaa.Affine(**aug_config['affine'])
-    ])
+    aug_list = []
+    if 'flip_lr_percentage' in aug_config:
+        aug_list += [iaa.Fliplr(aug_config['flip_lr_percentage'])]
+    if 'flip_ud_percentage' in aug_config:
+        aug_list += [iaa.Flipud(aug_config['flip_ud_percentage'])]
+    if 'affine' in aug_config:
+        aug_list += [iaa.Affine(**aug_config['affine'])]
+    if 'color' in aug_config:
+        aug_list += [iaa.Sometimes(
+            aug_config['color']['probability'], iaa.Sequential([
+            iaa.ChangeColorspace(from_colorspace="RGB", to_colorspace="HSV"),
+            iaa.WithChannels(0, iaa.Add(aug_config['color']['hue'])),
+            iaa.WithChannels(1, iaa.Add(aug_config['color']['saturation'])),
+            iaa.WithChannels(2, iaa.Add(aug_config['color']['value'])),
+            iaa.ChangeColorspace(from_colorspace="HSV", to_colorspace="RGB")
+        ]))]
+    if 'custom' in aug_config:
+        aug_list += aug_config['custom']
+    seq = iaa.Sequential(aug_list)
     for image, target in gen:
         yield seq.augment_image(image), target
