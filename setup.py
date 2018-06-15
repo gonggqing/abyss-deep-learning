@@ -8,7 +8,11 @@ setup(
     author='Abyss Solutions',
     author_email='tech@abysssolutions.com.au',
     url='http://github.com/abyss-solutions/deep-learning',
-    packages=['abyss_deep_learning', 'abyss_maskrcnn'],
+    packages=[
+        'abyss_deep_learning',
+        'abyss_deep_learning.keras',
+        'abyss_maskrcnn'
+    ],
     package_data={
         # 'abyss_deep_learning': ["third-party"]
     },

@@ -42,7 +42,7 @@ class CocoDataset(utils.Dataset):
 
         # if auto_download is True:
         #     self.auto_download(os.path.dirname(dataset_path), subset, year)
-        coco = COCO(dataset_path)
+        self.coco = COCO(dataset_path)
 
         # All images or a subset?
         if class_ids:
@@ -73,7 +73,7 @@ class CocoDataset(utils.Dataset):
                     imgIds=[i], catIds=class_ids, iscrowd=None)))
         if preload:
             self.preload_images()
-        return coco
+        return self.coco
 
     def preload_images(self):
         print("Preloading images.", file=stderr)
@@ -86,6 +86,24 @@ class CocoDataset(utils.Dataset):
             return self.data[image_id][0]
         return super(CocoDataset, self).load_image(image_id)
 
+    def image_reference(self, image_id):
+        """Return a link to the image in the COCO Website."""
+        info = self.image_info[image_id]
+        if info["source"] == "coco":
+            return "http://cocodataset.org/#explore?id={}".format(info["id"])
+        return super(CocoDataset, self).image_reference(image_id)
+
+    def apply(self, func_input, func_target=None, imgIds=[]):
+        '''Applies functions to input and target, if the DB is preloaded'''
+        assert self.data, "apply() only works on preloaded images"
+        if not func_target:
+            func_target = lambda x: x
+        imgIds = imgIds or self.image_ids
+        for image_id in imgIds:
+            self.data[image_id] = (func_input(image_id[0]), func_target(image_id[1]))
+
+
+class InstSegDataset(CocoDataset):
     def load_mask(self, image_id):
         """Load instance masks for the given image.
 
@@ -140,22 +158,6 @@ class CocoDataset(utils.Dataset):
         # Otherwise call super class to return an empty mask
         return super(CocoDataset, self).load_mask(image_id)
 
-    def image_reference(self, image_id):
-        """Return a link to the image in the COCO Website."""
-        info = self.image_info[image_id]
-        if info["source"] == "coco":
-            return "http://cocodataset.org/#explore?id={}".format(info["id"])
-        return super(CocoDataset, self).image_reference(image_id)
-
-    def apply(self, func_input, func_target=None, imgIds=[]):
-        '''Applies functions to input and target, if the DB is preloaded'''
-        assert self.data, "apply() only works on preloaded images"
-        if not func_target:
-            func_target = lambda x: x
-        imgIds = imgIds or self.image_ids
-        for image_id in imgIds:
-            self.data[image_id] = (func_input(image_id[0]), func_target(image_id[1]))
-
     def generator(self, imgIds=[], shuffle_ids=False):
         imgIds = imgIds or self.image_ids
         imgIds = list(imgIds) # make a copy
@@ -165,6 +167,19 @@ class CocoDataset(utils.Dataset):
         for image_id in cycle(imgIds):
             yield (self.load_image(image_id),) + self.load_mask(image_id)
 
+class ClassificationDataset(CocoDataset):
+    def __init__(self, *args, **kwargs):
+        '''Call load_coco'''
+        super(ClassificationDataset, self).__init__(*args, **kwargs)
+
+    def generator(self, imgIds=[], shuffle_ids=False):
+        imgIds = imgIds or self.image_ids
+        imgIds = list(imgIds) # make a copy
+        # catIds = catIds or self.class_ids
+        if shuffle_ids:
+            shuffle(imgIds)
+        for image_id in cycle(imgIds):
+            yield (self.load_image(image_id),) + self.load_mask(image_id)
 
 
 ############################################################

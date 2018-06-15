@@ -53,10 +53,11 @@ class CocoDataset(object):
     @staticmethod
     def from_COCO(coco, image_dir=None, limit_images=None):
         dataset = CocoDataset()
-        for category in coco.loadCats(ids=coco.getCatIds()):
-            dataset.add_category(
-                category['name'], id_number=int(category['id']), supercategory=category['supercategory']
-            )
+        if coco.cats:
+            for category in coco.loadCats(ids=coco.getCatIds()):
+                dataset.add_category(
+                    category['name'], id_number=int(category['id']), supercategory=category['supercategory']
+                )
         images = coco.loadImgs(ids=coco.getImgIds())
         shuffle(images)
         for i, image in enumerate(images):
@@ -71,11 +72,16 @@ class CocoDataset(object):
         image_ids = [image['id'] for image in dataset.images]
         for annotation in coco.loadAnns(coco.getAnnIds()):
             if int(annotation['image_id']) in image_ids:
-                dataset.add_annotation(
-                    int(annotation['image_id']),
-                    int(annotation['category_id']),
-                    annotation['segmentation']
-                )
+                if 'caption' in annotation:
+                    dataset.add_caption(
+                        int(annotation['image_id']),
+                        annotation['caption'])
+                else:
+                    dataset.add_annotation(
+                        int(annotation['image_id']),
+                        int(annotation['category_id']),
+                        annotation['segmentation']
+                    )
         return dataset
 
     @staticmethod
@@ -227,6 +233,18 @@ class CocoDataset(object):
                     .format(image_id, category_id)
                 )
 
+    def add_caption(self, image_id, caption, other=None):
+        annotation_id = next_smallest_free_id(
+            [ann['id'] for ann in self.annotations])
+        annotation = {
+            "caption": caption,
+            "id": int(annotation_id),
+            "image_id": int(image_id),
+        }
+        if other is not None:
+            annotation.update(other)
+        self.annotations.append(annotation)
+
     def split(self, splits, verbose=False):
         image_set = set([img['id'] for img in self.images])
         datasets = []
@@ -323,8 +341,9 @@ class CocoDataset(object):
             "licenses": self.licenses,
             "images": self.images,
             "annotations": self.annotations,
-            "categories": self.categories
         }
+        if self.categories:
+            data_out["categories"] = self.categories
         if self.pretty:
             return json.dumps(data_out, sort_keys=True, indent=4, separators=(',', ': '))
         return json.dumps(data_out, sort_keys=True, separators=(',', ':'))
