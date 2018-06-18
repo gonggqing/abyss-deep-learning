@@ -73,7 +73,8 @@ class Inference(object):
         from keras.models import model_from_json
         with open(config_path, "r") as config_file:
             self.config = json.load(config_file)
-        self.model = model_from_json(self.config['model'])
+        with open(self.config['model'], "r") as model_def:
+            self.model = model_from_json(model_def.read())
         self.model.load_weights(self.config['weights'])
         if self.config['architecture']['backbone'] == "inceptionv3":
             from keras.applications.inception_v3 import preprocess_input
