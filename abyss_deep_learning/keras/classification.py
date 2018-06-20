@@ -86,7 +86,7 @@ class Inference(object):
 
     def _preprocess_input(self, images):
         images = np.array([
-            resize(image, self.config['architecture']['input_shape'], preserve_range=True)
+            resize(image, self.config['architecture']['input_shape'], preserve_range=True, mode='constant')
             for image in images])
         return self._preprocess_model_input(images)
 
