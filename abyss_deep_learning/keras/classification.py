@@ -42,15 +42,17 @@ class FromAnnDataset(COCO):
                     "load_image tried to load an image with dims of {:s}".format(str(image.shape)))
         return image
         
+    # Differs from ClassificationDataset
     def load_categories(self, image_id):
         assert isinstance(image_id, int), "Must pass exactly one ID"
-        caps = [annotation['category_id']
+        caps = [(annotation['category_id']-1)   # -1 to make cat_ids zero-indexed
          for annotation in self.loadAnns(self.getAnnIds([image_id]))]
         return set(caps)
     
     def num_images(self, imgIds=[], catIds=[]):
         return len(self.getAnnIds(imgIds, catIds))
-        
+      
+    # Differs from ClassificationDataset  
     def generator(self, imgIds=[], shuffle_ids=False):
         if not imgIds:
             imgIds = [ann['image_id'] for ann in self.loadAnns(ids=self.getAnnIds())]
@@ -119,7 +121,12 @@ class Inference(object):
         from keras.models import model_from_json
         with open(config_path, "r") as config_file:
             self.config = json.load(config_file)
-        self.model = model_from_json(self.config['model'])
+        print(self.config)
+        with open(self.config['model'],'r') as cf_file:
+            model_def = cf_file.read()
+
+        print(model_def)
+        self.model = model_from_json(model_def) # previously self.config['model']
         self.model.load_weights(self.config['weights'])
         if self.config['architecture']['backbone'] == "inceptionv3":
             from keras.applications.inception_v3 import preprocess_input
