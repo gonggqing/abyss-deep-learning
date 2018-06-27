@@ -122,17 +122,10 @@ class Inference(object):
         from keras.models import model_from_json
         with open(config_path, "r") as config_file:
             self.config = json.load(config_file)
-<<<<<<< HEAD
-        print(self.config)
-        with open(self.config['model'],'r') as cf_file:
-            model_def = cf_file.read()
 
-        print(model_def)
-        self.model = model_from_json(model_def) # previously self.config['model']
-=======
         with open(self.config['model'], "r") as model_def:
             self.model = model_from_json(model_def.read())
->>>>>>> 8e103d1dc9465b4ec0b2bd866ff812b5b7be4d9b
+
         self.model.load_weights(self.config['weights'])
         if self.config['architecture']['backbone'] == "inceptionv3":
             from keras.applications.inception_v3 import preprocess_input
