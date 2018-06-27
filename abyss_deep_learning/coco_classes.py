@@ -345,11 +345,16 @@ class CocoDataset(object):
             img_ids.add(id_val)
         # Merge annotations, mapping image and category IDs
         for annotation in other.annotations:
-            self.add_annotation(
-                img_map[annotation['image_id']],
-                cat_map[annotation['category_id']],
-                annotation['segmentation']
-            )
+            if 'caption' in annotation:
+                self.add_caption(
+                    int(annotation['image_id']),
+                    annotation['caption'])
+            elif 'segm' in annotation:
+                self.add_annotation(
+                    img_map[annotation['image_id']],
+                    cat_map[annotation['category_id']],
+                    annotation['segmentation']
+                )
         return self
 
     def __str__(self):
