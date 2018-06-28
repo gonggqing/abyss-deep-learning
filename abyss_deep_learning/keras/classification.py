@@ -161,9 +161,14 @@ class Inference(object):
 
 ####### Generators ######
 
-def caption_map_gen(gen, caption_map):
+def caption_map_gen(gen, caption_map, background=None, skip_bg=False):
     for image, captions in gen:
-        yield image, [caption_map[i] for i in captions]
+        if not captions or (background in captions):
+            if skip_bg:
+                continue
+            yield image, []
+        else:
+            yield image, [caption_map[i] for i in captions] if captions else []
 
 
 def set_to_onehot(captions):
