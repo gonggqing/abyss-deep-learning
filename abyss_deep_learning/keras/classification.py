@@ -46,18 +46,18 @@ class FromAnnDataset(COCO):
         
     # Differs from ClassificationDataset
     def load_categories(self, image_id):
-        assert isinstance(image_id, int), "Must pass exactly one ID"
+        assert np.issubdtype(type(image_id), np.integer), "Must pass exactly one ID"
         caps = [(annotation['category_id']-1)   # -1 to make cat_ids zero-indexed
          for annotation in self.loadAnns(self.getAnnIds([image_id]))]
         return set(caps)
     
     def num_images(self, imgIds=[], catIds=[]):
-        return len(self.getAnnIds(imgIds, catIds))
+        return len(np.unique([ann['image_id'] for ann in self.loadAnns(ids=self.getAnnIds(imgIds, catIds))]))
       
     # Differs from ClassificationDataset  
     def generator(self, imgIds=[], shuffle_ids=False):
         if not imgIds:
-            imgIds = [ann['image_id'] for ann in self.loadAnns(ids=self.getAnnIds())]
+            imgIds = np.unique([ann['image_id'] for ann in self.loadAnns(ids=self.getAnnIds())])
         if shuffle_ids:
             shuffle(imgIds)
         for image_id in cycle(imgIds):
@@ -93,7 +93,7 @@ class ClassificationDataset(COCO):
         return image
 
     def load_caption(self, image_id):
-        assert isinstance(image_id, int), "Must pass exactly one ID"
+        assert np.issubdtype(type(image_id), np.integer), "Must pass exactly one ID"
         caps = [annotation['caption'].split(',')
          for annotation in self.loadAnns(self.getAnnIds(imgIds=[image_id]))]
         return set([i for f in caps for i in f])
@@ -103,7 +103,7 @@ class ClassificationDataset(COCO):
 
     def generator(self, imgIds=[], shuffle_ids=False):
         if not imgIds:
-            imgIds = [ann['image_id'] for ann in self.loadAnns(ids=self.getAnnIds())]
+            imgIds = np.unique([ann['image_id'] for ann in self.loadAnns(ids=self.getAnnIds())])
         if shuffle_ids:
             shuffle(imgIds)
         for image_id in cycle(imgIds):
@@ -165,6 +165,9 @@ def caption_map_gen(gen, caption_map):
     for image, captions in gen:
         yield image, [caption_map[i] for i in captions]
 
+
+def set_to_onehot(captions):
+    return np.array([1 if i in captions else 0 for i in range(num_classes)])
 
 def onehot_gen(gen, num_classes):
     for image, captions in gen:
