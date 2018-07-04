@@ -1,5 +1,7 @@
+from collections import Counter
+
 import numpy as np
-# from itertools import product
+from itertools import cycle
 # from numpy.lib.stride_tricks import as_strided as ast
 from skimage.color import rgb2gray
 import keras.backend as K
@@ -124,3 +126,36 @@ def batching_gen(gen, batch_size=1):
             if len(batches[0]) >= batch_size:
                 yield tuple(np.array(item) for item in batches)
                 batches = [[] for i in range(num_items)]
+
+def gen_dump_data(gen, num_images):
+    data = [[], []]
+    for i, (image, caption) in enumerate(gen):
+        data[0].append(image)
+        data[1].append(caption)
+        if i >= num_images:
+            break
+    data = (
+        np.concatenate([i[np.newaxis, ...] for i in data[0]], axis=0),
+        np.concatenate([i[np.newaxis, ...] for i in data[1]], axis=0)
+    )
+    return data
+
+def count_labels_single(data):
+    return Counter([int(j) for i in data[1] for j in np.argwhere(i)])
+
+def count_labels_multi(data):
+    values = np.sum(data[1], axis=0).tolist()
+    keys = np.arange(len(values))
+    return dict(zip(keys, values))
+
+def calc_class_weights(data, caption_type='single'):
+    '''Calculate the class weights required to get a balanced optimizer.
+    Data is a keras-generator-style tuple (inputs[], targets[]).
+    To use a generator use data=gen_dump_data(gen, num_images).'''
+    count_function = count_labels_single if caption_type == "single" else count_labels_multi
+    counts = count_function(data)
+    class_weights =  np.array([j for i, j in sorted(counts.items(), key=lambda x: x[0])], dtype=np.float64)
+    class_weights /= np.max(class_weights)
+    class_weights = dict(zip(sorted(counts.keys()), class_weights.tolist()))
+    return class_weights
+

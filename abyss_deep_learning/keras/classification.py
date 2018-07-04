@@ -15,6 +15,10 @@ from skimage.transform import resize
 from tensorboard.plugins.pr_curve import summary as pr_summary
 import numpy as np
 
+
+def hamming_loss(y_true, y_pred):
+    return K.mean(y_true * (1 - y_pred) + (1 - y_true) * y_pred)
+
 class FromAnnDataset(COCO):
     def __init__(self, *args, **kwargs):
         super(FromAnnDataset, self).__init__(*args, **kwargs)
@@ -64,7 +68,17 @@ class FromAnnDataset(COCO):
             yield self.load_image(image_id), self.load_categories(image_id)
 
 class ClassificationDataset(COCO):
-    def __init__(self, caption_map, *args, **kwargs):
+    class AnnotationTranslator(object):
+        '''base class to transform annotations'''
+        def filter(self, annotation):
+            '''Whether or not to use a annotation'''
+            return 'caption' in annotation
+        def translate(self, annotation):
+            '''Transform the annotation in to a list of captions'''
+            return [annotation['caption']]
+
+    def __init__(self, caption_map, translator=None, *args, **kwargs):
+        self.translator = translator or ClassificationDataset.AnnotationTranslator()
         super(ClassificationDataset, self).__init__(*args, **kwargs)
 
     def load_image(self, image_id):
@@ -94,8 +108,9 @@ class ClassificationDataset(COCO):
 
     def load_caption(self, image_id):
         assert np.issubdtype(type(image_id), np.integer), "Must pass exactly one ID"
-        caps = [annotation['caption'].split(',')
-         for annotation in self.loadAnns(self.getAnnIds(imgIds=[image_id]))]
+        caps = [self.translator.translate(annotation)
+         for annotation in self.loadAnns(self.getAnnIds(imgIds=[image_id]))
+         if self.translator.filter(annotation)]
         return set([i for f in caps for i in f])
 
     def num_images(self, imgIds=[], catIds=[]):
@@ -129,11 +144,15 @@ class Inference(object):
         self.model.load_weights(self.config['weights'])
         if self.config['architecture']['backbone'] == "inceptionv3":
             from keras.applications.inception_v3 import preprocess_input
-            self._preprocess_model_input = preprocess_input
+        elif self.config['architecture']['backbone'] == "vgg16":
+            from keras.applications.vgg16 import preprocess_input
+        elif self.config['architecture']['backbone'] == "resnet50":
+            from keras.applications.resnet50 import preprocess_input
         else:
             raise ValueError(
                 "Unknown model architecture.backbone '{:s}'".format(
                     self.config['architecture']['backbone']))
+        self._preprocess_model_input = preprocess_input
 
     def _preprocess_input(self, images):
         images = np.array([
@@ -163,21 +182,26 @@ class Inference(object):
 
 def caption_map_gen(gen, caption_map, background=None, skip_bg=False):
     for image, captions in gen:
-        if not captions or (background in captions):
+        if not captions or (background in captions and skip_bg):
             if skip_bg:
                 continue
             yield image, []
         else:
-            yield image, [caption_map[i] for i in captions] if captions else []
+            yield image, [
+                caption_map[caption]
+                for caption in captions
+                if caption in caption_map and caption != background]
 
+def cast_dtype_gen(gen, input_dtype, target_dtype):
+    for inputs, targets in gen:
+        yield inputs.astype(input_dtype), targets.astype(target_dtype)
 
-def set_to_onehot(captions):
+def set_to_multihot(captions, num_classes):
     return np.array([1 if i in captions else 0 for i in range(num_classes)])
 
-def onehot_gen(gen, num_classes):
+def multihot_gen(gen, num_classes):
     for image, captions in gen:
-        onehot = np.array([1 if i in captions else 0 for i in range(num_classes)])
-        yield image, onehot
+        yield image, set_to_multihot(captions, num_classes)
 
 
 def augmentation_gen(gen, aug_config, enable=True):
@@ -195,16 +219,16 @@ def augmentation_gen(gen, aug_config, enable=True):
         aug_list += [iaa.Flipud(aug_config['flip_ud_percentage'])]
     if 'affine' in aug_config:
         aug_list += [iaa.Affine(**aug_config['affine'])]
-    if 'color' in aug_config:
-        aug_list += [
-            iaa.Sometimes(
-                aug_config['color']['probability'], iaa.Sequential([
-                    iaa.ChangeColorspace(from_colorspace="RGB", to_colorspace="HSV"),
-                    iaa.WithChannels(0, iaa.Add(aug_config['color']['hue'])),
-                    iaa.WithChannels(1, iaa.Add(aug_config['color']['saturation'])),
-                    iaa.WithChannels(2, iaa.Add(aug_config['color']['value'])),
-                    iaa.ChangeColorspace(from_colorspace="HSV", to_colorspace="RGB")
-        ]))]
+    # if 'color' in aug_config:
+    #     aug_list += [
+    #         iaa.Sometimes(
+    #             aug_config['color']['probability'], iaa.Sequential([
+    #                 iaa.ChangeColorspace(from_colorspace="RGB", to_colorspace="HSV"),
+    #                 iaa.WithChannels(0, iaa.Add(aug_config['color']['hue'])),
+    #                 iaa.WithChannels(1, iaa.Add(aug_config['color']['saturation'])),
+    #                 iaa.WithChannels(2, iaa.Add(aug_config['color']['value'])),
+    #                 iaa.ChangeColorspace(from_colorspace="HSV", to_colorspace="RGB")
+    #     ]))]
     if 'custom' in aug_config:
         aug_list += aug_config['custom']
     seq = iaa.Sequential(aug_list)
