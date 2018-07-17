@@ -8,12 +8,14 @@ import json
 
 from imgaug import augmenters as iaa
 from keras.callbacks import TensorBoard
+from keras.preprocessing.image import ImageDataGenerator
 from pycocotools.coco import COCO
 from skimage.color import gray2rgb
 from skimage.io import imread
 from skimage.transform import resize
 from tensorboard.plugins.pr_curve import summary as pr_summary
 import numpy as np
+import tensorflow as tf
 
 
 def hamming_loss(y_true, y_pred):
@@ -180,6 +182,17 @@ class Inference(object):
 
 ####### Generators ######
 
+def cached_gen(gen, cache_size):
+    datagen = ImageDataGenerator()
+    data = gen_dump_data(gen, cache_size)
+    return batching_gen(datagen.flow(data[0], data[1], batch_size=1), 0)
+
+def skip_bg_gen(gen):
+    for image, target in gen:
+        if np.sum(target) == 0:
+            continue
+        yield image, target
+
 def caption_map_gen(gen, caption_map, background=None, skip_bg=False):
     for image, captions in gen:
         if not captions or (background in captions and skip_bg):
@@ -260,6 +273,7 @@ class PRTensorBoard(TensorBoard):
                 predictions=predictions,
                 labels=labels,
                 display_name='Precision-Recall Curve')
+            self.lr_summary = tf.summary.scalar("lr", self.model.optimizer.lr)
 
     def on_epoch_end(self, epoch, logs=None):
         super(PRTensorBoard, self).on_epoch_end(epoch, logs)
@@ -273,6 +287,7 @@ class PRTensorBoard(TensorBoard):
             val_data = [self.validation_data[1], predictions]
             feed_dict = dict(zip(tensors, val_data))
             # Run and add summary.
-            result = self.sess.run([self.pr_summary], feed_dict=feed_dict)
+            result = self.sess.run([self.pr_summary, self.lr_summary], feed_dict=feed_dict)
             self.writer.add_summary(result[0], epoch)
         self.writer.flush()
+
