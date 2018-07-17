@@ -1,4 +1,3 @@
 __all__ = [
-    "coco",
-    "dataset",
+    "datasets",
     "keras"]

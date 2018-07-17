@@ -11,6 +11,7 @@ setup(
     packages=[
         'abyss_deep_learning',
         'abyss_deep_learning.keras',
+        'abyss_deep_learning.datasets',
         'abyss_maskrcnn'
     ],
     package_data={
