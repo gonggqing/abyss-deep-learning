@@ -17,6 +17,8 @@ from tensorboard.plugins.pr_curve import summary as pr_summary
 import numpy as np
 import tensorflow as tf
 
+from abyss_deep_learning.keras.utils import batching_gen, gen_dump_data
+
 
 def hamming_loss(y_true, y_pred):
     return K.mean(y_true * (1 - y_pred) + (1 - y_true) * y_pred)

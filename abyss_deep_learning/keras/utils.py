@@ -155,7 +155,7 @@ def calc_class_weights(data, caption_type='single'):
     count_function = count_labels_single if caption_type == "single" else count_labels_multi
     counts = count_function(data)
     class_weights =  np.array([j for i, j in sorted(counts.items(), key=lambda x: x[0])], dtype=np.float64)
-    class_weights /= np.max(class_weights)
+    class_weights = np.max(class_weights) / class_weights
     class_weights = dict(zip(sorted(counts.keys()), class_weights.tolist()))
     return class_weights
 

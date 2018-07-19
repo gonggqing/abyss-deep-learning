@@ -28,7 +28,7 @@ class VAE(object):
             self.kernel_size = 3
 
             self.layers = 2
-            self.encoder_input_shape = (28, 28, 1)
+            self.encoder_input_shape = encoder_input_shape or (28, 28, 1)
 
             # Below defined by compile methods
             self.z_mean, self.z_log_var = None, None # Filled when compiled
