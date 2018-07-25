@@ -15,7 +15,7 @@ def reset_weights(model):
         if hasattr(layer, 'kernel_initializer'):
             layer.kernel.initializer.run(session=session)
 
-def bilinear_upsample_weights(filter_size, number_of_classes):
+def bilinear_upsample_weights(filter_size):
     """
     Create weights matrix for transposed convolution with bilinear filter
     initialization.
@@ -31,13 +31,8 @@ def bilinear_upsample_weights(filter_size, number_of_classes):
             center = factor - 0.5
         og = np.ogrid[:size, :size]
         return (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) / factor)
-    weights = np.zeros((filter_size,
-                        filter_size,
-                        number_of_classes,
-                        number_of_classes), dtype=np.float32)
-    upsample_kernel = upsample_filt(filter_size)
-    for i in range(number_of_classes):
-        weights[:, :, i, i] = upsample_kernel
+    weights = np.zeros(filter_size, dtype=np.float32)
+    weights[:] = upsample_filt(filter_size[0])[..., np.newaxis, np.newaxis]
     return weights
 
 def initialize_conv_transpose2d(model, layer_names, trainable=True):
@@ -48,14 +43,13 @@ def initialize_conv_transpose2d(model, layer_names, trainable=True):
         weights = layer.get_weights()
         if len(layer.weights) > 1:
             layer.set_weights([
-                bilinear_upsample_weights(weights[0].shape[0], weights[0].shape[2]),
+                bilinear_upsample_weights(weights[0].shape),
                 weights[1]
             ])
         else:
             layer.set_weights(
                 [bilinear_upsample_weights(weights[0].shape[0], weights[0].shape[2])])
         layer.trainable = trainable
-
 
 
 ######### Common generators #########
@@ -130,13 +124,13 @@ def batching_gen(gen, batch_size=1):
 def gen_dump_data(gen, num_images):
     data = [[], []]
     for i, (image, caption) in enumerate(gen):
-        data[0].append(image)
-        data[1].append(caption)
         if i >= num_images:
             break
+        data[0].append(image)
+        data[1].append(caption)
     data = (
         np.concatenate([i[np.newaxis, ...] for i in data[0]], axis=0),
-        np.concatenate([i[np.newaxis, ...] for i in data[1]], axis=0)
+        np.concatenate([np.asarray(i)[np.newaxis, ...] for i in data[1]], axis=0)
     )
     return data
 

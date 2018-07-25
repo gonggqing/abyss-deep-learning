@@ -271,7 +271,7 @@ class PRTensorBoard(TensorBoard):
             labels = tf.cast(self.model._feed_targets[0], tf.bool)
             # Create the PR summary OP.
             self.pr_summary = pr_summary.op(
-                tag='pr_curve',
+                name='pr_curve',
                 predictions=predictions,
                 labels=labels,
                 display_name='Precision-Recall Curve')

@@ -11,13 +11,6 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 
 
-def config_gpu(gpu_id=0):
-    '''Setup GPU'''
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
-    config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True
-    K.set_session(tf.Session(config=config))
-
 class VAE(object):
     '''Variational Auto Encoder'''
     class Params(object):
@@ -28,16 +21,17 @@ class VAE(object):
             self.kernel_size = 3
 
             self.layers = 2
-            self.encoder_input_shape = encoder_input_shape or (28, 28, 1)
+            self.encoder_input_shape = (28, 28, 1)
 
             # Below defined by compile methods
             self.z_mean, self.z_log_var = None, None # Filled when compiled
             self.last_conv_shape = None
 
 
-    def __init__(self):
+    def __init__(self, input_shape):
         '''Init a VAE'''
         self.params = VAE.Params()
+        self.params.encoder_input_shape = input_shape
         self.decoder = None
         self.encoder = None
         self.inputs = None
