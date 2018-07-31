@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+from contextlib import redirect_stdout
+import argparse
+import importlib.util
+import os
+import sys
+
+from pycocotools.coco import COCO
+
+from abyss_deep_learning.coco_classes import CocoDataset
+from abyss_deep_learning.utils import balanced_set
+
+def main(args):
+    coco_path = args.input
+    # coco_dir = os.path.dirname(coco_path)
+    # coco_name = '.'.join(os.path.basename(coco_path).split('.')[0:-1])
+    if args.verbose:
+        print("loading {:s}".format(coco_path), file=sys.stderr)
+    if not os.path.exists(coco_path):
+        raise Exception("No such COCO json exists")
+    with redirect_stdout(sys.stderr):
+        coco = COCO(coco_path)
+    balanced_ids = balanced_set(coco)
+    coco = CocoDataset.from_COCO(coco)#, image_dir=args.image_dir)
+    coco.images = [v for v in coco.images if v['id'] in balanced_ids]
+    coco.annotations = [v for v in coco.annotations if v['image_id'] in balanced_ids]
+    print(coco)
+
+
+def get_args():
+    '''Get args from the command line args'''
+    parser = argparse.ArgumentParser(
+        description="Output a balanced subset of a COCO JSON dataset. Only captions are supported."
+    )
+    parser.add_argument('input')
+    parser.add_argument('--verbose', action='store_true',
+                        help="verbose output to stderr")
+    args = parser.parse_args()
+    return args
+
+if __name__ == '__main__':
+    main(get_args())
