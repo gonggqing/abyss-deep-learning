@@ -40,16 +40,13 @@ def initialize_conv_transpose2d(model, layer_names, trainable=True):
     The weights are initialised to a bilinear upsampling."""
     for name in layer_names:
         layer = model.get_layer(name=name)
-        weights = layer.get_weights()
-        if len(layer.weights) > 1:
-            layer.set_weights([
-                bilinear_upsample_weights(weights[0].shape),
-                weights[1]
-            ])
-        else:
-            layer.set_weights(
-                [bilinear_upsample_weights(weights[0].shape[0], weights[0].shape[2])])
         layer.trainable = trainable
+        weights = layer.weights
+        values = layer.get_weights()
+        for i, (weight, value) in enumerate(zip(weights, values)):
+            if 'kernel' in weight.name.lower():
+                values[i] = bilinear_upsample_weights(value.shape)
+        layer.set_weights(values)
 
 
 ######### Common generators #########

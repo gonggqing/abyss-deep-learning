@@ -1,5 +1,9 @@
-import PIL.Image
+from collections import Counter
+
+from pycocotools import mask as maskUtils
 import cv2
+import numpy as np
+import PIL.Image
 
 def cv2_to_Pil(image):
     image = cv2.cvtColor(image ,cv2.COLOR_BGR2RGB)
@@ -39,7 +43,8 @@ def config_gpu(gpu_ids=[], allow_growth=False, log_device_placement=True):
 
 
 # Find a balanced set
-def balanced_set(coco):
+def balanced_set(coco, ignore_captions=None):
+    ignore_captions = ignore_captions or []
     captions = [caption 
             for ann in coco.anns.values() if 'caption' in ann
            for caption in ann['caption'].split(',') if caption != "background" and caption not in ignore_captions]
@@ -51,7 +56,7 @@ def balanced_set(coco):
     images_in_caption = {
         caption: [ann['image_id'] for ann in coco.anns.values() if caption in ann['caption'].split(',')]
         for caption in unique_captions}
-    print("images_in_caption", {k: len(i) for k, i in images_in_caption.items()})
+    # print("images_in_caption", {k: len(i) for k, i in images_in_caption.items()})
     for images in images_in_caption.values():
         np.random.shuffle(images)
     
@@ -62,10 +67,10 @@ def balanced_set(coco):
             for ann in coco.anns.values() if ann['image_id'] == image_id and 'caption' in ann
             for caption in ann['caption'].split(',') if len(caption) and caption != "background" and caption not in ignore_captions])
         for image_id in coco.imgs}
-    print("captions_in_image")
-    print([len(captions) for image_id, captions in captions_in_image.items()])
+    # print("captions_in_image")
+    # print([len(captions) for image_id, captions in captions_in_image.items()])
     
-#     print("smallest", smallest_caption, smallest_caption_value)
+    # print("smallest", smallest_caption, smallest_caption_value)
     balanced = []
     out = {caption: [] for caption in unique_captions}
     
@@ -83,11 +88,43 @@ def balanced_set(coco):
         image_id = images_in_caption[least[0]].pop()
         add_to_counts(image_id)
         
-    print("balanced images in caption")
-    print({k: len(v) for k, v in out.items()})
+    # print("balanced images in caption")
+    # print({k: len(v) for k, v in out.items()})
     out = set([j
            for i in out.values()
           for j in i])
 
     return out
 
+############################################################
+# The following two functions are from pycocotools with a few changes.
+############################################################
+
+def ann_rle_encode(ann, height, width):
+    """
+    Convert annotation which can be polygons, uncompressed RLE to RLE.
+    :return: binary mask (numpy 2D array)
+    """
+    segm = ann['segmentation']
+    if isinstance(segm, list):
+        # polygon -- a single object might consist of multiple parts
+        # we merge all parts into one mask rle code
+        rles = maskUtils.frPyObjects(segm, height, width)
+        rle = maskUtils.merge(rles)
+    elif isinstance(segm['counts'], list):
+        # uncompressed RLE
+        rle = maskUtils.frPyObjects(segm, height, width)
+    else:
+        # rle
+        rle = ann['segmentation']
+    return rle
+
+
+def ann_to_mask(ann, output_shape):
+    """
+    Convert annotation which can be polygons, uncompressed RLE, or RLE to binary mask.
+    :return: binary mask (numpy 2D array)
+    """
+    rle = ann_rle_encode(ann, output_shape[0], output_shape[1])
+    mask = maskUtils.decode(rle)
+    return mask

@@ -13,6 +13,7 @@ from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 import numpy as np
 
+from abyss_deep_learning.utils import ann_to_mask
 import abyss_maskrcnn.utils as utils
 
 ############################################################
@@ -53,12 +54,12 @@ class CocoDataset(utils.Dataset):
             image_ids = list(set(image_ids))
         else:
             # All images
-            class_ids = sorted(coco.getCatIds())
-            image_ids = list(coco.imgs.keys())
+            class_ids = sorted(self.coco.getCatIds())
+            image_ids = list(self.coco.imgs.keys())
 
         # Add classes
         for i in class_ids:
-            self.add_class("coco", i, coco.loadCats(i)[0]["name"])
+            self.add_class("coco", i, self.coco.loadCats(i)[0]["name"])
 
         # Add images
         for i in image_ids:
@@ -167,54 +168,7 @@ class InstSegDataset(CocoDataset):
         for image_id in cycle(imgIds):
             yield (self.load_image(image_id),) + self.load_mask(image_id)
 
-class ClassificationDataset(CocoDataset):
-    def __init__(self, *args, **kwargs):
-        '''Call load_coco'''
-        super(ClassificationDataset, self).__init__(*args, **kwargs)
 
-    def generator(self, imgIds=[], shuffle_ids=False):
-        imgIds = imgIds or self.image_ids
-        imgIds = list(imgIds) # make a copy
-        # catIds = catIds or self.class_ids
-        if shuffle_ids:
-            shuffle(imgIds)
-        for image_id in cycle(imgIds):
-            yield (self.load_image(image_id),) + self.load_mask(image_id)
-
-
-############################################################
-# The following two functions are from pycocotools with a few changes.
-############################################################
-
-
-def ann_rle_encode(ann, height, width):
-    """
-    Convert annotation which can be polygons, uncompressed RLE to RLE.
-    :return: binary mask (numpy 2D array)
-    """
-    segm = ann['segmentation']
-    if isinstance(segm, list):
-        # polygon -- a single object might consist of multiple parts
-        # we merge all parts into one mask rle code
-        rles = maskUtils.frPyObjects(segm, height, width)
-        rle = maskUtils.merge(rles)
-    elif isinstance(segm['counts'], list):
-        # uncompressed RLE
-        rle = maskUtils.frPyObjects(segm, height, width)
-    else:
-        # rle
-        rle = ann['segmentation']
-    return rle
-
-
-def ann_to_mask(ann, height, width):
-    """
-    Convert annotation which can be polygons, uncompressed RLE, or RLE to binary mask.
-    :return: binary mask (numpy 2D array)
-    """
-    rle = ann_rle_encode(ann, height, width)
-    mask = maskUtils.decode(rle)
-    return mask
 
 
 ############################################################

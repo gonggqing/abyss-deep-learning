@@ -3,18 +3,20 @@ Classes to handle COCO datasets
 @author: Steven Potiris <spotiris@gmail.com>
 '''
 from __future__ import print_function
-import sys
-import os
-import json
+
+from itertools import count, filterfalse
 from random import shuffle
+import json
+import os
+import sys
+
+from pycocotools import mask as coco_mask
 import bidict
 import numpy as np
-from pycocotools import mask as coco_mask
 
 
 def next_smallest_free_id(id_list):
-    return int(np.min([i for i in np.arange(1, len(id_list) + 2) if i not in id_list]))
-
+    return next(filterfalse(set(id_list).__contains__, count(1)))
 
 class CocoDataset(object):
     '''Class to load, manipulate and save COCO datasets'''
@@ -72,16 +74,17 @@ class CocoDataset(object):
         image_ids = [image['id'] for image in dataset.images]
         for annotation in coco.loadAnns(coco.getAnnIds()):
             if int(annotation['image_id']) in image_ids:
-                if 'caption' in annotation:
-                    dataset.add_caption(
-                        int(annotation['image_id']),
-                        annotation['caption'])
-                else:
-                    dataset.add_annotation(
-                        int(annotation['image_id']),
-                        int(annotation['category_id']),
-                        annotation['segmentation']
-                    )
+                dataset.add_annotation(annotation)
+                # if 'caption' in annotation:
+                #     dataset.add_caption(
+                #         int(annotation['image_id']),
+                #         annotation['caption'])
+                # else:
+                #     dataset.add_segmentation(
+                #         int(annotation['image_id']),
+                #         int(annotation['category_id']),
+                #         annotation['segmentation']
+                #     )
         return dataset
 
     @staticmethod
@@ -206,7 +209,14 @@ class CocoDataset(object):
         self.image_ids.add(id_number)
         return id_number
 
-    def add_annotation(self, image_id, category_id, segm, other=None):
+    def add_annotation(self, ann):
+        '''Add the annotation regardless of annotation type without any type and structure checking.
+        Automatically updates ID to be unique.
+        Use add_segmentation and add_caption for type and structure checking.'''
+        ann['id'] = next_smallest_free_id([ann['id'] for ann in self.annotations])
+        self.annotations.append(ann)
+
+    def add_segmentation(self, image_id, category_id, segm, other=None):
         if category_id not in self.class_dict.inv:
             raise Exception("no category id exists {}".format(category_id))
         (segm, bbox, area) = CocoDataset.serialize_label(segm)
@@ -345,16 +355,17 @@ class CocoDataset(object):
             img_ids.add(id_val)
         # Merge annotations, mapping image and category IDs
         for annotation in other.annotations:
-            if 'caption' in annotation:
-                self.add_caption(
-                    int(annotation['image_id']),
-                    annotation['caption'])
-            elif 'segm' in annotation:
-                self.add_annotation(
-                    img_map[annotation['image_id']],
-                    cat_map[annotation['category_id']],
-                    annotation['segmentation']
-                )
+            self.add_annotation(annotation)
+            # if 'caption' in annotation:
+            #     self.add_caption(
+            #         int(annotation['image_id']),
+            #         annotation['caption'])
+            # elif 'segm' in annotation:
+            #     self.add_segmentation(
+            #         img_map[annotation['image_id']],
+            #         cat_map[annotation['category_id']],
+            #         annotation['segmentation']
+            #     )
         return self
 
     def __str__(self):
