@@ -14,6 +14,7 @@ import numpy as np
 
 from abyss_deep_learning.utils import ann_to_mask
 from abyss_deep_learning.datasets.base import ImageTargetDataset
+from abyss_deep_learning.keras.classification import set_to_multihot
 
 class SegmentationDataset(ImageTargetDataset):
     '''Realisation of a ImageTargetDataset class, where the dataset is expected to
@@ -26,20 +27,36 @@ class SegmentationDataset(ImageTargetDataset):
         super(SegmentationDataset, self).__init__(annotation_file, **kwargs)
         self.output_shape = output_shape
         self._num_classes = num_classes or 1 + len(self.cats)
+        self.annotation_filter = lambda ann: 'segmentation' in ann
 
     @property
     def num_classes(self):
         return self._num_classes
-
+    
     def load_image_targets(self, image_id):
         return self.load_segmentation(image_id)
 
     def load_segmentation(self, image_id):
         assert np.issubdtype(type(image_id), np.integer), "Must pass exactly one ID"
-        anns = self.loadAnns(self.getAnnIds([image_id]))
-        masks = np.array([ann_to_mask(ann, self.output_shape) for ann in anns]).transpose((1, 2, 0))
-        class_ids = np.array([ann['category_id'] for ann in anns])
-        return _pack_masks(masks, class_ids, self.num_classes)
+        img = self.loadImgs(ids=[image_id])[0]
+        
+        anns = [ann for ann in self.loadAnns(self.getAnnIds([image_id])) if self.annotation_filter(ann)]
+        if anns:
+            masks = np.array([ann_to_mask(ann, self.output_shape) for ann in anns]).transpose((1, 2, 0))
+            class_ids = np.array([ann['category_id'] for ann in anns])
+            return _pack_masks(masks, class_ids, self.num_classes)
+        masks = np.zeros(img['height'], img['width'], self.num_classes)
+        masks[..., 0] = 1
+        return masks
+    
+    def load_caption(self, image_id):
+        '''Returns a multi-hot of the classes present in the image according to the segmentation annotations.'''
+        assert np.issubdtype(type(image_id), np.integer), "Must pass exactly one ID"
+        img = self.loadImgs(ids=[image_id])[0]
+        anns = [ann for ann in self.loadAnns(self.getAnnIds([image_id])) if self.annotation_filter(ann)]
+        categories = set([ann['category_id'] for ann in anns])
+        return categories
+#         return set_to_multihot(categories, num_classes=self.num_classes)
 
 
 class SegmentationModel(object):

@@ -1,3 +1,0 @@
-[submodule "abyss_maskrcnn"]
-	path = abyss_maskrcnn
-	url = https://github.com/abyss-solutions/Mask_RCNN.git

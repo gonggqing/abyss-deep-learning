@@ -14,9 +14,9 @@ import numpy as np
 import skimage.color.rgb_colors as rgb_colors
 import skvideo.io
 
-import abyss_maskrcnn.model as modellib
-import abyss_maskrcnn.utils as utils
-import abyss_maskrcnn.visualize as visualize
+import mrcnn.model as modellib
+import mrcnn.utils as utils
+import mrcnn.visualize as visualize
 
 
 def file_ext_type(source_path):
@@ -98,6 +98,7 @@ def predict(model, batch, args):
     }
     for rgb, result in zip(batch, results):
         # filter_predictions(rgb, result, config)
+        result['masks'] = result['masks'].astype(np.uint32)
         num_results = len(result['scores'])
         label_image = np.zeros(rgb.shape[0:2], dtype=np.uint8)
         if num_results > 0:
@@ -140,7 +141,7 @@ def main(args):
         "maskrcnn_config", args.config)
     config_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(config_module)
-    config = config_module.InferenceConfig()
+    config = config_module.Config()
     if args.class_names is None:
         args.class_names = [str(i) for i in range(config.NUM_CLASSES)]
     else:
@@ -286,7 +287,7 @@ def get_args():
         "weights", help="Path to the coco JSON for the validation set.")
     parser.add_argument('input', nargs='+', action=MyAction)
     parser.add_argument(
-        "--batch", help="Use these class names instead of class numbers (with --show)", default=None)
+        "--batch", help="Batch size", default=None)
     parser.add_argument(
         "--class-names",
         default=None,
