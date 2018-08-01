@@ -37,15 +37,20 @@ def bilinear_upsample_weights(filter_size):
 
 def initialize_conv_transpose2d(model, layer_names, trainable=True):
     """Initialize Conv_Transpose2D layers given by name in a model.
-    The weights are initialised to a bilinear upsampling."""
+    The weights are initialised to a noisy bilinear upsampling."""
+    session = K.get_session()
     for name in layer_names:
         layer = model.get_layer(name=name)
+        if hasattr(layer, 'kernel_initializer'):
+            layer.kernel.initializer.run(session=session)
+        # if hasattr(layer, 'bias_initializer')
+        #     layer.bias.initializer.run(session=session)
         layer.trainable = trainable
         weights = layer.weights
         values = layer.get_weights()
         for i, (weight, value) in enumerate(zip(weights, values)):
             if 'kernel' in weight.name.lower():
-                values[i] = bilinear_upsample_weights(value.shape)
+                values[i] += bilinear_upsample_weights(value.shape)
         layer.set_weights(values)
 
 
