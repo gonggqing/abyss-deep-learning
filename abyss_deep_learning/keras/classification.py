@@ -19,15 +19,15 @@ import numpy as np
 import tensorflow as tf
 
 from abyss_deep_learning.keras.utils import batching_gen, gen_dump_data
-from abyss_deep_learning.datasets.base import ImageTargetDataset
+from abyss_deep_learning.datasets.base import SupervisedDataset
 
 
 def hamming_loss(y_true, y_pred):
     return K.mean(y_true * (1 - y_pred) + (1 - y_true) * y_pred)
 
 
-class ClassificationDataset(ImageTargetDataset):
-    '''Realisation of a ImageTargetDataset class, where the dataset is expected to
+class ClassificationDataset(SupervisedDataset):
+    '''Realisation of a SupervisedDataset class, where the dataset is expected to
        have one image and at least one caption type annotation.
        The annotation can be interpreted into a list of captions given a AnnotationTranslator.
        The image targets are the set of translated captions from the annotations.'''
@@ -40,14 +40,12 @@ class ClassificationDataset(ImageTargetDataset):
             '''Transform the annotation in to a list of captions'''
             return [annotation['caption']]
 
-    def __init__(self, num_classes, translator=None, *args, **kwargs):
+    def __init__(
+            self, annotation_file, translator=None, image_dir=None,
+            class_ids=None, preload=False, class_map=None):
         self.translator = translator or ClassificationDataset.AnnotationTranslator()
-        self._num_classes = num_classes
-        super().__init__(*args, **kwargs)
-
-    @property
-    def num_classes(self):
-        return self._num_classes
+        super().__init__(annotation_file, image_dir, class_ids, preload, class_map)
+        self.num_classes = 1 + (len(class_ids) if class_ids else len(self.cats))
 
     def load_image_targets(self, img_id):
         return self.load_caption(img_id)

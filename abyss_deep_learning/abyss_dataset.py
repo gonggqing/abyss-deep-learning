@@ -13,7 +13,6 @@ from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 import numpy as np
 
-from abyss_deep_learning.utils import ann_to_mask
 import abyss_maskrcnn.utils as utils
 
 ############################################################
@@ -21,8 +20,10 @@ import abyss_maskrcnn.utils as utils
 ############################################################
 
 class CocoDataset(utils.Dataset):
+    '''Legacy class, see abyss_deep_learning.datasets.base and
+    abyss_deep_learning.keras classification/segmentation/detection.'''
     def __init__(self, *args, **kwargs):
-        '''Call load_coco'''
+        '''(Deprecated) Call load_coco'''
         self.data = []
         super(CocoDataset, self).__init__(*args, **kwargs)
 
@@ -102,72 +103,6 @@ class CocoDataset(utils.Dataset):
         imgIds = imgIds or self.image_ids
         for image_id in imgIds:
             self.data[image_id] = (func_input(image_id[0]), func_target(image_id[1]))
-
-
-class InstSegDataset(CocoDataset):
-    def load_mask(self, image_id):
-        """Load instance masks for the given image.
-
-        Different datasets use different ways to store masks. This
-        function converts the different mask format to one format
-        in the form of a bitmap [height, width, instances].
-
-        Returns:
-        masks: A bool array of shape [height, width, instance count] with
-            one mask per instance.
-        class_ids: a 1D array of class IDs of the instance masks.
-        """
-        # If not a COCO image, delegate to parent class.
-        if self.data:
-            return self.data[image_id][1]
-        image_info = self.image_info[image_id]
-        if image_info["source"] != "coco":
-            return super(CocoDataset, self).load_mask(image_id)
-
-        instance_masks = []
-        class_ids = []
-        annotations = self.image_info[image_id]["annotations"]
-        # Build mask of shape [height, width, instance_count] and list
-        # of class IDs that correspond to each channel of the mask.
-        for annotation in annotations:
-            class_id = self.map_source_class_id(
-                "coco.{}".format(annotation['category_id']))
-            if class_id:
-                mask = ann_to_mask(
-                    annotation, image_info["height"], image_info["width"])
-                # Some objects are so small that they're less than 1 pixel area
-                # and end up rounded out. Skip those objects.
-                if mask.max() < 1:
-                    continue
-                # Is it a crowd? If so, use a negative class ID.
-                if annotation['iscrowd']:
-                    # Use negative class ID for crowds
-                    class_id *= -1
-                    # For crowd masks, ann_to_mask() sometimes returns a mask
-                    # smaller than the given dimensions. If so, resize it.
-                    if mask.shape[0] != image_info["height"] or mask.shape[1] != image_info["width"]:
-                        mask = np.ones(
-                            [image_info["height"], image_info["width"]], dtype=bool)
-                instance_masks.append(mask)
-                class_ids.append(class_id)
-
-        # Pack instance masks into an array
-        if class_ids:
-            mask = np.stack(instance_masks, axis=2)
-            class_ids = np.array(class_ids, dtype=np.int32)
-            return mask, class_ids
-        # Otherwise call super class to return an empty mask
-        return super(CocoDataset, self).load_mask(image_id)
-
-    def generator(self, imgIds=[], shuffle_ids=False):
-        imgIds = imgIds or self.image_ids
-        imgIds = list(imgIds) # make a copy
-        # catIds = catIds or self.class_ids
-        if shuffle_ids:
-            shuffle(imgIds)
-        for image_id in cycle(imgIds):
-            yield (self.load_image(image_id),) + self.load_mask(image_id)
-
 
 
 

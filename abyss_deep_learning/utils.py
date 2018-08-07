@@ -120,11 +120,3 @@ def ann_rle_encode(ann, height, width):
     return rle
 
 
-def ann_to_mask(ann, output_shape):
-    """
-    Convert annotation which can be polygons, uncompressed RLE, or RLE to binary mask.
-    :return: binary mask (numpy 2D array)
-    """
-    rle = ann_rle_encode(ann, output_shape[0], output_shape[1])
-    mask = maskUtils.decode(rle)
-    return mask

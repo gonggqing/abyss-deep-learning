@@ -12,12 +12,11 @@ from skimage.morphology import remove_small_holes
 from skimage.transform import resize
 import numpy as np
 
-from abyss_deep_learning.utils import ann_to_mask
-from abyss_deep_learning.datasets.base import ImageTargetDataset
+from abyss_deep_learning.datasets.base import SupervisedDataset
 from abyss_deep_learning.keras.classification import set_to_multihot
 
-class SegmentationDataset(ImageTargetDataset):
-    '''Realisation of a ImageTargetDataset class, where the dataset is expected to
+class SegmentationDataset(SupervisedDataset):
+    '''Realisation of a SupervisedDataset class, where the dataset is expected to
        have one image and at least one segmentation type annotation.
        The annotation can refer to only one category id.
        The image targets are the stacked masks generated from the annotations.'''
@@ -42,7 +41,7 @@ class SegmentationDataset(ImageTargetDataset):
         
         anns = [ann for ann in self.loadAnns(self.getAnnIds([image_id])) if self.annotation_filter(ann)]
         if anns:
-            masks = np.array([ann_to_mask(ann, self.output_shape) for ann in anns]).transpose((1, 2, 0))
+            masks = np.array([self.coco.annToMask(ann) for ann in anns]).transpose((1, 2, 0))
             class_ids = np.array([ann['category_id'] for ann in anns])
             return _pack_masks(masks, class_ids, self.num_classes)
         masks = np.zeros(img['height'], img['width'], self.num_classes)

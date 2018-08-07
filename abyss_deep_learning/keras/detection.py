@@ -9,19 +9,20 @@ import os
 import time
 
 from pycocotools import mask as maskUtils
-from pycocotools.coco import COCO
+# from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 import numpy as np
+from mrcnn.utils import Dataset as MrcnnDataset
 
-from abyss_deep_learning.utils import ann_to_mask
+from abyss_deep_learning.datasets.base import SupervisedDataset
 
 ############################################################
 #  Dataset
 ############################################################
-from mrcnn.utils import Dataset as DatasetBase
+from mrcnn.utils import Dataset as MrcnnDataset
 
-class MaskRcnnDataset(DatasetBase):
-    def __init__(self, dataset_path, image_dir=None, class_ids=None, preload=False, class_map=None):
+class MaskRcnnDataset(SupervisedDataset, MrcnnDataset):
+    def __init__(self, annotation_file, image_dir=None, class_ids=None, preload=False, class_map=None):
         """Load a subset of the COCO dataset.
         dataset_path: Thepath to the COCO dataset JSON.
         image_dir: The base path of the RGB images, if None then look for 'path' key in JSON
@@ -30,30 +31,18 @@ class MaskRcnnDataset(DatasetBase):
             different datasets to the same class ID.
         tile: None, or a tuple (h, w) of the tile size. Use to separate large images into tiles.
         return_coco: If True, returns the COCO object.
-        auto_download: REMOVED
         """
-        super().__init__(class_map)
-        self.data = []
-        self.coco = COCO(dataset_path)
-
-        # All images or a subset?
-        if class_ids:
-            image_ids = []
-            for class_id in class_ids:
-                image_ids.extend(list(self.coco.getImgIds(catIds=[class_id])))
-            # Remove duplicates
-            image_ids = list(set(image_ids))
-        else:
-            # All images
-            class_ids = sorted(self.coco.getCatIds())
-            image_ids = list(self.coco.imgs.keys())
-
+        SupervisedDataset.__init__(self, annotation_file, image_dir, class_ids, preload, class_map)
+        _image_ids = self._image_ids_orig
+        MrcnnDataset.__init__(self, class_map)
+        self._image_ids = _image_ids
+        
         # Add classes
-        for i in class_ids:
-            self.add_class("coco", i, self.coco.loadCats(i)[0]["name"])
+        for i in self.class_ids:
+            self.add_class("coco", i, self.loadCats(i)[0]["name"])
 
         # Add images
-        for i in image_ids:
+        for i in self.image_ids:
             path = os.path.join(
                 image_dir, self.coco.imgs[i]['file_name']) if image_dir != None else self.coco.imgs[i]['path']
             self.add_image(
@@ -62,12 +51,22 @@ class MaskRcnnDataset(DatasetBase):
                 width=self.coco.imgs[i]["width"],
                 height=self.coco.imgs[i]["height"],
                 annotations=self.coco.loadAnns(self.coco.getAnnIds(
-                    imgIds=[i], catIds=class_ids, iscrowd=None)))
-        if preload:
-            self.preload_images()
-        self.prepare(class_map)
+                    imgIds=[i], catIds=self.class_ids, iscrowd=None)))
         
-    def load_mask(self, image_id):
+        self.prepare(class_map)
+        self._image_id_map = {self.image_info[i]['id']: i for i in self.image_ids}
+    
+    def mrcnn_generator(self, config, shuffle=True, augment=False, augmentation=None,
+                        random_rois=0, batch_size=1, detection_targets=False, no_augmentation_sources=None):
+        return data_generator(
+            self, config, shuffle, augment, augmentation,
+            random_rois, batch_size, detection_targets, no_augmentation_sources)
+    
+    def load_targets(self, image_id):
+        '''Loads the mask for the given COCO source ID.'''
+        return self.__load_mask(self._image_id_map[image_id])
+
+    def __load_mask(self, image_id):
         """Load instance masks for the given image.
 
         Different datasets use different ways to store masks. This
@@ -84,7 +83,7 @@ class MaskRcnnDataset(DatasetBase):
             return self.data[image_id][1]
         image_info = self.image_info[image_id]
         if image_info["source"] != "coco":
-            return super(CocoDataset, self).load_mask(image_id)
+            return super().load_mask(image_id)
 
         instance_masks = []
         class_ids = []
@@ -95,8 +94,7 @@ class MaskRcnnDataset(DatasetBase):
             class_id = self.map_source_class_id(
                 "coco.{}".format(annotation['category_id']))
             if class_id:
-                mask = ann_to_mask(
-                    annotation, (image_info["height"], image_info["width"]))
+                mask = self.coco.annToMask(annotation)
                 # Some objects are so small that they're less than 1 pixel area
                 # and end up rounded out. Skip those objects.
                 if mask.max() < 1:
@@ -119,19 +117,8 @@ class MaskRcnnDataset(DatasetBase):
             class_ids = np.array(class_ids, dtype=np.int32)
             return mask, class_ids
         # Otherwise call super class to return an empty mask
-        return super(CocoDataset, self).load_mask(image_id)
-
-    def preload_images(self):
-        print("Preloading images.", file=stderr)
-        self.data = {
-            image_id: (self.load_image(image_id), self.load_mask(image_id))
-            for image_id in self.image_ids}
-
-    def load_image(self, image_id):
-        if self.data:
-            return self.data[image_id][0]
-        return super().load_image(image_id)
-
+        return super().load_mask(image_id)
+    
     def image_reference(self, image_id):
         """Return a link to the image in the COCO Website."""
         info = self.image_info[image_id]
@@ -139,26 +126,6 @@ class MaskRcnnDataset(DatasetBase):
             return "http://cocodataset.org/#explore?id={}".format(info["id"])
         return super().image_reference(image_id)
 
-    def apply(self, func_input, func_target=None, imgIds=[]):
-        '''Applies functions to input and target, if the DB is preloaded'''
-        assert self.data, "apply() only works on preloaded images"
-        if not func_target:
-            func_target = lambda x: x
-        imgIds = imgIds or self.image_ids
-        for image_id in imgIds:
-            self.data[image_id] = (func_input(image_id[0]), func_target(image_id[1]))
-            
-    def sample(self):
-        image_id = np.random.choice(self.image_ids, replace=False, size=None)
-        return self.load_image(image_id), self.load_mask(image_id)
-    # def generator(self, imgIds=[], shuffle_ids=False):
-    #     imgIds = imgIds or self.image_ids
-    #     imgIds = list(imgIds) # make a copy
-    #     # catIds = catIds or self.class_ids
-    #     if shuffle_ids:
-    #         shuffle(imgIds)
-    #     for image_id in cycle(imgIds):
-    #         yield (self.load_image(image_id),) + self.load_mask(image_id)
 
 
 
@@ -224,9 +191,10 @@ def evaluate_coco(model, dataset, coco, eval_type="bbox", limit=0, image_ids=Non
         t_prediction += (time.time() - time_start)
 
         # Convert results to COCO format
-        image_results = build_coco_results(dataset, coco_image_ids[i:i + 1],
-                                           result["rois"], result["class_ids"],
-                                           result["scores"], result["masks"])
+        image_results = build_coco_results(
+            dataset, coco_image_ids[i:i + 1],
+            result["rois"], result["class_ids"],
+            result["scores"], result["masks"])
         results.extend(image_results)
 
     # Load results. This modifies results with additional attributes.
@@ -280,7 +248,7 @@ def label2rgb_instances(masks, image, class_ids=None, scores=None):
     scores: (optional) confidence scores for each box
     figsize: (optional) the size of the image.
     """
-    
+
     # Number of instances
     N = masks.shape[0]
     print(masks.shape, image.shape)
