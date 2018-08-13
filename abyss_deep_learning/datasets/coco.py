@@ -34,7 +34,6 @@ class CocoDataset(CocoInterface):
         self.data_ids = [image['id'] for image in self.coco.imgs.values()]
 
 
-
 ########### COCO Dataset Types #################
 def _noop(*args):
     return args if len(args) > 1 else args[0]
@@ -55,6 +54,7 @@ class ImageDatatype(CocoInterface, DatasetTypeBase):
         CocoInterface.__init__(self, coco, **kwargs)
         self._data = dict()
         self._preprocess_data = kwargs.get('preprocess_data', _noop)
+        self.dtype_image = np.uint8
 
         if kwargs.get('cached', False):
             with concurrent.futures.ProcessPoolExecutor() as executor:
