@@ -19,92 +19,10 @@ import numpy as np
 import tensorflow as tf
 
 from abyss_deep_learning.keras.utils import batching_gen, gen_dump_data
-from abyss_deep_learning.datasets.base import SupervisedDataset
 
 
 def hamming_loss(y_true, y_pred):
     return K.mean(y_true * (1 - y_pred) + (1 - y_true) * y_pred)
-
-
-class ClassificationDataset(SupervisedDataset):
-    '''Realisation of a SupervisedDataset class, where the dataset is expected to
-       have one image and at least one caption type annotation.
-       The annotation can be interpreted into a list of captions given a AnnotationTranslator.
-       The image targets are the set of translated captions from the annotations.'''
-    class AnnotationTranslator(object):
-        '''base class to transform annotations'''
-        def filter(self, annotation):
-            '''Whether or not to use a annotation'''
-            return 'caption' in annotation
-        def translate(self, annotation):
-            '''Transform the annotation in to a list of captions'''
-            return [annotation['caption']]
-
-    def __init__(
-            self, annotation_file, translator=None, image_dir=None,
-            class_ids=None, preload=False, class_map=None):
-        self.translator = translator or ClassificationDataset.AnnotationTranslator()
-        super().__init__(annotation_file, image_dir, class_ids, preload, class_map)
-        self.num_classes = 1 + (len(class_ids) if class_ids else len(self.cats))
-
-    def load_image_targets(self, img_id):
-        return self.load_caption(img_id)
-
-    def load_caption(self, image_id):
-        assert np.issubdtype(type(image_id), np.integer), "Must pass exactly one ID"
-        caps = [self.translator.translate(annotation)
-         for annotation in self.loadAnns(self.getAnnIds(imgIds=[image_id]))
-         if self.translator.filter(annotation)]
-        return set([i for f in caps for i in f])
-
-
-class FromAnnDataset(COCO):
-    def __init__(self, *args, **kwargs):
-        super(FromAnnDataset, self).__init__(*args, **kwargs)
-        
-    def load_image(self, image_id):
-        """Load the specified image and return a [H,W,3] Numpy array.
-        """
-        # Load image
-        image_path = self.loadImgs([image_id])[0]['path']
-        
-        image = imread(image_path)
-        if not isinstance(image, np.ndarray):
-            # Temporary bugfix for PIL error
-            image = imread(image_path, plugin='matplotlib') * 255
-        if not isinstance(image, np.ndarray):
-            print(image)
-            raise Exception(
-                "skimage.io.read failed: image is of type {:s}".format(str(type(image))))
-        # If grayscale. Convert to RGB for consistency.
-        if image.ndim == 1 or (image.ndim == 3 and image.shape[2] == 1):
-            image = gray2rgb(np.squeeze(image))
-        elif image.ndim == 3:
-            if image.shape[2] > 3:
-                image = image[..., 0:3]  # Remove any alpha channel
-            elif image.shape[2] != 3:
-                raise Exception(
-                    "load_image tried to load an image with dims of {:s}".format(str(image.shape)))
-        return image
-        
-    # Differs from ClassificationDataset
-    def load_categories(self, image_id):
-        assert np.issubdtype(type(image_id), np.integer), "Must pass exactly one ID"
-        caps = [(annotation['category_id']-1)   # -1 to make cat_ids zero-indexed
-         for annotation in self.loadAnns(self.getAnnIds([image_id]))]
-        return set(caps)
-    
-    def num_images(self, imgIds=[], catIds=[]):
-        return len(np.unique([ann['image_id'] for ann in self.loadAnns(ids=self.getAnnIds(imgIds, catIds))]))
-      
-    # Differs from ClassificationDataset  
-    def generator(self, imgIds=[], shuffle_ids=False):
-        if not imgIds:
-            imgIds = np.unique([ann['image_id'] for ann in self.loadAnns(ids=self.getAnnIds())])
-        if shuffle_ids:
-            shuffle(imgIds)
-        for image_id in cycle(imgIds):
-            yield self.load_image(image_id), self.load_categories(image_id)
 
 
 class Inference(object):
@@ -253,11 +171,10 @@ class PRTensorBoard(TensorBoard):
                 labels=labels,
                 display_name='Precision-Recall Curve')
             self.lr_summary = tf.summary.scalar("lr", self.model.optimizer.lr)
+            self.reg_ratio_summary = tf.summary.scalar("reg_ratio", self.model.optimizer.lr)
 
     def on_epoch_end(self, epoch, logs=None):
-        logs.update({'lr': K.eval(self.model.optimizer.lr)})
         super(PRTensorBoard, self).on_epoch_end(epoch, logs)
-
 
         if self.pr_curve and self.validation_data:
             # Get the tensors again.
@@ -268,7 +185,9 @@ class PRTensorBoard(TensorBoard):
             val_data = [self.validation_data[1], predictions]
             feed_dict = dict(zip(tensors, val_data))
             # Run and add summary.
-            result = self.sess.run([self.pr_summary, self.lr_summary], feed_dict=feed_dict)
+            result = self.sess.run(
+                [self.pr_summary, self.lr_summary, self.reg_ratio_summary],
+                feed_dict=feed_dict)
             self.writer.add_summary(result[0], epoch)
         self.writer.flush()
 
