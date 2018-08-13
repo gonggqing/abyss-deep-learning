@@ -4,8 +4,6 @@ def auc_factory(auc_type, weights=None):
     '''Returns the area under the curve for either ROC or PR curve.
        auc_type: (string) Either 'roc' or 'pr'.
        weights is a class weight vector broadcastable into the labels.'''
-    if weights is None:
-        weights = tf.ones([1])
     metric_name = 'auc_{:s}'.format(auc_type)
     
     def metric(y_true, y_pred):
@@ -37,8 +35,6 @@ def mpca_factory(num_classes, weights=None):
     '''Returns the mean per-class average accuracy.
        num_classes: (int) number of classes in labels.
        weights is a class weight vector broadcastable into the labels.'''
-    if weights is None:
-        weights = tf.ones([1])
     metric_name = 'mpca'
     
     def metric(y_true, y_pred):

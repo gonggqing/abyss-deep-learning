@@ -81,6 +81,7 @@ class ImprovedTensorBoard(TensorBoard):
         self.pr_summary = []
         self.num_classes = num_classes
 
+        self.layout_summary = None
         if groups:
             categories = []
             for category_name, chart in groups.items():
@@ -98,12 +99,13 @@ class ImprovedTensorBoard(TensorBoard):
 
     def set_model(self, model):
         super().set_model(model)
-        self.writer.add_summary(self.layout_summary)
+        if self.layout_summary:
+            self.writer.add_summary(self.layout_summary)
 
         if self.pr_curve:
             for class_idx in range(self.num_classes):
-                predictions = self.model._feed_outputs[0][:, class_idx]
-                labels = tf.cast(self.model._feed_targets[0][:, class_idx], tf.bool)
+                predictions = self.model._feed_outputs[0][..., class_idx]
+                labels = tf.cast(self.model._feed_targets[0][...,  class_idx], tf.bool)
                 summary_op = pr_summary.op(
                     name='pr_curve_class_' + str(class_idx),
                     predictions=predictions,
