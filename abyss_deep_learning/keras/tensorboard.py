@@ -149,3 +149,38 @@ def procuce_embeddings_tsv(path, headers, labels):
             file.write("\t".join(headers) + "\n")
         for label in labels:
             file.write("\t".join([str(i) for i in label]) + "\n")
+
+
+
+def kernel_sparsity(model, min_value=1e-6):
+    '''Returns a tensor with the fraction of approximately zero valued weights in the model.
+    
+    Args:
+        model (keras.Model): The model to monitor.
+        min_value (float, optional): The smallest value at which to consider a weight as being sparse.
+    
+    Returns:
+        tf.Tensor: A tensor containing the approximate kernel sparsity of the model.
+    '''
+    num = tf.zeros(1)
+    den = tf.zeros(1)
+    for weight in model.trainable_weights:
+        size = tf.cast(tf.size(weight), tf.float32)
+        zeros = size - tf.cast(tf.count_nonzero(tf.greater(weight, min_value)), tf.float32)
+        num += zeros
+        den += size
+    return num / den
+
+def avg_update_ratio(model, weight):
+    '''Returns the average update-to-weight ratio for the given weight and model.
+    This should be in the realm of 1e-3 for a healthy network.
+    
+    Args:
+        model (keras.Model): The model the weight belongs to.
+        weight (tf.Tensor): The weight tensor to monitor.
+    
+    Returns:
+        tf.Tensor: A tensor containing the average update to weight ratio.
+    '''
+    grads = model.optimizer.get_gradients(model.total_loss, [weight])[0]
+    return tf.norm(grads) * model.optimizer.lr / tf.norm(weight)
