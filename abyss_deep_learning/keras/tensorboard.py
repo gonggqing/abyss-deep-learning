@@ -115,7 +115,14 @@ class ImprovedTensorBoard(TensorBoard):
     def on_epoch_end(self, epoch, logs=None):
         if self.scalars:
             for name, value in self.scalars.items():
-                logs[name] = K.eval(value)
+                try:
+                    logs[name] = K.eval(value)
+                except tf.errors.InvalidArgumentError:
+                    if not self.validation_data:
+                        raise ValueError("You must supply ImprovedTensorBoard with validation_data.")
+                    tensors = (self.model.inputs + self.model.targets + self.model.sample_weights)
+                    feed_dict = dict(zip(tensors, self.validation_data))
+                    logs[name] = K.get_session().run([value], feed_dict=feed_dict)[0]
 
         if self.pr_curve and self.validation_data:
             tensors = self.model._feed_targets + self.model._feed_outputs

@@ -34,20 +34,22 @@ def auc_factory(auc_type, weights=None):
     return metric
 
 def mpca_factory(num_classes, weights=None):
-    '''Returns the mean per class accuracy metric.
+    '''Returns the mean per-class average accuracy.
+       num_classes: (int) number of classes in labels.
        weights is a class weight vector broadcastable into the labels.'''
     if weights is None:
         weights = tf.ones([1])
-
-    def mpca(y_true, y_pred):
+    metric_name = 'mpca'
+    
+    def metric(y_true, y_pred):
+        # any tensorflow metric
+        
         value, update_op = tf.metrics.mean_per_class_accuracy(
             y_true, y_pred, num_classes, weights=weights)
-        print(value.name)
-        print(update_op.name)
 
         # find all variables created for this metric
-        metric_vars = [i for i in tf.local_variables() if 'mpca' in i.name.split('/')[1]]
-        print(metric_vars)
+        metric_vars = [i for i in tf.local_variables() if metric_name in i.name.split('/')[1]]
+
         # Add metric variables to GLOBAL_VARIABLES collection.
         # They will be initialized for new session.
         for v in metric_vars:
@@ -57,5 +59,6 @@ def mpca_factory(num_classes, weights=None):
         with tf.control_dependencies([update_op]):
             value = tf.identity(value)
             return value
-    return mpca
-
+        
+    metric.__name__ = metric_name
+    return metric
