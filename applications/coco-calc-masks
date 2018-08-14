@@ -6,7 +6,7 @@ import sys
 from pycocotools.coco import COCO
 import pycocotools.mask as mask
 
-import abyss_maskrcnn.coco_classes as coco_classes
+import mrcnn.coco_classes as coco_classes
 
 
 def main(args):

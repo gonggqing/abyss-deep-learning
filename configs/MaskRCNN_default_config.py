@@ -89,11 +89,11 @@ class Config(object):
     RPN_NMS_THRESHOLD = 0.7
 
     # How many anchors per image to use for RPN training
-    RPN_TRAIN_ANCHORS_PER_IMAGE = 256
+    RPN_TRAIN_ANCHORS_PER_IMAGE = 256 // 2
 
     # ROIs kept after non-maximum suppression (training and inference)
-    POST_NMS_ROIS_TRAINING = 2000
-    POST_NMS_ROIS_INFERENCE = 1000
+    POST_NMS_ROIS_TRAINING = 2000 // 2
+    POST_NMS_ROIS_INFERENCE = 1000 // 2
 
     # If enabled, resizes instance masks to a smaller size to reduce
     # memory load. Recommended when using high-resolution images.
@@ -151,14 +151,14 @@ class Config(object):
     MASK_SHAPE = [28, 28]
 
     # Maximum number of ground truth instances to use in one image
-    MAX_GT_INSTANCES = 100
+    MAX_GT_INSTANCES = 20
 
     # Bounding box refinement standard deviation for RPN and final detections.
     RPN_BBOX_STD_DEV = np.array([0.1, 0.1, 0.2, 0.2])
     BBOX_STD_DEV = np.array([0.1, 0.1, 0.2, 0.2])
 
     # Max number of final detections
-    DETECTION_MAX_INSTANCES = 100
+    DETECTION_MAX_INSTANCES = 20
 
     # Minimum probability value to accept a detected instance
     # ROIs below this threshold are skipped
@@ -175,16 +175,16 @@ class Config(object):
     LEARNING_MOMENTUM = 0.9
 
     # Weight decay regularization
-    WEIGHT_DECAY = 0.0001
+    WEIGHT_DECAY = 1e-4
 
     # Loss weights for more precise optimization.
     # Can be used for R-CNN training setup.
     LOSS_WEIGHTS = {
-        "rpn_class_loss": 1.,
-        "rpn_bbox_loss": 1.,
+        "rpn_class_loss": 2.,
+        "rpn_bbox_loss": 2.,
         "mrcnn_class_loss": 1.,
         "mrcnn_bbox_loss": 1.,
-        "mrcnn_mask_loss": 1.3
+        "mrcnn_mask_loss": 1.
     }
 
     # Use RPN ROIs or externally generated ROIs for training
