@@ -1,26 +1,67 @@
-'''Provides some translators for datasets'''
+'''Provides the base translator class, and some specific translators for datasets.'''
 
 class AnnotationTranslator(object):
-        '''Base class to transform annotations into list of captions.'''
+        '''Base class for a functor that transforms annotations from a source dataset and task
+            to a target task.
+        '''
         def filter(self, annotation):
-            '''Whether or not to use a annotation'''
-            return 'caption' in annotation
-        def translate(self, annotation):
-            '''Transform the annotation in to a list of captions'''
-            return [annotation['caption']]
+            '''Filter function for annotations.
+            Useful to filter out non-task related annotations.
+            
+            Args:
+                annotation: An annotation object, structure is dataset dependent.
+            
+            Returns:
+                boolean: Whether or not to use this annotation.
+            '''
+            return True
 
-# Cloudfactory translator
+        def translate(self, annotation):
+            '''Transform the annotation for use with a new task.
+            
+            Args:
+                annotation: An annotation object, structure is dataset and task dependent.
+            
+            Returns:
+                The transformed annotation.
+            '''
+            return annotation
+
+
+class StringCaptionTranslator(AnnotationTranslator):
+    '''Translates the internal dataset labels into a form that works with this script'''
+    def filter(self, annotation):
+        '''Filter out non-caption annotations'''
+        return 'caption' in annotation
+    def translate(self, annotation):
+        '''Return a list of strings'''
+        return annotation['caption'].split(",")
+
 class CloudFactoryCaptionTranslator(AnnotationTranslator):
     '''Translates the CloudFactory labels into a form that works with this script'''
     def filter(self, annotation):
         return 'caption' in annotation and 'type' in annotation and annotation['type'] == 'class_labels'
+
     def translate(self, annotation):
         return annotation['caption'].split(",")
 
-# Abyss annotation tool translator
-class AbyssCaptionTranslator(AnnotationTranslator):
-    '''Translates the internal dataset labels into a form that works with this script'''
+
+### Examples
+class CaptionMapTranslator(AnnotationTranslator):
+    '''Translates the CloudFactory labels into a form that works with this script'''
+    def __init__(self, mapping):
+        """Map source -> target annotations.
+            e.g.:
+                mapping={word: number for number, word in enumerate(list("abcdefg"))}
+                >> {'a': 0, 'b': 1, 'c': 2, 'd': 3, 'e': 4, 'f': 5, 'g': 6}
+        
+        Args:
+            mapping (dict): A dictionary mapping source keys to target values.
+        """
+        self.map = mapping
+
     def filter(self, annotation):
-        return 'caption' in annotation
+        return caption in annotation
+
     def translate(self, annotation):
-        return annotation['caption'].split(",")
+        return self.map[annotation['caption']]

@@ -66,11 +66,11 @@ class ImprovedTensorBoard(TensorBoard):
         """
         super().__init__(**kwargs)
 
-        if not isinstance(scalars, (dict, None)):
+        if not isinstance(scalars, (dict, type(None))):
             raise ValueError("scalars must be a dict mapping Strings to Tensors")
         self.scalars = scalars
 
-        if not isinstance(groups, (dict, None)):
+        if not isinstance(groups, (dict, type(None))):
             raise ValueError("groups must be a dict like {'category A': {'chart A1': ['op_name_1', 'op_name_2']}}")
         self.groups = groups
 

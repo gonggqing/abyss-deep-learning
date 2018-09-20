@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 from __future__ import print_function
-from collections import defaultdict
 from contextlib import redirect_stdout
 from pprint import pprint
 import argparse
@@ -43,32 +42,39 @@ def calc_position_error(mask1, mask2):
     pos2 = np.array(center_of_mass(mask2 > 0))
     return np.sqrt(np.sum((pos1 - pos2) ** 2.0))
 
+
 def compute_centroid_errors(gt_boxes, gt_class_ids, gt_masks,
                             pred_boxes, pred_class_ids, pred_scores, pred_masks,
                             iou_thresh=0.5):
     raise NotImplementedError()
 
-def calc_stats(dataset):
-    TP, FP, FN = dataset['TP'].sum(), dataset['FP'].sum(), dataset['FN'].sum()
-    out = {
-        'precision': TP / max(1, TP + FP),
-        'recall': TP / max(1, TP + FN), # True positive rate
-        'F1': 2 * TP / max(1, 2*TP + FP + FN),
-    }
-    for metric in out.keys():
-        if not np.isfinite(out[metric]):
-            out[metric] = 0.0
-    return out
+    # Compute IoU overlaps [pred_masks, gt_masks]
+    overlaps = utils.compute_overlaps_masks(pred_masks, gt_masks)
 
-def calc_dataset_metrics(dataset):
-    dataset_stats = []
-    for (match, class_id, score_thresh), group in dataset.groupby(('match', 'class_id', 'score_thresh')):
-        class_stats = calc_stats(group)
-        class_stats['class_id'] = class_id
-        class_stats['match'] = match
-        class_stats['score_thresh'] = score_thresh
-        dataset_stats.append(class_stats)
-    return pd.DataFrame(dataset_stats)
+    # Loop through ground truth boxes and find matching predictions
+    match_count = 0
+    pred_match = np.zeros([pred_boxes.shape[0]])
+    gt_match = np.zeros([gt_boxes.shape[0]])
+    position_error = {}
+    for pred_idx in range(len(pred_boxes)):
+        # Find best matching ground truth box
+        for gt_idx in np.argsort(overlaps[pred_idx])[::-1]:
+            # If ground truth box is already matched, go to next one
+            if gt_match[gt_idx] == 1:
+                continue
+            # If we reach IoU smaller than the threshold, end the loop
+            iou = overlaps[pred_idx, gt_idx]
+            if iou < iou_threshold:
+                break
+            # Do we have a match?
+            if pred_class_ids[pred_idx] == gt_class_ids[gt_idx]:
+                match_count += 1
+                gt_match[gt_idx] = 1
+                pred_match[pred_idx] = 1
+                position_error[gt_idx] = calc_position_error(
+                    gt_masks[..., gt_idx], pred_masks[..., pred_idx])
+                break
+    return np.mean([i for i in position_error.values()])
 
 def output_metrics(dataset_metrics):
     results = defaultdict(lambda: defaultdict(dict))
@@ -92,6 +98,7 @@ def test(config, args):
         model.load_weights(args.weights, by_name=True)
     print("Loaded weights! Beginning testing.", file=sys.stderr)
 
+    # Compute VOC-Style mAP @ IoU=0.5
     class_names = [
         i[1] for i in
         sorted([
@@ -125,6 +132,16 @@ def test(config, args):
             }) if len(gt_class_ids) else None
             results.append((image_id, predicted, object_gts))
 
+        try:
+            stats = (
+                gt_bbox[:, :4], gt_class_ids, gt_mask,
+                r["rois"], r["class_ids"], r["scores"], r["masks"]
+            )
+            AP, precisions, recalls, overlaps = utils.compute_ap(
+                *stats, iou_threshold=args.iou)
+            AR, positive_ids = utils.compute_recall(
+                r["rois"], gt_bbox[:, :4], args.iou)
+            CE = compute_centroid_errors(*stats, iou_threshold=args.iou)
             if args.show:
                 if r is not None:
                     plt.figure()
@@ -140,36 +157,13 @@ def test(config, args):
                     plt.show()
 
 
-        except ValueError as e:
-            print("GOT AN ERROR", file=sys.stderr)
-            print(e, file=sys.stderr)
+def display_gt(dataset, image_id, ax=None):
+    image = dataset.load_image(image_id)
+    mask, class_ids = dataset.load_mask(image_id)
+    bbox = utils.extract_bboxes(mask)
+    visualize.display_instances(
+        image, bbox, mask, class_ids, dataset.class_names, ax=ax)
 
-    unique_scores = np.sort(pd.concat(unique_scores).unique())
-    image_stats = []
-    choices = unique_scores
-    for score_thresh in choices:
-        for matching in match_kinds:
-            for image_id, predicted, object_gts in results:
-                subset = predicted[predicted['score'] > score_thresh] if predicted is not None else None
-                if subset is None or len(subset) == 0:
-                    predicted = None
-                # print(predicted)
-                stats = calc_image_stats(subset, object_gts, iou_thresh=args.iou, matching=matching)
-                for class_stats in stats:
-                    class_stats['image_id'] = image_id
-                    class_stats['score_thresh'] = score_thresh
-                image_stats.append(pd.DataFrame(stats))
-    
-    dataset_stats = pd.concat(image_stats).reset_index(drop=True)
-    dataset_stats.to_csv('/tmp/dataset_stats.pkl')
-
-    # print(dataset_stats, file=sys.stderr)
-    dataset_metrics = calc_dataset_metrics(dataset_stats)
-    dataset_metrics.to_csv('/tmp/dataset_metrics.pkl')
-    # print(dataset_metrics, file=sys.stderr)
-    dataset_metrics = output_metrics(dataset_metrics)
-    print(json.dumps(
-        dataset_metrics, sort_keys=True, indent=0, separators=(',', ':'), cls=JsonNumpyEncoder))
 
 def main(args):
     if args.cpu:
@@ -180,6 +174,9 @@ def main(args):
         args.dataset_test.load_coco(
             args.dataset_test_path, image_dir=args.image_dir, class_ids=args.categories)
         args.dataset_test.prepare()
+    # if args.config is None:
+    #     config = DefaultConfig()
+    # else:
     spec = importlib.util.spec_from_file_location(
         "maskrcnn_config", args.config)
     config_module = importlib.util.module_from_spec(spec)

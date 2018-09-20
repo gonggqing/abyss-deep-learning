@@ -130,39 +130,43 @@ coco-split \
 ```
 
 Train:
-We will train the classification head, then the whole network (feature detector + head).
+We will train the classification heads, then the feature extractor high level features with the classification heads.
 This should give a better result than just the head and be faster and more stable than just training 'all'.
 
-Note: Mask RCNN implementation does something where it will reset the heads layer if it does not recognise that logdir and filename of the weights you provide.
-It is recommended to use the `--weights 'last'` way of training the 'all' layers after the 'heads' layers to ensure it picks up the right one.
+In order to load a pre-trained model and change the classes it predicts, use --fresh-heads.
+
+You can use --weights 'last' or --weights 'none' to pick the last weights trained or none at all.
 
 ```bash
 maskrcnn-trainval \
+    $MASK_RCNN_PATH/../../configs/MaskRCNN_default_config.py \
     /data/abyss/bae-prop-uw/baeprop-coco_train.json \
     /data/abyss/bae-prop-uw/baeprop-coco_val.json \
+    1 \
     $MASK_RCNN_PATH/logs \
-    --config $MASK_RCNN_PATH/../../configs/MaskRCNN_default_config.py \
-    --weights $MASK_RCNN_PATH/mask_rcnn_coco.h5 \
+    $MASK_RCNN_PATH/mask_rcnn_coco.h5 \
     --image-dir /data/abyss/bae-prop-uw/Images/users/sbargoti/baeprop \
-    --epochs 1 --layers heads
+    --layers heads --fresh-heads
 
 maskrcnn-trainval \
+    $MASK_RCNN_PATH/../../configs/MaskRCNN_default_config.py \
     /data/abyss/bae-prop-uw/baeprop-coco_train.json \
     /data/abyss/bae-prop-uw/baeprop-coco_val.json \
+    10 \
     $MASK_RCNN_PATH/logs \
-    --config $MASK_RCNN_PATH/../../configs/MaskRCNN_default_config.py \
-    --weights last \
+    'last' \
     --image-dir /data/abyss/bae-prop-uw/Images/users/sbargoti/baeprop \
-    --epochs 1 --layers all
+    --layers '5+'
 ```
 Watch the training, see the error go down, and find the new model that has been written to $MASK_RCNN_PATH/logs/default**/mask_rcnn_default-model_0001.h5 (it will be in the most recent directory created).
+It will also save the best validation epoch to $MASK_RCNN_PATH/logs/default**/best.h5.
 
 Predict:
 ```bash
 maskrcnn-predict \
     $MASK_RCNN_PATH/../../configs/MaskRCNN_default_config.py \
-    $MASK_RCNN_PATH/logs/default-model20180209T0337/mask_rcnn_default-model_0001.h5 \
     $MASK_RCNN_PATH/logs \
+    $MASK_RCNN_PATH/logs/default-model20180209T0337/mask_rcnn_default-model_0001.h5 \
     /data/abyss/bae-prop-uw/Images/users/sbargoti/baeprop/*.png \
     --show
 ```

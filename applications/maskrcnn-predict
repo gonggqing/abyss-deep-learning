@@ -5,10 +5,12 @@ import importlib
 import os
 import pickle
 import sys
+import cv2
 
 from skimage.color import label2rgb
 from skimage.io import imread, imsave
 from skimage.segmentation import mark_boundaries
+from scipy.ndimage.morphology import binary_closing
 import matplotlib.pyplot as plt
 import numpy as np
 import skimage.color.rgb_colors as rgb_colors
@@ -32,6 +34,9 @@ def file_ext_type(source_path):
     raise Exception(
         "Type name unknown: {:s} for file {:s}".format(extension, basename))
 
+def setup_directory(query_directory):
+    if not os.path.exists(query_directory):
+        os.makedirs(query_directory)
 
 def uint8_image(image):
     if image.dtype == np.uint16:
@@ -86,6 +91,58 @@ def output_predictions(filename, result, frame_id):
 output_predictions.stream = None
 output_predictions.counter = 0
 
+def apply_mask(input_im,color,mask):
+    img = input_im
+    ret, mask_inv = cv2.threshold(mask,0,255,cv2.THRESH_BINARY)
+    mask_inv = binary_closing(mask_inv,iterations = 2).astype(np.uint8)*255
+
+    mask = (255-mask_inv)
+
+    color = [color[2],color[1],color[0]]
+    color = np.asarray(color)
+
+    colorBorder = color.copy()
+    # color[color == 0x99] = 255
+    # color[color != 0xFF] = 0x66
+
+    color_overlay = np.full((img.shape[0],img.shape[1],3),color,dtype=np.uint8)
+    imgKeep = cv2.bitwise_and(img,img,mask = mask)
+    imgNew = cv2.bitwise_and(color_overlay,color_overlay,mask = mask_inv)
+    overlay = imgKeep+imgNew
+
+    output = img.copy()
+    alpha = 0.1
+    cv2.addWeighted(overlay, alpha, output, 1 - alpha,0, output)
+
+    im2, contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    if input_im.shape[0] > 500:
+        thickness = 3
+        if input_im.shape[0] > 1000:
+            thickness = 10
+    else:
+        thickness = 1
+    for i in range(1,len(contours)):
+        cb = list([int(c) for c in color])
+        cv2.drawContours(output,contours,i,cb,thickness)
+
+    return output
+
+def color_label2rgb(label_image, rgb_image,color_map=None, args=None):
+    
+    
+
+    classes = np.unique(label_image.ravel())
+    labelled_rgb = rgb_image.copy()
+    for c_class in reversed(args.order):
+        if c_class in classes:
+            c_label = np.array(label_image == c_class)*1.
+            class_color = color_map[c_class][1]
+            labelled_rgb = apply_mask(labelled_rgb,tuple([c*255 for c in class_color]),c_label)
+
+    return labelled_rgb #cv2.cvtColor(labelled_rgb, cv2.COLOR_BGR2RGB)
+
+
 
 def predict(model, batch, args):
     results = model.detect(batch, verbose=0)
@@ -108,10 +165,11 @@ def predict(model, batch, args):
                 mask = np.sum(result['masks'] == class_id, axis=2) > 0
                 label_image[mask] = class_id
         if args.overlay:
-            colors = [color_map[i][0]
-                      for i in args.order if i in result['class_ids']]
-            label_image = label2rgb(
-                label_image, rgb, bg_label=0, colors=colors)
+            label_image = color_label2rgb(label_image, rgb, color_map=color_map, args=args)
+            #colors = [color_map[i][0]
+            #          for i in args.order if i in result['class_ids']]
+            #label_image = label2rgb(
+            #    label_image, rgb, bg_label=0, colors=colors)
             for idx in range(num_results):
                 label_image = mark_boundaries(
                     label_image,
@@ -159,38 +217,35 @@ def main(args):
         image_iter = iter(args.input)
         for image_path in image_iter:
             batch = []
+            batch_path = []
             for batch_idx in range(config.BATCH_SIZE if args.batch is None else int(args.batch)):
                 if batch_idx > 0:
                     try:
                         image_path = next(image_iter)
                     except StopIteration:
                         image_path = args.input[-1]
-                # , cv2.IMREAD_UNCHANGED #TODO: find out why doesn't work with this option
-                rgb = imread(image_path)
+                batch_path.append(image_path)
+                rgb = imread(image_path) # , cv2.IMREAD_UNCHANGED #TODO: find out why doesn't work with this option
                 if len(rgb.shape) == 3 and rgb.shape[2] > 3:
                     rgb = rgb[..., 0:3]
                 if rgb is None:
                     print(
-                        "WARNING: Couldn't open file: {:s}".format(image_path),
-                        file=sys.stderr)
+                        "WARNING: Couldn't open file: {:s}".format(image_path))
                     continue
                 batch.append(rgb)
-            for result, label_image in zip(*predict(model, batch, args)):
+            for result, label_image, current_image_path in zip(*predict(model, batch, args), batch_path):
                 if args.verbose:
-                    print("{:s}: {:d} results".format(
-                        image_path, len(result['scores'])),
-                        file=sys.stderr)
+                    print("{:s}: {:d} results".format(current_image_path, len(result['scores'])))
                 if not args.show:
-                    output_dir = args.output_dir if args.output_dir else os.path.dirname(
-                        image_path)
-                    image_name = '.'.join(os.path.basename(
-                        image_path).split('.')[0:-1])
+                    output_dir = args.output_dir if args.output_dir else os.path.dirname(current_image_path)
+                    image_name = '.'.join(os.path.basename(current_image_path).split('.')[0:-1])
                     results_dir = os.path.join(output_dir, 'results')
                     if not os.path.exists(results_dir):
-                        os.mkdir(results_dir)
+                        os.makedirs(results_dir)
                     if 'image' in output_type:
-                        image_out_path = os.path.join(
-                            results_dir, 'img',  '{:s}.png'.format(image_name))
+                        img_out_dir = os.path.join(results_dir, 'img')
+                        setup_directory(img_out_dir)
+                        image_out_path = os.path.join(img_out_dir,  '{:s}.png'.format(image_name))
                         imsave(image_out_path, label_image)
                     if 'json' in output_type:
                         json_out_path = os.path.join(
@@ -198,8 +253,9 @@ def main(args):
                         raise NotImplementedError(
                             "JSON COCO Results output not yet implemented")
                     if 'pickle' in output_type:
-                        pickle_out_path = os.path.join(
-                            results_dir, 'pkl', '{:s}.pkl'.format(image_name))
+                        pkl_out_dir = os.path.join(results_dir, 'pkl')
+                        setup_directory(pkl_out_dir)
+                        pickle_out_path = os.path.join(pkl_out_dir, '{:s}.pkl'.format(image_name))
                         with open(pickle_out_path, 'wb') as outfile:
                             pickle.dump(result, outfile, protocol=2)
     elif args.input_type == "video":  # TODO fix hackjob
@@ -219,25 +275,21 @@ def main(args):
                 for frame in frame_iter:
                     frame_idx += 1
                     if args.verbose:
-                        print('Processing frame {}'.format(frame_idx),
-                            file=sys.stderr)
+                        print('Processing frame {}'.format(frame_idx))
                     batch = [frame]
-                    # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE),
-                        # file=sys.stderr)
+                    # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE))
                     for batch_idx in range(config.BATCH_SIZE):
                         if batch_idx > 0:
                             batch += [next(frame_iter)]
                             frame_idx += 1
-                            # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE),
-                                # file=sys.stderr)
+                            # print("batch is [{:d}/{:d}]".format(len(batch), config.BATCH_SIZE))
                     if frame_idx % args.video_skip == 0:
                         temp_frame_diff = -1
                         for result, label_image in zip(*predict(model, batch, args)):
                             current_frame = frame_idx+temp_frame_diff
                             if args.verbose:
                                 print('{} results in frame {}'.format(
-                                        len(result['scores']), current_frame),
-                                    file=sys.stderr)
+                                    len(result['scores']), current_frame))
                             if args.output_predictions:
                                 output_predictions(os.path.join(
                                     output_dir, args.output_predictions), result, current_frame)
