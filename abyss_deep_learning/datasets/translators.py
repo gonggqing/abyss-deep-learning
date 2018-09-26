@@ -28,21 +28,37 @@ class AnnotationTranslator(object):
             return annotation
 
 
-class StringCaptionTranslator(AnnotationTranslator):
+class CocoCaptionTranslator(AnnotationTranslator):
     '''Translates the internal dataset labels into a form that works with this script'''
+
+    def __init__(self, separator=None):
+        """Instantiate a translator that reads standard COCO captions as a string.
+        Optionally separate fields by a delimiter.
+        
+        Args:
+            separator (str, optional): A delimiter to separate fields
+        """
+        self.separator = separator
+
     def filter(self, annotation):
         '''Filter out non-caption annotations'''
         return 'caption' in annotation
+
     def translate(self, annotation):
         '''Return a list of strings'''
-        return annotation['caption'].split(",")
+        caption = annotation['caption']
+        return caption.split(self.separator) if self.separator else [caption]
 
-class CloudFactoryCaptionTranslator(AnnotationTranslator):
-    '''Translates the CloudFactory labels into a form that works with this script'''
+
+class AbyssCaptionTranslator(AnnotationTranslator):
+    '''Translates the Abyss Annotation Tool labels into a list of strings.'''
+
     def filter(self, annotation):
+        '''Filter out non-caption annotations'''
         return 'caption' in annotation and 'type' in annotation and annotation['type'] == 'class_labels'
 
     def translate(self, annotation):
+        '''Return a list of strings'''
         return annotation['caption'].split(",")
 
 

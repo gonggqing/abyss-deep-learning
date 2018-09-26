@@ -31,6 +31,7 @@ class CocoDataset(CocoInterface):
     def __init__(self, json_path, **kwargs):
         '''Base type for datasets using the COCO JSON data model.'''
         self.json_path = json_path
+        self.image_dir = kwargs.get('image_dir', None)
         with redirect_stdout(stderr):
             self._coco = COCO(json_path)
         CocoInterface.__init__(self, self.coco, **kwargs)
@@ -51,6 +52,8 @@ class ImageDatatype(CocoInterface, DatasetTypeBase):
           After loading the image run it through this translator function.
           The signature is lambda image: transform(image).
           Should be used for example, downsampling images prior to caching them.
+      * image_dir: (string)
+          The image dir to use if no path is given in a dataset image.
     '''
     def __init__(self, coco, **kwargs):
         CocoInterface.__init__(self, coco, **kwargs)
@@ -68,8 +71,14 @@ class ImageDatatype(CocoInterface, DatasetTypeBase):
     def load_data(self, image_id, **kwargs):
         if image_id in self._data:
             return self._data[image_id]
-        return self._preprocess_data(
-            imread(self.coco.imgs[image_id]['path']))
+
+        if 'path' in self.coco.imgs[image_id]:
+            path = self.coco.imgs[image_id]['path'] 
+        else:
+            assert self.image_dir, "Dataset image dir must be set as no path is provided in database."
+            path = os.path.join(self.image_dir, self.coco.imgs[image_id]['file_name'])
+
+        return self._preprocess_data(imread(path))
 
     def sample(self, data_id=None, **kwargs):
         if not data_id:
@@ -317,7 +326,15 @@ class MaskRcnnInstSegDataset(CocoDataset, ImageDatatype, MatterportMrcnnDataset)
             cat['id']: cat['name'] for cat in
             sorted(cats, key=lambda x: x['id'])})
         self.class_names = list(self.class_map.values())
-        self.config = config
+        
+        if isinstance(config, str):
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("mrcnn.config_file", config)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            self.config = module.Config()
+        else:
+            self.config = config
 
     def load_coco(self, image_dir=None, class_ids=None, class_map=None):
         """Load a subset of the COCO dataset.

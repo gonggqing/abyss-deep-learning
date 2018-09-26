@@ -155,3 +155,35 @@ def calc_class_weights(data, caption_type='single'):
     class_weights = dict(zip(sorted(counts.keys()), class_weights.tolist()))
     return class_weights
 
+#### Generic Algorithms
+
+class LRSearch(object):
+    def __init__(self, model, x, y=None, batch_size=None):
+        self.model = model
+        self.results = dict()
+        self.x = x
+        self.y = y
+        self.batch_size = batch_size
+        if not model.built:
+            raise ValueError("Model must be compiled first.")
+        self.weights = self.model.get_weights()
+        
+    def fit(self, n_lrs=10, n_epochs=1, lr_power_range=(-5, -2)):
+        from types import GeneratorType
+        from keras.callbacks import TerminateOnNaN
+        
+        common = dict(callbacks=[TerminateOnNaN()])
+        for lr in 10 ** np.random.uniform(lr_power_range[0], lr_power_range[1], n_lrs):
+            self.model.reset_states()
+            self.model.set_weights(self.weights)
+            if isinstance(self.x, GeneratorType):
+                result = self.model.fit_generator(self.x, self.y, epochs=n_epochs, **common)
+            else:
+                result = self.model.fit(self.x, self.y, batch_size=self.batch_size, epochs=n_epochs, **common)
+            self.results[float(lr)] = result.history['loss'][-1]
+    
+    def plot(self):
+        x, y = list(self.results.keys()), list(self.results.values())
+        plt.figure()
+        plt.semilogx(x, y, '.')
+        
