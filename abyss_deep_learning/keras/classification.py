@@ -233,7 +233,6 @@ class ImageClassifier(BaseEstimator, ClassifierMixin):
         self._create_model()
         self._maybe_compile()
         params = dict(
-            dataset_train.generator(endless=True),
             steps_per_epoch=steps_per_epoch,
             epochs=epochs,
             verbose=verbose,
@@ -242,13 +241,13 @@ class ImageClassifier(BaseEstimator, ClassifierMixin):
             max_queue_size=max_queue_size,
             workers=workers,
             use_multiprocessing=use_multiprocessing,
-            shuffle=shuffle,
-            initial_epoch=self.init_epoch)
+            shuffle=shuffle)
         if dataset_val is not None:
-            params = params.update(dict(
+            params.update(dict(
                 validation_data=dataset_val.generator(endless=True),
                 validation_steps=validation_steps))
-        return self.fit_generator(**params)
+        return self.fit_generator(
+            dataset_train.generator(endless=True), **params)
         
     def predict_proba(self, x, batch_size=32, verbose=0, steps=None):
         """Returns the class predictions scores for the given data.

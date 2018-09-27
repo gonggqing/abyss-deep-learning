@@ -14,7 +14,7 @@ from skimage.io import imread
 from sklearn.utils.class_weight import compute_class_weight
 import numpy as np
 
-from abyss_deep_learning.datasets.base import DatasetTypeBase, DatasetTaskBase
+from abyss_deep_learning.base.datasets import DatasetTaskBase, DatasetTypeBase
 from abyss_deep_learning.datasets.translators import AnnotationTranslator
 
 ######################## Abstract Classes with COCO data format ########################
@@ -42,7 +42,7 @@ def _noop(*args):
     return args if len(args) > 1 else args[0]
 
 class ImageDatatype(CocoInterface, DatasetTypeBase):
-    '''Do not reply on the presence of categories, as this implys it is an object dataset.
+    '''Do not rely on the presence of categories, as this implys it is an object dataset.
     The only precondition on this is that it involves image data.
 
     kwargs:

@@ -16,7 +16,7 @@ class DatasetTypeBase(metaclass=ABCMeta):
         load_data
     '''
     @abstractmethod
-    def load_data(data_id, **kwargs):
+    def load_data(self, data_id, **kwargs):
         pass
 
 class DatasetTaskBase(metaclass=ABCMeta):
@@ -24,7 +24,7 @@ class DatasetTaskBase(metaclass=ABCMeta):
         load_targets
     '''
     @abstractmethod
-    def load_targets(data_id, **kwargs):
+    def load_targets(self, data_id, **kwargs):
         pass
     
 # class DatasetBase(object):
