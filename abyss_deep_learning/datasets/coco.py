@@ -312,11 +312,10 @@ class MaskRcnnInstSegDataset(CocoDataset, ImageDatatype, MatterportMrcnnDataset)
     def __init__(self, json_path, config, **kwargs):
         import importlib
         from bidict import bidict
-
         CocoDataset.__init__(self, json_path, **kwargs)
         ImageDatatype.__init__(self, self.coco, **kwargs)
         MatterportMrcnnDataset.__init__(self, class_map=None)
-        self.load_coco()
+        self.load_coco(image_dir=self.image_dir)
         self.prepare(class_map=None)
         self.internal_to_original_ids = {
             img_id: img_info['id']
