@@ -20,6 +20,9 @@ Provides tools to manipulate COCO JSON, VOC CSV datasets as well as Mask RCNN tr
 
 As of April 2018 the MASK_RCNN_PATH environment variable is no longer needed as the distutils repo has been merged to master.
 
+## Examples and demos
+See the [wiki](https://github.com/abyss-solutions/deep-learning/wiki) for examples and demos.
+
 ## Installation
 ### Local
 ```bash 
