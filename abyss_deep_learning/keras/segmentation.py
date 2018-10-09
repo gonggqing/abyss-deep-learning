@@ -3,161 +3,90 @@ Utilities and generators for classification tasks.
 Generators expect yield type to be (image, masks) and not in a batch.
 Masks may be either categorical or binary.
 '''
-import json
-
-from imgaug import augmenters as iaa
-from imgaug.parameters import Deterministic, DiscreteUniform
-from skimage.color import label2rgb
-from skimage.morphology import remove_small_holes
-from skimage.transform import resize
+# from imgaug import augmenters as iaa
+# from imgaug.parameters import Deterministic, DiscreteUniform
+# from skimage.transform import resize
 import numpy as np
+from skimage.morphology import remove_small_holes
 
-from abyss_deep_learning.datasets.base import SupervisedDataset
-from abyss_deep_learning.keras.classification import set_to_multihot
-
-class SegmentationDataset(SupervisedDataset):
-    '''Realisation of a SupervisedDataset class, where the dataset is expected to
-       have one image and at least one segmentation type annotation.
-       The annotation can refer to only one category id.
-       The image targets are the stacked masks generated from the annotations.'''
-    def __init__(self, annotation_file, output_shape, num_classes=None, **kwargs):
-        '''Instantiate a SegmentationDataset.
-           If num_classes is None, it is inferred from the dataset.'''
-        super(SegmentationDataset, self).__init__(annotation_file, **kwargs)
-        self.output_shape = output_shape
-        self._num_classes = num_classes or 1 + len(self.cats)
-        self.annotation_filter = lambda ann: 'segmentation' in ann
-
-    @property
-    def num_classes(self):
-        return self._num_classes
-    
-    def load_image_targets(self, image_id):
-        return self.load_segmentation(image_id)
-
-    def load_segmentation(self, image_id):
-        assert np.issubdtype(type(image_id), np.integer), "Must pass exactly one ID"
-        img = self.loadImgs(ids=[image_id])[0]
-        
-        anns = [ann for ann in self.loadAnns(self.getAnnIds([image_id])) if self.annotation_filter(ann)]
-        if anns:
-            masks = np.array([self.coco.annToMask(ann) for ann in anns]).transpose((1, 2, 0))
-            class_ids = np.array([ann['category_id'] for ann in anns])
-            return _pack_masks(masks, class_ids, self.num_classes)
-        masks = np.zeros(img['height'], img['width'], self.num_classes)
-        masks[..., 0] = 1
-        return masks
-    
-    def load_caption(self, image_id):
-        '''Returns a multi-hot of the classes present in the image according to the segmentation annotations.'''
-        assert np.issubdtype(type(image_id), np.integer), "Must pass exactly one ID"
-        img = self.loadImgs(ids=[image_id])[0]
-        anns = [ann for ann in self.loadAnns(self.getAnnIds([image_id])) if self.annotation_filter(ann)]
-        categories = set([ann['category_id'] for ann in anns])
-        return categories
-#         return set_to_multihot(categories, num_classes=self.num_classes)
-
-
-class SegmentationModel(object):
-    def __init__(self, config_path):
-        """Instantiate an image segmentation detector and initialise it with the configuration specified
-        in the JSON at config_path.
-
-        Args:
-            config_path (str): Path to the JSON describing the image segmentation detector.
-                               See example in workspace/example-project/models/model-1.json
-        """
-        from keras.models import model_from_json
-        with open(config_path, "r") as config_file:
-            self.config = json.load(config_file)
-
-        with open(self.config['model'], "r") as model_def:
-            self.model = model_from_json(model_def.read())
-
-        self.model.load_weights(self.config['weights'])
-        if self.config['architecture']['backbone'] == "inceptionv3":
-            from keras.applications.inception_v3 import preprocess_input
-        elif self.config['architecture']['backbone'] == "vgg16":
-            from keras.applications.vgg16 import preprocess_input
-        elif self.config['architecture']['backbone'] == "resnet50":
-            from keras.applications.resnet50 import preprocess_input
-        else:
-            raise ValueError(
-                "Unknown model architecture.backbone '{:s}'".format(
-                    self.config['architecture']['backbone']))
-        self._preprocess_model_input = preprocess_input
-
-    def _preprocess_input(self, images):
-        images = np.array([
-            resize(image, self.config['architecture']['input_shape'], preserve_range=True, mode='constant')
-            for image in images])
-        return self._preprocess_model_input(images)
-
-    def predict(self, images):
-        """Predict on the input image(s).
-        This function takes care of all pre-processing required and accepts uint8 or float32 RGB images.
-
-        Args:
-            images (np.ndarray): Array of size [batch_size, height, width, channels] on which to predict.
-
-        Returns:
-            np.ndarray: Class probabilities of the predictions.
-        """
-        assert images.shape[-1] == 3, "segmentation.Inference.predict(): Images must be RGB."
-        if len(images.shape) == 3:
-            images = images[np.newaxis, ...]
-        return self.model.predict(self._preprocess_input(images))
-
+from abyss_deep_learning.visualize import label2rgb
+from abyss_deep_learning.utils import instance_to_categorical
 
 ####### Methods ######
 
-def _pack_masks(masks, mask_classes, num_classes):
-    '''Pack a list of instance masks into a categorical mask.
-    Expects masks to be shape [height, width, num_instances] and mask_classes to be [num_instances].'''
-    num_shapes = len(mask_classes)
-    shape = masks.shape
-    packed = np.zeros(shape[0:2] + (num_classes,), dtype=np.uint8)
-    packed[..., 0] = 1
-    for i in range(num_shapes):
-        class_id = mask_classes[i]
-        mask = masks[..., i]
-        packed[..., class_id] |= mask
-        packed[..., 0] &= ~mask
-    return packed
-
-
 def jaccard_index(y_true, y_pred):
-    '''y_true and y_pred must be binary masks'''
+    '''Compute the jaccard index of a binary mask array.
+
+    Args:
+        y_true (np.ndarray): Array of ground truth binary masks of shape [height, width, #instances].
+        y_pred (np.ndarray): Array of predicted binary masks of shape [height, width, #instances].
+
+    Returns:
+        np.float: The jaccard index of the true and predicted masks.
+    '''
     return np.sum(y_pred & y_true) / np.sum(y_pred | y_true)
 
 
 def jaccard_distance(y_true, y_pred):
-    '''y_true and y_pred must be binary masks'''
-    return 1 - jaccard_index_(y_true, y_pred)
+    '''Compute the jaccard distance of a binary mask array.
+
+    Args:
+        y_true (np.ndarray): Array of ground truth binary masks of shape [height, width, #instances].
+        y_pred (np.ndarray): Array of predicted binary masks of shape [height, width, #instances].
+
+    Returns:
+        np.float: The jaccard distance of the true and predicted masks.'''
+    return 1 - jaccard_index(y_true, y_pred)
 
 ######### Segmentation generators #########
 
-def instances_to_categorical_gen(gen, num_classes):
+def instances_to_categorical_gen(gen, num_cats):
     '''converts an instance segmentation generator to a categorical semantic segmentation generator.
-    No batching support.'''
+    No batching support.
+
+    Args:
+        gen (generator): A keras compatible generator yielding (input, masks, classes) where input is an
+          RGB image, masks is a binary mask array of shape [height, width, #instances] and classes is
+          an integer array or shape [#instances] that encodes the class number of each instance.
+        num_cats (int): The maximum number of categories to represent.
+
+    Yields:
+        tuple: A keras compatible tuple containing the RGB input image and the categorical mask.
+    '''
     for rgb, instances, classes in gen:
-        mask = _pack_masks(instances, classes, num_classes)
+        mask = instance_to_categorical(instances, classes, num_cats)
         yield rgb, mask
 
 
-def label_display_gen(gen, bg_label=0):
-    '''Single-image only, no batching.'''
+def label_display_gen(gen, bg_label=None):
+    '''A generator modifier that shows a human readable segmentation.
+    Single-image only, no batching.
+
+    Args:
+        gen (np.ndarray): A keras compatible generator
+        bg_label (int, optional): The value of the background label.
+
+    Yields:
+        np.ndarray: A human-readable RGB image with the labels overlaid.
+    '''
     for rgb, mask in gen:
         disp = ((rgb + 1) * 255/2).astype(np.uint8)
         disp = label2rgb(
             np.argmax(mask, axis=-1),
-            image=disp, bg_label=bg_label)
+            image=disp, bg_label=bg_label, contours='thick')
         yield (disp,)
 
 
 def binary_targets_gen(gen):
     """
-    Flatten target masks into a single channel
+    Flattens the final dimension in an occupancy array by running logical_or over the last dimension.
+
+    Args:
+        gen (np.ndarray): A keras compatible generator where the targets are an occupancy grid of
+          shape [height, width, C], where C can represent #classes or #instances.
+
+    Yields:
+        tuple: A keras compatible tuple containing the RGB input image and an occupancy grid.
     """
     for inputs, targets in gen:
         targets[..., 0] = np.logical_or.reduce(targets[..., 1:], axis=-1)
@@ -165,8 +94,15 @@ def binary_targets_gen(gen):
 
 
 def fill_mask_gen(gen, min_size=50):
-    '''Read (rgb, cat-label) pair, fill any holes in cat-label and yield the pair.
-       Cannot be used in batches.'''
+    '''Read (rgb, occupancy matrix) pair, fill any holes in the occupancy matrix and yield the pair.
+
+    Args:
+        gen (generator): A keras compatible generator where targets is an occupancy matrix.
+        min_size (int, optional): Minimum hole size to fill.
+
+    Yields:
+        tuple: A keras compatible input tuple with the targets modified.
+    '''
     for rgb, mask in gen:
         for cat_idx in range(1, mask.shape[-1]):
             remove_small_holes(mask[..., cat_idx], min_size=min_size, in_place=True)
