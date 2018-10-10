@@ -2,6 +2,7 @@
 Utilities and generators for classification tasks.
 Generators expect yield type to be (image, target) and not in a batch.
 '''
+import warnings
 
 import keras.backend as K
 import numpy as np
@@ -60,6 +61,8 @@ class ImageClassifier(BaseEstimator, ClassifierMixin):
         Raises:
             ValueError: If the form of the weights is not recognised.
         """
+        self._maybe_create_model()
+
         # Initialize model weights and sklearn weights parameter
         model = self.model_
         if weights is None:
@@ -75,7 +78,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin):
         else:
             raise ValueError("ImageClassifier::set_weights(): Invalid weights.")
 
-    def _create_model(self):
+    def _maybe_create_model(self, force=False):
         """Create the model if it has not already been created
 
         Raises:
@@ -85,8 +88,11 @@ class ImageClassifier(BaseEstimator, ClassifierMixin):
         from keras.models import Model
         from keras.layers import Dense
 
-        if hasattr(self, "model_"):
+        if not force and hasattr(self, "model_"):
             return
+
+        self.model_ = None
+        K.clear_session()
 
         # Load the model with imagenet weights, they will be re-initialized later weights=None
         model_config = dict(
@@ -118,14 +124,13 @@ class ImageClassifier(BaseEstimator, ClassifierMixin):
         Args:
             lr (float): The learning rate to set the model optimizer.
         """
-        self._create_model()
+        self._maybe_create_model()
         self._maybe_compile()
         self.lr = lr
         K.set_value(self.model_.optimizer.lr, lr)
 
     def set_trainable(self, trainable):
-        """Sets the network layers ability to train or freeze.
-        #TODO doco
+        """Freezes or unfreezes certain parts of the model.
 
         Args:
             trainable (bool, dict or list of bools): Can be either of:
@@ -137,6 +142,22 @@ class ImageClassifier(BaseEstimator, ClassifierMixin):
             ValueError: Invalid type for 'trainable'..
         """
         check_is_fitted(self, 'model_', msg="ImageClassifier::set_trainable(): Model not yet constructed, use constructor to set trainable.")
+        # * str: A CSV combination of {'features', 'head'}. Specifies which layers are
+        #        to be unfrozen, all others will be frozen.
+        # TODO: Subclass this properly and enable the string specialization.
+        # if isinstance(trainable, str):
+        #     parts = trainable.split(',')
+        #     valid_parts = ['head', 'features']
+        #     if not all([part in valid_parts for part in parts]):
+        #         raise ValueError("ImageClassifier::set_trainable(): Invalid string value in 'trainable'.")
+        #     n_layers = len(self.model_.layers)
+        #     train_layers = [False for layer in range(n_layers)]
+        #     for part in parts:
+        #         if part == "features":
+        #             train_layers[:-1] = [True] * (n_layers - 1)
+        #         elif part == "head":
+        #             train_layers[-1] = True
+        #     super().set_trainable(train_layers)
         if isinstance(trainable, bool):
             # Make all layers trainable or non trainable
             for layer in self.model_.layers:
@@ -170,7 +191,25 @@ class ImageClassifier(BaseEstimator, ClassifierMixin):
                         "ImageClassifier::fit(): Trying to compile a model without a loss function.")
                 self.model_.compile('nadam', loss=self.loss)
                 self.set_lr(self.init_lr)
+            else:
+                warnings.warn(
+                    "Trying to compile a model that has no trainable layers.",
+                    category=UserWarning)
 
+    def recompile(self):
+        '''Temporarily saves the model weights and config, deletes the model and restores it.
+        Required before freezing layers.
+
+        Raises:
+            ValueError: If no loss function is specified.
+        '''
+        check_is_fitted(self, "model_")
+        if not self.model_._is_compiled:
+            return
+        weights = self.model_.get_weights()
+        self._maybe_create_model(force=True)
+        self.model_.set_weights(weights)
+        self._maybe_compile()
 
     def fit(self, x=None, y=None, batch_size=None, epochs=1, verbose=1,
             callbacks=None, validation_split=0.0, validation_data=None,
@@ -196,7 +235,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin):
         Returns:
             TYPE: Description
         '''
-        self._create_model()
+        self._maybe_create_model()
         self._maybe_compile()
         # Fit model
         self.history_ = self.model_.fit(
@@ -231,7 +270,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin):
         Returns:
             TYPE: Description
         '''
-        self._create_model()
+        self._maybe_create_model()
         self._maybe_compile()
         # Fit model
         self.history_ = self.model_.fit_generator(
@@ -273,7 +312,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin):
         Returns:
             TYPE: Description
         """
-        self._create_model()
+        self._maybe_create_model()
         self._maybe_compile()
         params = dict(
             steps_per_epoch=steps_per_epoch,
@@ -381,7 +420,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin):
         model = ImageClassifier(**parameters)
     #     topology = str(f['topology'])
     #     model.model_ = model_from_json(topology)
-        model._create_model()
+        model._maybe_create_model()
         model.model_.load_weights(filepath)
         f.close()
         return model
@@ -426,34 +465,7 @@ class FcnCrfSegmenter(ImageClassifier):
         self.init_epoch = init_epoch
         self.crf_iterations = crf_iterations
 
-    def set_weights(self, weights):
-        """Set the weights of the model.
-
-        Args:
-            weights (None, string or list of np.ndarrays): Can be either of:
-              * None: Do not load any weights
-              * str: Load the weights at the given path
-              * list of np.ndarrays: Load the weight values given from model.get_weights().
-
-        Raises:
-            ValueError: If the form of the weights is not recognised.
-        """
-        # Initialize model weights and sklearn weights parameter
-        model = self.model_
-        if weights is None:
-            # Re-initialize all weights (clear imagenet weights)
-            session = K.get_session()
-            for weight in model.weights:
-                weight.initializer.run(session=session)
-        elif isinstance(weights, str):
-            model.load_weights(weights, by_name=True)
-        elif isinstance(weights, list) and isinstance(weights[0], np.ndarray):
-            # Load weights from a list of np.ndarrays, to support sklearn model serialization
-            model.set_weights(weights)
-        else:
-            raise ValueError("ImageClassifier::set_weights(): Invalid weights.")
-
-    def _create_model(self):
+    def _maybe_create_model(self, force=False):
         """Create the model if it has not already been created
 
         Raises:
@@ -464,7 +476,7 @@ class FcnCrfSegmenter(ImageClassifier):
         from keras.layers import Dense
         from abyss_deep_learning.keras.utils import initialize_conv_transpose2d
 
-        if hasattr(self, "model_"):
+        if not force and hasattr(self, "model_"):
             return
 
         # Load the model with imagenet weights, they will be re-initialized later weights=None
@@ -489,5 +501,42 @@ class FcnCrfSegmenter(ImageClassifier):
         if self.init_weights != 'imagenet':
             self.set_weights(self.init_weights)
 
+    def set_trainable(self, trainable):
+        """Freezes or unfreezes certain parts of the model.
 
+        Args:
+            trainable (bool, dict or list of bools): Can be either of:
+              * str: A CSV combination of {'fcn', 'crf'}. Specifies which layers are
+                     to be unfrozen, all others will be frozen.
+              * bool: Set all layers in the model to trainable (True) or frozen (False).
+              * dict: A dict(str -> bool) mapping layer name to that layer's trainable state.
+              * list: A list of booleans mapping one-to-one to that model's layers trainable state.
+
+        Raises:
+            ValueError: Invalid type for 'trainable'..
+        """
+
+        check_is_fitted(self, 'model_',
+            msg="FcnCrfSegmenter::set_trainable(): Model not yet constructed, use constructor to set trainable.")
+        if isinstance(trainable, str):
+            parts = trainable.split(',')
+            valid_parts = ['fcn', 'crf']
+            if not all([part in valid_parts for part in parts]):
+                raise ValueError("FcnCrfSegmenter::set_trainable(): Invalid string value in 'trainable'.")
+            n_layers = len(self.model_.layers)
+            train_layers = [False for layer in range(n_layers)]
+            for part in parts:
+                if part == "fcn":
+                    if self.crf_iterations:
+                        train_layers[:-1] = [True] * (n_layers - 1)
+                    else:
+                        train_layers = [True] * n_layers
+                elif part == "crf":
+                    if not self.crf_iterations:
+                        raise ValueError(
+                            "FcnCrfSegmenter::set_trainable(): Given string 'crf' but no CRF is present in this model.")
+                    train_layers[-1] = True
+            super().set_trainable(train_layers)
+        else:
+            super().set_trainable(trainable)
     

@@ -269,4 +269,46 @@ def warn_once(func, message):
     return new_func
 
 
+def image_streamer(sources):
+    '''Iterate over frames from multiple sources, expanding any globs.
+    Currently accepts video, images and COCO datasets.'''
+    from skimage.io import imread
+    from warnings import warn
+    from glob import glob
+    from pycocotools.coco import COCO
+    from skvideo.io import FFmpegReader
+    from contextlib import closing, redirect_stdout
+    
+    def is_image(path):
+        return path.endswith(('.png', '.jpg', '.jpeg', '.tiff'))
+    def is_video(path):
+        return path.endswith(('.avi', '.mpg', '.mp4'))
+    
+    # Expand any globbed paths, but not for images since we want to keep the sequence
+    full_sources = []
+    for source in sources:
+        if '*' in source and not is_image(source):
+            full_sources += glob(source)
+        else: 
+            full_sources.append(source)
+    full_sources
 
+    for source in full_sources:
+        if is_video(source):
+            with closing(FFmpegReader(source)) as reader:
+                for frame_no, frame in enumerate(reader.nextFrame()):
+                    yield source, frame_no, frame
+        elif is_image(source):
+            for frame_no, image_path in enumerate(glob(source)):
+                yield image_path, frame_no, imread(image_path)
+        elif source.endswith('.json'):
+            # COCO database
+            with redirect_stdout(None):
+                coco = COCO(source)
+            for frame_no, image in enumerate(coco.loadImgs(coco.getImgIds())):
+                #TODO: It's not clear how to address relative paths
+                image_path = image['path'] if 'path' in image else image['file_name']
+                yield image_path, frame_no, imread(image_path)
+            del coco
+        else:
+            warn("Skipped an unknown source type {}.".format(source))
