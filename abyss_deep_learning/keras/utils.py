@@ -5,6 +5,7 @@ from itertools import cycle
 # from numpy.lib.stride_tricks import as_strided as ast
 from skimage.color import rgb2gray
 import keras.backend as K
+from abyss_deep_learning.utils import tile_gen, detile
 
 ######### Model utilities #########
 
@@ -136,6 +137,31 @@ def gen_dump_data(gen, num_images):
     )
     return data
 
+
+def tiling_gen(gen, window_size):
+    """Keras generator that transforms the whole image into a set of tiles and iterates over them.
+    
+    Args:
+        gen (generator): Keras generator
+        window_size (tuple of ints): The (height, width) size of the window to tile.
+    
+    Yields:
+        generator: Keras generator
+    """
+    for image, mask in gen:
+#         print("tiling gen new image")
+        for image_tile, mask_tile in zip(tile_gen(image, window_size), tile_gen(mask, window_size)):
+            mask_tile[..., 0] = np.logical_not(np.logical_or.reduce(mask_tile[..., 1:], axis=-1))
+            yield image_tile, mask_tile
+            
+
+def skip_empty_gen(gen, min_area=0):
+    for image, mask in gen:
+        if np.count_nonzero(mask[..., 1:]) > min_area:
+            yield image, mask
+#         else:
+#             print("skip")
+
 def count_labels_single(data):
     return Counter([int(j) for i in data[1] for j in np.argwhere(i)])
 
@@ -168,18 +194,19 @@ class LRSearch(object):
             raise ValueError("Model must be compiled first.")
         self.weights = self.model.get_weights()
         
-    def fit(self, n_lrs=10, n_epochs=1, lr_power_range=(-5, -2)):
+    def fit(self, n_lrs=10, n_epochs=1, lr_power_range=(-5, -2), **kwargs):
         from types import GeneratorType
         from keras.callbacks import TerminateOnNaN
         
-        common = dict(callbacks=[TerminateOnNaN()])
+        kwargs['callbacks'] = [TerminateOnNaN()]
         for lr in 10 ** np.random.uniform(lr_power_range[0], lr_power_range[1], n_lrs):
             self.model.reset_states()
             self.model.set_weights(self.weights)
             if isinstance(self.x, GeneratorType):
-                result = self.model.fit_generator(self.x, self.y, epochs=n_epochs, **common)
+                result = self.model.fit_generator(
+                    self.x, epochs=n_epochs, **kwargs)
             else:
-                result = self.model.fit(self.x, self.y, batch_size=self.batch_size, epochs=n_epochs, **common)
+                result = self.model.fit(self.x, self.y, batch_size=self.batch_size, epochs=n_epochs, **kwargs)
             self.results[float(lr)] = result.history['loss'][-1]
     
     def plot(self):

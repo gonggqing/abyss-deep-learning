@@ -35,7 +35,7 @@ class CocoDataset(CocoInterface):
         with redirect_stdout(stderr):
             self._coco = COCO(json_path)
         CocoInterface.__init__(self, self.coco, **kwargs)
-        self.data_ids = [image['id'] for image in self.coco.imgs.values()]
+        self.data_ids = kwargs.pop('data_ids', [image['id'] for image in self.coco.imgs.values()])
 
 ########### COCO Dataset Types #################
 def _noop(*args):
@@ -78,7 +78,7 @@ class ImageDatatype(CocoInterface, DatasetTypeBase):
             assert self.image_dir, "Dataset image dir must be set as no path is provided in database."
             path = os.path.join(self.image_dir, self.coco.imgs[image_id]['file_name'])
 
-        return self._preprocess_data(imread(path))
+        return self._preprocess_data(imread(path, plugin='imread'))
 
     def sample(self, data_id=None, **kwargs):
         if not data_id:
@@ -191,10 +191,10 @@ class SemanticSegmentationTask(CocoInterface, DatasetTaskBase):
                 for data_id, targets in zip(
                         self.data_ids, executor.map(self.load_targets, self.data_ids)):
                     self._targets[data_id] = targets
-        self._calc_class_stats()
+        # self._calc_class_stats()
 
     def load_targets(self, data_id, **kwargs):
-        assert np.issubdtype(type(data_id), np.integer), "Must pass exactly one ID"
+        # assert np.issubdtype(type(data_id), np.integer), "Must pass exactly one ID"
         if data_id in self._targets:
             return self._targets[data_id]
         img = self.coco.loadImgs(ids=[data_id])[0]

@@ -118,67 +118,49 @@ def balanced_set(coco, ignore_captions=None):
 
     return out
 
+def tile_gen(image, window_size, fill_const=0):
+    '''window_size must be tuple of ints'''
+    from itertools import product
+#     print("tile gen")
+    num_tiles = np.ceil(image.shape[0] / window_size[0]), np.ceil(image.shape[1] / window_size[1])
+    num_tiles = [int(i) for i in num_tiles]
+    
+    for i, j in product(*[range(k) for k in num_tiles]):
+        window = np.ones(window_size + image.shape[2:], dtype=image.dtype) * fill_const
+        y1, y2 = np.array([i, i + 1]) * window_size[0]
+        x1, x2 = np.array([j, j + 1]) * window_size[1]
+        y2a = np.minimum(image.shape[0], y2)
+        x2a = np.minimum(image.shape[1], x2)
+        h, w = y2a - y1, x2a - x1
+        window[:h, :w, ...] = image[y1:y2a, x1:x2a, ...]
+        yield window
 
-class tile_iterator(object):
-    ''' tile_stride and window_sizes should be the half-size in [height, width] terms
-        windows are the large rectangles that choose spacing
-        tiles are the smaller rectangles that choose dimension and overlap if tile_stride > window_sizes
-    '''
-
-    def __init__(self, image, tile_stride, window_sizes, condition_function=None):
-        self.image_shape = np.array(image.shape, dtype=np.int)
-        # Enforce rectangular integer grid spacing
-        if type(tile_stride) != tuple:
-            raise Exception('tile_iterator',
-                            'tile_stride must be rectangular (h, w)')
-        self.tile_stride = np.array(tile_stride, dtype=np.int)
-        # if (type(window_sizes) is not list) or any(map(lambda e: type(e) is not tuple, window_sizes)):
-        if type(window_sizes) in [int, float]:
-            self.window_sizes = [
-                np.array((window_sizes, window_sizes), dtype=np.float32)]
-        elif type(window_sizes) is list:
-            self.window_sizes = [
-                np.array([ws, ws], dtype=np.float32) for ws in window_sizes]
-        else:
-            raise Exception(
-                'tile_iterator', 'window_sizes must scalar, list of scalars, or list of tuples')
-        self.window_sizes = [np.floor(window_size)
-                             for window_size in self.window_sizes]
-        max_window_size = np.floor(self.window_sizes).max(axis=0)
-        envelope = np.array([max_window_size[0]+1, self.image_shape[0] - max_window_size[0],
-                             max_window_size[1]+1, self.image_shape[1] - max_window_size[1]], dtype=np.int)
-        if image.ndim == 3:
-            self.channels = image.shape[2]
-        elif image.ndim == 2:
-            self.channels = 1
-        else:
-            raise Exception('tile_iterator', 'image is not 2 or 3 dimensional')
-        self.grid_points = list(product(
-            xrange(envelope[0], envelope[1], tile_stride[0]), xrange(envelope[2], envelope[3], tile_stride[1])))
-        if callable(condition_function):
-            self.grid_points = [
-                point for point in self.grid_points if condition_function(point)]
-        self.iter = iter(self.grid_points)
-
-    @staticmethod
-    def around(point, size):
-        '''get ROI around point given size window'''
-        roi = np.array([point[0] - size[0], point[0] + size[0], point[1] -
-                        size[1], point[1] + size[1]], dtype=np.int)  # x1 x2 y1 y2
-        # roi[0:2] = np.maximum(np.minimum(roi[0:2], self.image_shape[0]), 0)
-        # roi[2:4] = np.maximum(np.minimum(roi[2:4], self.image_shape[1]), 0)
-        return roi
-
-    def __iter__(self):
-        return self
-
-    def next(self):
-        '''Get next iterate. Partial tiles are ignored. '''
-        point = self.iter.next()
-        rois = [self.around(point, window_size)
-                for window_size in self.window_sizes]
-        return {'center': point, 'rois': rois}
-
+def detile(tiles, window_size, image_size):
+    """Reassembles tiled images.
+    
+    Args:
+        tiles (iterable of np.ndarray): The list of tiles to assemble, in order.
+        window_size (tuple of ints): The (height, width) size of the window to tile.
+        image_size (tuple of ints): The original (height, width) of the image.
+    
+    Yields:
+        np.ndarray: The reassembled image.
+    """
+    from itertools import product
+#     print("detile")
+    num_tiles = np.ceil(image_size[0] / window_size[0]), np.ceil(image_size[1] / window_size[1])
+    num_tiles = [int(i) for i in num_tiles]
+    image = None
+    for (i, j), window in zip(product(*[range(k) for k in num_tiles]), tiles):
+        if image is None:
+            image = np.zeros(image_size + image_size[3:], dtype=window.dtype)
+        y1, y2 = np.array([i, i + 1]) * window_size[0]
+        x1, x2 = np.array([j, j + 1]) * window_size[1]
+        y2a = np.minimum(image_size[0], y2)
+        x2a = np.minimum(image_size[1], x2)
+        h, w = y2a - y1, x2a - x1
+        image[y1:y2a, x1:x2a, ...] = window[:h, :w, ...]
+    return image
 
 def instance_to_categorical(masks, mask_classes, num_classes):
     '''Convert a instance mask array into a categorical mask array.
@@ -291,7 +273,6 @@ def image_streamer(sources):
             full_sources += glob(source)
         else: 
             full_sources.append(source)
-    full_sources
 
     for source in full_sources:
         if is_video(source):

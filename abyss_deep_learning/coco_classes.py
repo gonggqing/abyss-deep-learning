@@ -69,11 +69,11 @@ class CocoDataset(object):
                 dataset.add_image(
                     (image['height'], image['width']
                      ), image['file_name'], image['flickr_url'],
-                    force_id=int(image['id']), path=path
+                    force_id=image['id'], path=path
                 )
         image_ids = [image['id'] for image in dataset.images]
         for annotation in coco.loadAnns(coco.getAnnIds()):
-            if int(annotation['image_id']) in image_ids:
+            if annotation['image_id'] in image_ids:
                 dataset.add_annotation(annotation)
                 # if 'caption' in annotation:
                 #     dataset.add_caption(
@@ -193,7 +193,7 @@ class CocoDataset(object):
         id_number = force_id if force_id is not None else next_smallest_free_id(
             self.image_ids)
         record = {
-            "id": int(id_number),
+            "id": id_number,
             "width": int(image_size[1]),
             "height": int(image_size[0]),
             "file_name": str(filename),
