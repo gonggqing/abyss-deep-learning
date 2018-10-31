@@ -42,7 +42,7 @@ class LRSearch(object):
             
     
     def plot(self):
-        if self.model.optimizer == 'categorical_crossentropy'
+#        if self.model.optimizer == 'categorical_crossentropy'
         rand_loss = -np.log(1 / y_gt.shape[1])
 
         x, y = list(self.results['final_loss'].keys()), list(self.results['final_loss'].values())
