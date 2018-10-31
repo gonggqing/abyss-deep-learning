@@ -89,7 +89,7 @@ def binary_targets_gen(gen):
         tuple: A keras compatible tuple containing the RGB input image and an occupancy grid.
     """
     for inputs, targets in gen:
-        targets[..., 0] = np.logical_or.reduce(targets[..., 1:], axis=-1)
+        targets[..., 0] = np.logical_not(np.logical_or.reduce(targets[..., 1:], axis=-1))
         yield inputs, targets[..., 0:1]
 
 
@@ -109,6 +109,36 @@ def fill_mask_gen(gen, min_size=50):
         mask[..., 0] = np.sum(mask[..., 1:], axis=-1) == 0
         yield rgb, mask
 
+def random_crop_gen(gen, output_shape, decimation=30, max_crops=10):
+    '''Reduce the 
+    
+    Args:
+        gen (generator): A keras generator.
+        decimation (int): Decimate spatial samples from labels before generating centroid targets.
+            Larger numbers produce fewer samples.
+    
+    Yields:
+        TYPE: image, 
+    '''
+    seq = iaa.Affine(order=0)
+    samples = None
+    for image, mask in gen:
+        spacing = np.max(image.shape[0:2]) // decimation
+        samples = np.argwhere(np.sum(mask[::spacing, ::spacing, 1:], axis=2) > 0) * spacing
+        if samples.size == 0:
+            continue
+        np.random.shuffle(samples)
+        samples = samples.tolist()
+        i = 0
+        while samples and (i < max_crops):
+            sample = samples.pop()
+            seq.translate = (
+                Deterministic(np.floor(output_shape[1]/2 - sample[1]).astype(int)),
+                Deterministic(np.floor(output_shape[0]/2 - sample[0]).astype(int)))
+            seq_det = seq.to_deterministic()
+            image_c, mask_c = seq_det.augment_image(image), seq_det.augment_image(mask)
+            i += 1
+            yield image_c, mask_c
 
 
 #### TODO: Move cropping from below into new augmentation_gen
