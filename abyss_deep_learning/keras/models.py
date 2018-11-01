@@ -95,14 +95,18 @@ class ImageClassifier(BaseEstimator, ClassifierMixin):
         K.clear_session()
 
         # Load the model with imagenet weights, they will be re-initialized later weights=None
-        model_config = dict(
+        config = dict(
             include_top=False,
             weights=self.init_weights,
             input_shape=self.input_shape,
             pooling=self.pooling)
 
         if self.backbone == 'xception':
-            model = Xception(**model_config)
+            model = Xception(
+                include_top=config['include_top'],
+                weights=config['weights'],
+                input_shape=config['input_shape'],
+                pooling=config['pooling'])
         else:
             raise ValueError(
                 "ImageClassifier::__init__(): Invalid backbone '{}'".format(self.backbone))

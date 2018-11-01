@@ -42,5 +42,3 @@ cd "$BASE/abyss_maskrcnn"
 # [[ ! -e instances_valminusminival2014.json ]] && \
 #  wget -c https://dl.dropboxusercontent.com/s/s3tw5zcg7395368/instances_valminusminival2014.json.zip &&
 #  unzip instances_valminusminival2014.json.zip
-
-sudo -H pip3 install .

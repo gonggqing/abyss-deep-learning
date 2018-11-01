@@ -4,7 +4,6 @@ import keras.backend as K
 import matplotlib.pyplot as plt
 import numpy as np
 
-
 class LrSearch(object):
     def __init__(self, model, x, y=None, batch_size=None):
         self.model = model
@@ -53,4 +52,5 @@ class LrSearch(object):
         ax1.tick_params('y')
         ax1.set_xlabel("learning rate")
         ax1.set_ylim([-50, 100])
+
 
