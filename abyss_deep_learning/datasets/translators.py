@@ -77,7 +77,7 @@ class CaptionMapTranslator(AnnotationTranslator):
         self.map = mapping
 
     def filter(self, annotation):
-        return caption in annotation
+        return 'caption' in annotation
 
     def translate(self, annotation):
         return self.map[annotation['caption']]
