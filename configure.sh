@@ -4,11 +4,11 @@ set -e
 [[ $# -lt 1 ]] && { echo "Usage: ./configure [python3 | python2]"; exit 1; }
 
 BASE=$PWD
-SRC_DIR=/home/$USER/src
+SRC_DIR=~/src
 COCOTOOLS_DIR=$SRC_DIR/cocoapi
 
 # ## Initialise submodules
-git submodule update --init --recursive
+# git submodule update --init --recursive
 
 if [[ ! -e $SRC_DIR ]] ; then
 	mkdir "$SRC_DIR"
@@ -29,6 +29,7 @@ fi
 make && sudo make install
 
 ## Download Mask RCNN pretrained weights and update remotes
+mkdir -p "$BASE/abyss_maskrcnn"
 cd "$BASE/abyss_maskrcnn"
 [[ ! -e mask_rcnn_coco.h5 ]] && \
  wget -c https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5
