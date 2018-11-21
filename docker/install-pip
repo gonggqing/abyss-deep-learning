@@ -5,14 +5,14 @@ imgaug
 imread
 ipython
 jupyter
-keras==2.2.2
 keras-applications==1.0.4
 keras-preprocessing==1.0.2 
+keras==2.2.2
+matplotlib
 matplotlib
 numpy
 opencv-contrib-python
 pandas
-pip
 scikit-image
 scikit-video
 scipy
@@ -20,4 +20,3 @@ setuptools
 six
 tensorflow-gpu==1.9.0
 tensorflow-tensorboard==0.4.0
-matplotlib

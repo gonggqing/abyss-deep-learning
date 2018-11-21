@@ -1,0 +1,19 @@
+#!/bin/bash
+
+GIT_URI="$1"
+KEY="$2"
+HOME=/home/docker
+
+touch $HOME/.ssh/config
+mv $HOME/.ssh/config $HOME/.ssh/config.tmp
+cat <<EOF > "$HOME/.ssh/config"
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile $KEY
+  IdentitiesOnly yes
+EOF
+
+
+git clone $GIT_URI
+mv $HOME/.ssh/config.tmp $HOME/.ssh/config

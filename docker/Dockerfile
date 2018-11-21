@@ -1,24 +1,28 @@
-FROM nvidia/cuda:8.0-cudnn7-devel
+FROM nvidia/cuda:9.0-cudnn7-devel
+# Possibly cuda:9.0-cudnn7-devel-ubuntu16.04
 
 # Expose jupyter notebook and tensorboard ports
 EXPOSE 8888
 EXPOSE 7001
 
-COPY setup_permissions.sh /tmp/setup_permissions.sh
-COPY install-apt-python3 /tmp/install-apt
+COPY setup.sh /tmp/setup.sh
 COPY install-pip /tmp/install-pip
+COPY install-apt-python3 /tmp/install-apt
+
+RUN bash /tmp/setup.sh prerequisites
+
+COPY ssh /home/docker/.ssh
+RUN chown -R docker /home/docker/.ssh
+RUN chgrp -R docker /home/docker/.ssh
+COPY git-clone-with-key /home/docker/bin
+RUN bash /tmp/setup.sh local-packages
+
+RUN bash /tmp/setup.sh configure
 COPY jupyter /home/docker/.jupyter
 
-RUN apt-get update &&  apt-get install -y --fix-missing $(cat /tmp/install-apt)
-RUN pip3 install -U pip
-# RUN pip install -U $(cat /tmp/install-pip)
-RUN pip3 install -U $(cat /tmp/install-pip)
-RUN bash /tmp/setup_permissions.sh
-RUN apt-get clean && rm -rf /tmp/* /var/tmp/*
-RUN echo 'export PYTHONPATH=/home/docker/src/abyss/deep-learning:$PYTHONPATH' >> /home/docker/.profile
-RUN jupyter notebook --generate-config
+RUN bash /tmp/setup.sh clean
 
 USER docker
-ENV HOME /home/docker
+WORKDIR /home/docker
 CMD jupyter notebook
 # pkill -SIGHUP dockerd
