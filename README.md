@@ -46,7 +46,7 @@ docker build -t abyss/dl .
 Add the following alias to your host that will allow you to run the image easily:
 ```bash
 echo 'alias docker-dl="nvidia-docker run --user docker -it --rm -v /home/$USER:/home/docker -v /:/host -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix -p 8888:8888 -p 7001:7001 abyss/dl bash"' > ~/.abyss_aliases
-source ~/.bash_aliases
+source ~/.abyss_aliases
 ```
 
 Now run docker with xhost sharing:
@@ -55,15 +55,28 @@ xhost +local:root
 xhost +local:$USER
 docker-dl
 ```
+TODO: X forwarding from docker>local when ssh'ed in to hippo.
 
 You should now be in an environment that will have all the prerequisites for you to install the deep-learning repo:
 ```bash
 cd ~/src/abyss/deep-learning
-sudo ./configure python3 # This will take a while to download the MaskRCNN weights
+sudo ./configure.sh python3 # This will take a while to download the MaskRCNN weights
 sudo python3 setup.py install
 ```
 
 Now you are ready to run maskrcnn-trainval, etc...
+
+To run Jupyter Notebook from Docker whilst ssh'ed to hippo:
+```bash
+sudo pip3 install jupyter
+jupyter notebook --no-browser --port 9000
+```
+
+Then in a new local terminal:
+```bash
+ssh -N -f -L localhost:8889:0.0.0.0:9000 jmc@hippo
+```
+Now visit localhost:8889/?token= _____ with the token given by the jupyter server.
 
 ## Applications
 * coco-calc-masks: Open a COCO dataset and save a new one, where the segmentations are always masks.
