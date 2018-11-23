@@ -40,6 +40,7 @@ mkdir -p ~/src/abyss
 cd ~/src/abyss
 git clone https://github.com/abyss-solutions/deep-learning.git
 cd deep-learning/docker
+chmod 600 ssh/*
 docker build -t abyss/dl .
 ```
 
@@ -48,13 +49,20 @@ Add the following alias to your host that will allow you to run the image easily
 echo 'alias docker-dl="nvidia-docker run --user docker -it --rm -v /home/$USER:/home/docker -v /:/host -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix -p 8888:8888 -p 7001:7001 abyss/dl bash"' > ~/.abyss_aliases
 source ~/.abyss_aliases
 ```
-
+ 
 Now run docker with xhost sharing:
 ```bash
 xhost +local:root
 xhost +local:$USER
 docker-dl
 ```
+Alternative:
+```bash
+alias docker-dl2='nvidia-docker run --net=host --env="DISPLAY" -it -p 8888:8888 -p 7001:7001 -p 6006:6006 --volume "$HOME/.Xauthority:/root/.Xauthority:rw" -v ~/src:/home/docker/src -v /mnt:/mnt -v /tmp/.X11-unix:/tmp/.X11-unix --name pipelines --rm abyss/dl bash'
+docker-dl2
+```
+
+
 TODO: X forwarding from docker>local when ssh'ed in to hippo.
 
 You should now be in an environment that will have all the prerequisites for you to install the deep-learning repo:
