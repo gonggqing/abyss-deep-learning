@@ -63,7 +63,6 @@ source ~/.abyss_aliases
 docker-dl
 ```
 
-
 TODO: X forwarding from docker>local when ssh'ed in to hippo.
 
 You should now be in an environment that will have all the prerequisites for you to install the deep-learning repo:
@@ -77,7 +76,6 @@ Now you are ready to run maskrcnn-trainval, etc...
 
 To run Jupyter Notebook from Docker whilst ssh'ed to hippo:
 ```bash
-sudo pip3 install jupyter
 jupyter notebook --no-browser --port 9000
 ```
 
