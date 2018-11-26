@@ -58,8 +58,9 @@ docker-dl
 ```
 Alternative:
 ```bash
-alias docker-dl2='nvidia-docker run --net=host --env="DISPLAY" -it -p 8888:8888 -p 7001:7001 -p 6006:6006 --volume "$HOME/.Xauthority:/root/.Xauthority:rw" -v ~/src:/home/docker/src -v /mnt:/mnt -v /tmp/.X11-unix:/tmp/.X11-unix --name pipelines --rm abyss/dl bash'
-docker-dl2
+echo 'alias docker-dl="nvidia-docker run --user docker --net=host -e DISPLAY=$DISPLAY -it -p 8888:8888 -p 7001:7001 -p 6006:6006 --volume "$HOME/.Xauthority:/root/.Xauthority:rw" -v ~/src:/home/docker/src -v /mnt:/mnt -v /tmp/.X11-unix:/tmp/.X11-unix -v /:/host --rm abyss/dl bash"' > ~/.abyss_aliases
+source ~/.abyss_aliases
+docker-dl
 ```
 
 
