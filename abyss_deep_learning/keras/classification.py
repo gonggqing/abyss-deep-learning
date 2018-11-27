@@ -59,7 +59,9 @@ class Inference(object):
         elif self.config['architecture']['backbone'] == "vgg16":
             from keras.applications.vgg16 import preprocess_input
         elif self.config['architecture']['backbone'] == "resnet50":
-            from keras.applications.resnet50 import preprocess_input
+            from keras.applications.resnet50 import preprocess_input 
+        elif self.config['architecture']['backbone'].lower() == "xception":
+            from keras.applications.xception import preprocess_input 
         else:
             raise ValueError(
                 "Unknown model architecture.backbone '{:s}'".format(
