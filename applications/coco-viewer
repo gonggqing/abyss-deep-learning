@@ -116,11 +116,10 @@ def foreach_coco_image(dataset, function):
 def calculate_rgb_means(dataset, image_dir=None):
     '''Calculate the pixel color means in the dataset'''
     means = []
-
     def _calc_rgb(_dataset, image, _annotations):
-        print(image['path'], file=sys.stderr)
         image_path = image['path'] if 'path' in image else os.path.join(
             image_dir, image['file_name'])
+        print(image_path, file=sys.stderr)
         rgb = imread(image_path)
         if not isinstance(rgb, np.ndarray):
             rgb = imread(image_path, plugin='matplotlib') * 255
@@ -182,18 +181,18 @@ def main(args):
         #         groups.append(list(g))      # Store group iterator as a list
         #         uniquekeys.append(k)
         #     annotations = [sorted(g, key=lambda a: a['id'])[0] for g in groups]
-        info("[%d \"%s\"] %d annotations" %
-             (image['id'], image['file_name'], len(annotations)))
+        info("[{:s} \"{:s}\"] %d annotations".format(
+            str(image['id']), image['file_name'], len(annotations)))
         if not args.dontshow:
             plt.imshow(rgb)
             try:
                 showAnns(coco_db, annotations, use_bbox=False)
-                plt.title("[{:d}] {:s}".format(
-                    image['id'], image['file_name']))
+                plt.title("[{:s}] {:s}".format(
+                    str(image['id']), image['file_name']))
             except Exception as e:
                 print(e, file=stderr)
-                plt.title("ERROR [{:d}] {:s}".format(
-                    image['id'], image['file_name']))
+                plt.title("ERROR [{:s}] {:s}".format(
+                    str(image['id']), image['file_name']))
             plt.show()
 
 

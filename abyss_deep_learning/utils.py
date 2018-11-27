@@ -1,6 +1,7 @@
 from collections import Counter
 import os
 import warnings
+import sys
 
 from pycocotools import mask as maskUtils
 import cv2
@@ -293,3 +294,10 @@ def image_streamer(sources):
             del coco
         else:
             warn("Skipped an unknown source type {}.".format(source))
+
+
+
+def print_v(*args, level=0):
+    if print_v._level >= level:
+        print(*args, file=sys.stderr)
+print_v._level = 0
