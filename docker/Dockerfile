@@ -14,6 +14,8 @@ RUN bash /tmp/setup.sh prerequisites
 COPY ssh /home/docker/.ssh
 RUN chown -R docker /home/docker/.ssh
 RUN chgrp -R docker /home/docker/.ssh
+RUN chmod 600 /home/docker/.ssh/*
+RUN chmod 644 /home/docker/.ssh/*.pub
 COPY git-clone-with-key /home/docker/bin
 RUN bash /tmp/setup.sh local-packages
 

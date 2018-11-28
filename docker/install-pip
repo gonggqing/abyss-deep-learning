@@ -5,10 +5,7 @@ imgaug
 imread
 ipython
 jupyter
-keras-applications==1.0.4
-keras-preprocessing==1.0.2 
-keras==2.2.2
-matplotlib
+keras-applications==1.0.4 keras-preprocessing==1.0.2  keras==2.2.2 matplotlib
 matplotlib
 numpy
 opencv-contrib-python
