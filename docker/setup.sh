@@ -71,8 +71,8 @@ function install_local_packages(){
 
     # Custom clone and install for pycocoapi
     su docker -c "git clone 'https://github.com/cocodataset/cocoapi.git' '$home/src/cocoapi' && cd '$home/src/cocoapi/PythonAPI' \
-            && sed -r -i 's/python\s/python3 /g' Makefile && make && sudo make install && cd '$home'"
-    
+            && sed -r -i 's/python\s/python3 /g' Makefile && make"
+    (cd $home/src/cocoapi/PythonAPI && make install)
 
     info Install pip local packages finished
     exit 0
