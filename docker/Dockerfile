@@ -26,5 +26,5 @@ RUN bash /tmp/setup.sh clean
 
 USER docker
 WORKDIR /home/docker
-CMD jupyter notebook
+CMD bash
 # pkill -SIGHUP dockerd
