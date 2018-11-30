@@ -13,7 +13,49 @@ from sklearn.utils.validation import check_is_fitted
 from abyss_deep_learning.utils import cat_to_onehot, warn_on_call
 
 
-class ImageClassifier(BaseEstimator, ClassifierMixin):
+class ModelPersistence:
+    def save(self, filepath):
+        """Save a model, its state and its hyperparameters to file.
+
+        Args:
+            filepath (TYPE): Description
+            include_optimizer (bool, optional): Description
+        """
+        from keras.engine.saving import save_weights_to_hdf5_group#, _serialize_model
+        from json import dumps
+        import h5py
+
+        self.model_.save_weights(filepath)
+        with h5py.File(filepath, 'a') as f:
+            topology = f.create_dataset("topology", data=self.model_.to_json())
+            topology.attrs['format'] = 'json'
+            parameters = f.create_dataset("parameters", data=dumps(self.get_params()))
+            parameters.attrs['format'] = 'json'
+
+    def load(self, filepath):
+        raise UnimplementedError("ModelPersistence::load has not been overridden for this class.")
+
+    @staticmethod
+    def _load_model(filepath, model_class):
+        """Load a model, its state and its hyperparameters from file.
+
+        Args:
+            filepath (TYPE): Path to model to load
+        """
+        from keras.utils.io_utils import h5dict
+        from keras.engine.saving import load_weights_from_hdf5_group_by_name#, _deserialize_model
+        from json import loads
+        from keras.models import model_from_json
+
+        f = h5dict(filepath, mode='r')
+        parameters = loads(str(f['parameters']))
+        model = model_class(**parameters)
+        model._maybe_create_model()
+        model.model_.load_weights(filepath)
+        f.close()
+        return model
+
+class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
 
     """A generic image classifier that can use multiple backends, complete with persistance
     functionality, and hides some complex implementation details.
@@ -387,50 +429,19 @@ class ImageClassifier(BaseEstimator, ClassifierMixin):
             classes = (proba > 0.5).astype('int32')
         return self.classes_[classes]
 
-    def save(self, filepath, include_optimizer=False):
-        """Summary
-
-        Args:
-            filepath (TYPE): Description
-            include_optimizer (bool, optional): Description
-        """
-        from keras.engine.saving import save_weights_to_hdf5_group#, _serialize_model
-        from json import dumps
-        import h5py
-
-        self.model_.save_weights(filepath)
-        with h5py.File(filepath, 'a') as f:
-            topology = f.create_dataset("topology", data=self.model_.to_json())
-            topology.attrs['format'] = 'json'
-            parameters = f.create_dataset("parameters", data=dumps(self.get_params()))
-            parameters.attrs['format'] = 'json'
-
     @staticmethod
-    def load(filepath, custom_objects=None, compile=True):
-        """Summary
+    def load(filepath):
+        """Load a model, its state and its hyperparameters from file.
 
         Args:
-            filepath (TYPE): Description
-            custom_objects (None, optional): Description
-            compile (bool, optional): Description
+            filepath (TYPE): Path to model to load
         """
-        from keras.utils.io_utils import h5dict
-        from keras.engine.saving import load_weights_from_hdf5_group_by_name#, _deserialize_model
-        from json import loads
-        from keras.models import model_from_json
-
-        f = h5dict(filepath, mode='r')
-        parameters = loads(str(f['parameters']))
-        model = ImageClassifier(**parameters)
-    #     topology = str(f['topology'])
-    #     model.model_ = model_from_json(topology)
-        model._maybe_create_model()
-        model.model_.load_weights(filepath)
-        f.close()
-        return model
+        return ModelPersistence._load_model(filepath, ImageClassifier)
 
 
-class FcnCrfSegmenter(ImageClassifier):
+
+
+class FcnCrfSegmenter(ImageClassifier, ModelPersistence):
 
     """A jointly trained FCN and CRF that complete with persistance
     functionality, and hides some complex implementation details.
@@ -543,4 +554,13 @@ class FcnCrfSegmenter(ImageClassifier):
             super().set_trainable(train_layers)
         else:
             super().set_trainable(trainable)
+            
+    @staticmethod
+    def load(filepath):
+        """Load a model, its state and its hyperparameters from file.
+
+        Args:
+            filepath (TYPE): Path to model to load
+        """
+        return ModelPersistence._load_model(filepath, FcnCrfSegmenter)
     
