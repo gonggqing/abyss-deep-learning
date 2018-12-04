@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 
-
 import numpy as np
 import json
 from pycocotools.coco import COCO
@@ -11,6 +10,15 @@ import cv2
 
 
 def get_unique_list_of_videos(coco):
+    """Gets a unique list of all videos in the dataset
+
+    Args:
+        coco (COCO): A coco dataset
+
+    Returns:
+        list: List of strings of all videos in the dataset
+
+    """
     video_list = []
     imgIds = coco.getImgIds(imgIds=[]) # Load all images
     for id in imgIds:
@@ -21,6 +29,15 @@ def get_unique_list_of_videos(coco):
 
 
 def check_number_of_videos_per_json(coco):
+    """Ensures there is only one video in each dataset
+
+    Args:
+        coco (COCO): Description of parameter `coco`.
+
+    Returns:
+        bool: True if there is less than 1 video in the dataset
+
+    """
     video_list = get_unique_list_of_videos(coco)
     if len(video_list) > 1:
         return False
@@ -28,10 +45,28 @@ def check_number_of_videos_per_json(coco):
 
 
 def get_video_basename(coco):
+    """Get the basename of the video, with no .mp4
+
+    Args:
+        coco (COCO): A coco dataset
+
+    Returns:
+        str: basename of video
+
+    """
     return get_unique_list_of_videos(coco)[0].split(".")[0]
 
 
 def get_video_path(coco):
+    """Get the video path
+
+    Args:
+        coco (COCO): Get the video path
+
+    Returns:
+        str: The video path
+
+    """
     imgIds = coco.getImgIds(imgIds=[]) # Load all images
     id = imgIds[0]
     video_path = coco.loadImgs(id)[0]["path"].split(":")[0]
@@ -39,6 +74,16 @@ def get_video_path(coco):
     return video_path
 
 def get_video_at_default_path(coco, default_path):
+    """Gets the video at the provided video default path. Full path is default_path/basename.
+
+    Args:
+        coco (COCO): A coco dataset
+        default_path (str): The default path of all the videos
+
+    Returns:
+        str: Video Path
+
+    """
     return os.path.join(default_path, get_unique_list_of_videos(coco)[0])
 
 
@@ -64,6 +109,7 @@ def main(args):
             os.makedirs(os.path.join(args.output_dir, video_basename, "frames"))
         frames_path = os.path.join(args.output_dir, video_basename, "frames")
 
+        # Open the video
         cap = cv2.VideoCapture(get_video_at_default_path(coco, args.default_video_path))
 
         # Save all the images to the frames folder
@@ -86,12 +132,9 @@ def main(args):
                 print("FAILED TO GET FRAME")
             # New Coco Dataset
             coco.dataset['images'][im_idx]["path"] = new_path
-
-        # json.dump(open(os.path.join(args.output_dir, video_basename, 'coco-dataset.json'), 'w'))
+        # Write the new dataset
         with open(os.path.join(args.output_dir, video_basename, 'coco-dataset.json'), 'w') as outfile:
             json.dump(coco.dataset, outfile, sort_keys=True, indent=4)
-        # json.dumps(coco.dataset, os.path.join(args.output_dir, video_basename, 'coco-dataset.json'))
-        # print(coco.dataset, os.path.join(args.output_dir, video_basename, 'coco-dataset.json'))
 
 
 if __name__ == "__main__":
