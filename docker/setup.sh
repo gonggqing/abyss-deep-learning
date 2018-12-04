@@ -5,6 +5,10 @@ function info(){
     echo "[INFO]  $*" 1>&2
 }
 
+function su_docker(){
+    su docker -c "$*"
+}
+
 function clone_and_install(){
     local src_dir="$1"
     local repo_uri="$2"
@@ -13,17 +17,17 @@ function clone_and_install(){
 
     if [ ! -z $ssh_key ]; then
         local ssh_key="/home/docker/.ssh/git-$repo_name"
-        su docker -c "mkdir -p $src_dir && cd $src_dir && /home/docker/bin/git-clone-with-key $repo_uri $ssh_key"
+        su_docker "mkdir -p $src_dir && cd $src_dir && /home/docker/bin/git-clone-with-key $repo_uri $ssh_key"
     else
-        su docker -c "mkdir -p $src_dir && cd $src_dir && git clone $repo_uri"
+        su_docker "mkdir -p $src_dir && cd $src_dir && git clone $repo_uri"
     fi
-    su docker -c "pip3 install --user $src_dir/$repo_name"
+    su_docker "pip3 install --user $src_dir/$repo_name"
 }
 
 function install_prerequisites(){
     info Install system packages
     apt-get update && apt-get install -y --fix-missing $(cat /tmp/install-apt)
-    pip3 install -r /tmp/install-pip
+    su_docker "pip3 install -r /tmp/install-pip"
 
     ## Add user and group
     groupadd -g 999 docker
@@ -37,7 +41,7 @@ function install_prerequisites(){
     # chown -R docker /home/docker
     # chgrp -R docker /home/docker
 
-    su docker -c 'mkdir /home/docker/python /home/docker/bin'
+    su_docker 'mkdir /home/docker/python /home/docker/bin'
     echo 'export PYTHONPATH=/home/docker/python:$PYTHONPATH' >> /home/docker/.bashrc
     echo 'export PATH=/home/docker/bin:/home/docker/.local/bin:$PATH' >> /home/docker/.bashrc
     source /home/docker/.bashrc
@@ -70,7 +74,7 @@ function install_local_packages(){
     clone_and_install "$home/src" "https://github.com/matterport/Mask_RCNN.git"
 
     # Custom clone and install for pycocoapi
-    su docker -c "git clone 'https://github.com/cocodataset/cocoapi.git' '$home/src/cocoapi' && cd '$home/src/cocoapi/PythonAPI' \
+    su_docker "git clone 'https://github.com/cocodataset/cocoapi.git' '$home/src/cocoapi' && cd '$home/src/cocoapi/PythonAPI' \
             && sed -r -i 's/python\s/python3 /g' Makefile && make"
     (cd $home/src/cocoapi/PythonAPI && make install)
 
@@ -83,7 +87,7 @@ function install_configure(){
     local jupyter_port=8888
 
     info install configure
-    su docker -c 'jupyter notebook --generate-config'
+    su_docker 'jupyter notebook --generate-config'
     sed -i "s/#c.NotebookApp.ip = 'localhost'/c.NotebookApp.ip = '0.0.0.0'/" /home/docker/.jupyter/jupyter_notebook_config.py
     sed -i "s/#c.NotebookApp.password = ''/c.NotebookApp.password = '$jupyter_password'/" /home/docker/.jupyter/jupyter_notebook_config.py
     sed -i "s/#c.NotebookApp.port = 8888/c.NotebookApp.port = $jupyter_port/" /home/docker/.jupyter/jupyter_notebook_config.py
