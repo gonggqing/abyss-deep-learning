@@ -20,11 +20,20 @@ examples
 
 """
 
+# todo
+#   ! output video details in info/dataset section
+#   ! output bare minimum (see confluence) of fields in images section
+#   ? pad frame numbers in filenames? 00001234.png vs 1234.png?
+#   ? paths to images absolute by default
+#   ? add --relative option?
+#   ? add --absolute option?
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser( description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("JSON_file", nargs='*', type=str, help="Path to JSON file")
     parser.add_argument("--video-dir", "--dir", type=str, help="Path under which all the videos referenced in JSON file(s) expected to be found")
     parser.add_argument("--cloud-factory", "--cloud", action="store_true", help="input JSON files are in (deprecated) cloud factory format flavour")
+    parser.add_argument("--make-images", "--images", action="store_true", help="extract images from video and save as PNG")
     # todo? parser.add_argument("--output-dir", help="Path to the new directory")
     args = parser.parse_args()
     print( "coco-from-video: todo", file = sys.stderr )
