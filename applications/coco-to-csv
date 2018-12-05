@@ -10,11 +10,11 @@ from pycocotools.coco import COCO
 
 def export_csv(image, annotations, args):
     for annotation in annotations:
-        file_name = ','.join(image['file_name'].split('.')[:-1])
+        file_name = '.'.join(image['file_name'].split('.')[:-1])
         if args.verbose:
             print(file_name, file=stderr)
 
-        with open(os.path.join(args.annotation_dir, file_name + '.csv'), 'a') as file_handle:
+        with open(os.path.join(args.annotation_dir, file_name.replace("/", "_") + '.csv'), 'a') as file_handle:
             output_string = []
             for field_name in args.fields:
                 if field_name == 'bbox':
