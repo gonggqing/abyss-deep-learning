@@ -1,12 +1,15 @@
 #!/usr/bin/python3
 
-import numpy as np
-import json
-#from pycocotools.coco import COCO
-import sys
 import argparse
 import glob
-import cv2 # make it conditional on whether --make-images is present
+import json
+import os
+import re
+import sys
+from inspect import currentframe
+
+import cv2  # TODO remove me
+from pycocotools.coco import COCO
 
 description = """
 
@@ -20,6 +23,7 @@ examples
 
 """
 
+
 # todo
 #   ! output video details in info/dataset section
 #   ! output bare minimum (see confluence) of fields in images section
@@ -28,13 +32,256 @@ examples
 #   ? add --relative option?
 #   ? add --absolute option?
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser( description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("JSON_file", nargs='*', type=str, help="Path to JSON file")
-    parser.add_argument("--video-dir", "--dir", type=str, help="Path under which all the videos referenced in JSON file(s) expected to be found")
-    parser.add_argument("--cloud-factory", "--cloud", action="store_true", help="input JSON files are in (deprecated) cloud factory format flavour")
-    parser.add_argument("--make-images", "--images", action="store_true", help="extract images from video and save as PNG")
+#TODO: cleaning .avi
+
+
+def debug_print(arg):
+    """Debugging tool to print line number followed by normal print statement arguments
+
+    """
+    frame_info = currentframe()
+    print("Line", frame_info.f_back.f_lineno, ":", arg)
+
+
+def get_unique_list_of_videos(coco):
+    """Gets a unique list of all videos in the dataset
+
+    Args:
+        coco (COCO): A coco dataset
+
+    Returns:
+        list: List of strings of all videos in the dataset
+
+    """
+    video_list = []
+    imgIds = coco.getImgIds(imgIds=[])  # Load all images
+    for id in imgIds:
+        video_path = coco.loadImgs(id)[0]["path"]
+        # debug_print("video path is {}".format(video_path))
+        video_name = os.path.basename(video_path).split(':')[0]
+        video_name = re.sub(r" \([0-9]+\)", "", video_name)
+        # debug_print(video_name)
+        video_list.append(video_name)
+    return list(set(video_list))
+
+
+def number_of_videos_per_json(coco):
+    """Ensures there is only one video in each dataset
+
+    Args:
+        coco (COCO): Description of parameter `coco`.
+
+    Returns:
+        int: True if there is less than 1 video in the dataset
+
+    """
+    video_list = get_unique_list_of_videos(coco)
+    return len(video_list)
+
+
+# def get_video_basename(coco):
+#     """Get the basename of the video, with no .mp4
+#
+#     Args:
+#         coco (COCO): A coco dataset
+#
+#     Returns:
+#         str: basename of video
+#
+#     """
+#     return get_unique_list_of_videos(coco)[0].split(".")[0]
+
+
+def get_video_path(coco):
+    """Get the video path
+
+    Args:
+        coco (COCO): Get the video path
+
+    Returns:
+        str: The video path
+
+    """
+    imgIds = coco.getImgIds(imgIds=[])  # Load all images
+    id = imgIds[0]
+    video_path = coco.loadImgs(id)[0]["path"].split(":")[0]
+    debug_print(video_path)
+    return video_path
+
+
+# def get_video_at_default_path(coco, default_path):
+#     """Gets the video at the provided video default path. Full path is default_path/basename.
+#
+#     Args:
+#         coco (COCO): A coco dataset
+#         default_path (str): The default path of all the videos
+#
+#     Returns:
+#         str: Video Path
+#
+#     """
+#     return os.path.join(default_path, get_unique_list_of_videos(coco)[0])
+
+def recursive_search(video_basename, root_dir):
+    found_locations = []
+    for filename in glob.iglob(os.path.join(root_dir, "**", video_basename), recursive=True):
+        found_locations.append(filename)
+    return found_locations[0]
+
+def get_args():
+    parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("json_files", nargs='*', type=str, help="Path to JSON file")
+    parser.add_argument("--video-dir", "--dir", type=str,
+                        help="Path under which all the videos referenced in JSON file(s) expected to be found")
+    parser.add_argument("--keep_segmentation", "--seg", action='store_true',
+                        help="Keep segmentation regions, otherwise assume to be classification task (and discard regions)")
+    parser.add_argument("--cloud-factory", "--cloud", action="store_true",
+                        help="input JSON files are in (deprecated) cloud factory format flavour")
+    parser.add_argument("--make-images", "--images", action="store_true",
+                        help="extract images from video and save as PNG")
+    parser.add_argument("--output", type=str,
+                        help="output directory for database", default=os.getcwd())
     # todo? parser.add_argument("--output-dir", help="Path to the new directory")
-    args = parser.parse_args()
-    print( "coco-from-video: todo", file = sys.stderr )
-    sys.exit( 1 )
+    # print("coco-from-video: todo", file=sys.stderr)
+    return parser.parse_args()
+
+
+# TODO: check with seva & jackson on good way to do this
+def translate_caption(input_format, label):
+    return label
+
+
+def main():
+    args = get_args()
+
+    if args.make_images:
+        pass
+        # import cv2
+
+    # logging.basicConfig(filename='error.log', filemode='w', level=logging.DEBUG)
+
+    for json_file in args.json_files:
+        coco = COCO(json_file)
+        if number_of_videos_per_json(coco) > 1:
+            raise EnvironmentError("JSON has more than one video")
+        video_basename = os.path.basename(get_unique_list_of_videos(coco)[0])
+        video_name, video_ext = os.path.splitext(video_basename)
+        # Make a new folder for the video, and frames
+
+        image_folder = os.path.join(args.output, video_name, "images")
+        if not os.path.exists(image_folder):
+            os.makedirs(image_folder)
+
+        # Open the video
+        video_path = recursive_search(video_basename, args.video_dir)
+        if args.make_images:
+            cap = cv2.VideoCapture(video_path)
+
+            # Save all the images to the frames folder
+            for im_idx, im in enumerate(coco.dataset['images']):
+
+                # Original Image Path
+                img_path = im["path"]
+
+                # The image frame number
+                if ':' not in img_path:
+                    raise EnvironmentError("COCO path variable contains no ':', cannot derive frame number")
+
+                img_frame_number = int(img_path.split(":")[-1])
+
+                # print(img_frame_number)
+                # New Path
+                new_path = os.path.join(image_folder, str(img_frame_number).zfill(8) + ".png")
+                # Set the frame in the video
+                cap.set(cv2.CAP_PROP_POS_FRAMES, img_frame_number)
+                # Read the Image
+                ret, img = cap.read()
+                if ret:
+                    # Write the image to the new path
+                    cv2.imwrite(new_path, img)
+                else:
+                    debug_print("{} {}".format(video_path, os.path.exists(video_path)))
+                    debug_print("FAILED TO GET FRAME")
+                    # logging.debug("Failed to get frame {} from {}".format(img_frame_number, video_path))
+                    # debug_print(f)
+                    # debug_print(get_unique_list_of_videos(coco))
+                    # return
+
+                # New Coco Dataset
+                im['original_uri'] = video_path+"?begin="+str(img_frame_number)+"&end="+str(img_frame_number)
+                im["path"] = new_path
+
+            # TODO: get cap properties
+
+            if 'dataset' not in coco.dataset['info']:
+                coco.dataset['info']['dataset'] = {
+                    "license": 1,
+                    "video": {
+                        "height": cap.get(cv2.CAP_PROP_FRAME_HEIGHT),
+                        "width": cap.get(cv2.CAP_PROP_FRAME_WIDTH),
+                        "frame_total": cap.get(cv2.CAP_PROP_FRAME_COUNT),
+                        "frame_rate": cap.get(cv2.CAP_PROP_FPS)
+                    },
+                    "date_captured": "",
+                    "uri": video_path
+                }
+
+            img_fields_of_interest = ["height", "width", "id", "path", "original_uri"]
+
+            print(coco.dataset['images'][0])
+
+            for img_idx, img in enumerate(coco.dataset['images']):
+                new_img = {}
+                for field in img:
+                    if field in img_fields_of_interest:
+                        if field in img:
+                            new_img[field] = img[field]
+                coco.dataset['images'][img_idx] = new_img
+
+            print(coco.dataset['images'][0])
+
+            if args.keep_segmentation:
+                return NotImplementedError("Not yet implemented")
+
+            annotations = []
+
+            if 'categories' in coco.dataset:
+                # Converting instances to captions
+                categories = coco.dataset.pop('categories')
+
+                caption_map_r = {cat['id']: cat['name'] for cat in categories}
+
+                for ann in coco.dataset['annotations']:
+                    new_ann = {
+                        'caption': translate_caption("", caption_map_r[ann['category_id']]),
+                        'id': ann['id'],
+                        'image_id': ann['image_id']
+                    }
+                    annotations.append(new_ann)
+
+                if 'captions' in coco.dataset:
+                    coco.dataset.pop('captions')
+
+            else:
+                # Converting old CSV captions to new captions
+
+                for ann in coco.dataset['annotations']:
+                    for caption in ann['caption'].split(','):
+                        new_ann = {
+                            'caption': translate_caption("", caption),
+                            'id': len(annotations),
+                            'image_id': ann['image_id']
+                        }
+                        annotations.append(new_ann)
+
+            coco.dataset['annotations'] = annotations
+
+        # Write the new dataset
+        with open(os.path.join(args.output, video_name, 'coco.json'), 'w') as outfile:
+            json.dump(coco.dataset, outfile, sort_keys=True, indent=4)
+
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
