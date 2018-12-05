@@ -1,0 +1,31 @@
+#!/usr/bin/python3
+
+import numpy as np
+import json
+#from pycocotools.coco import COCO
+import sys
+import argparse
+import glob
+import cv2 # make it conditional on whether --make-images is present
+
+description = """
+
+Read JSON file(s) defined on command line or a list of JSON files on stdin,
+output COCO JSON files in respective subdirectories in the current directory,
+optionally, split videos into PNG frames
+
+examples
+    coco-from-video coco.cloud.001.json --dir /mnt/ssd1/processed/industry/what/not --cloud
+    find . -name my-coco.json | coco-from-video --dir /mnt/ssd1/processed/industry/what/not --cloud
+
+"""
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser( description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("JSON_file", nargs='*', type=str, help="Path to JSON file")
+    parser.add_argument("--video-dir", "--dir", type=str, help="Path under which all the videos referenced in JSON file(s) expected to be found")
+    parser.add_argument("--cloud-factory", "--cloud", action="store_true", help="input JSON files are in (deprecated) cloud factory format flavour")
+    # todo? parser.add_argument("--output-dir", help="Path to the new directory")
+    args = parser.parse_args()
+    print( "coco-from-video: todo", file = sys.stderr )
+    sys.exit( 1 )

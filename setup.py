@@ -21,6 +21,7 @@ setup(
         "applications/coco-calc-masks",
         "applications/coco-check-data-pollution",
         "applications/coco-extract-masks",
+        "applications/coco-from-video",
         "applications/coco-merge",
         "applications/coco-split",
         "applications/coco-to-csv",
