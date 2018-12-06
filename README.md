@@ -89,6 +89,7 @@ Now visit localhost:8889/?token= _____ with the token given by the jupyter serve
 * coco-calc-masks: Open a COCO dataset and save a new one, where the segmentations are always masks.
 * coco-check-data-pollution: Examine combinations of COCO datasets to ensure there are no common images between them.
 * coco-extract-masks: Extract masks from COCO to pngs
+* coco-from-video: For one or more labeled videos, create COCO json files and, optionally, corresponding image frames
 * coco-merge: Merge multiple COCO datasets
 * coco-split: Split a COCO dataset into subsets given split ratios
 * coco-to-csv: Convert a COCO dataset into a series of CSV files (similar to VOC format)
