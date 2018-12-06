@@ -44,6 +44,7 @@ def main():
         sys.exit(1)
 
     for json_file in args.json_files:
+        print("Creating COCO object for {}".format(os.path.basename(json_file)))
         coco = COCO(json_file)
         if len(get_unique_list_of_videos(coco)) > 1:
             raise EnvironmentError("JSON has more than one video")
@@ -103,14 +104,13 @@ def main():
             # If image folder exists, extract image in png format
             if ret and img_dir:
                 img_file_name = str(img_frame_number).zfill(8) + ".png"
-                if args.relative_path:
-                    img_path = os.path.join(os.path.basename(img_dir), img_file_name)
-                else:
-                    # New Path
-                    img_path = os.path.join(img_dir, img_file_name)
+                # New Path
+                img_path = os.path.join(img_dir, img_file_name)
 
                 # Write the image to the new path
                 cv2.imwrite(img_path, img)
+                if args.relative_path:
+                    img_path = os.path.join(os.path.basename(img_dir), img_file_name)
             elif not ret:
                 debug_print("Failed to get frame {}".format(img_frame_number))
 
@@ -122,6 +122,8 @@ def main():
                 'original_uri': video_path + "?begin=" + str(img_frame_number) + "&end=" + str(img_frame_number),
                 'path': img_path,
             }
+
+            print('Converting image {}'.format(im_idx), end='\r')
 
         # if 'dataset' not in coco.dataset['info']: # Unsure if necessary 'if' statement
         coco.dataset['info']['dataset'] = {
