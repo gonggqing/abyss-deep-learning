@@ -201,36 +201,6 @@ def get_unique_list_of_videos(coco):
     return list(set(video_list))
 
 
-def get_video_path(coco):
-    """Get the video path
-
-    Args:
-        coco (COCO): Get the video path
-
-    Returns:
-        str: The video path
-
-    """
-    imgIds = coco.getImgIds(imgIds=[])  # Load all images
-    id = imgIds[0]
-    video_path = coco.loadImgs(id)[0]['path'].split(':')[0]
-    debug_print(video_path)
-    return video_path
-
-
-# def get_video_at_default_path(coco, default_path):
-#     """Gets the video at the provided video default path. Full path is default_path/basename.
-#
-#     Args:
-#         coco (COCO): A coco dataset
-#         default_path (str): The default path of all the videos
-#
-#     Returns:
-#         str: Video Path
-#
-#     """
-#     return os.path.join(default_path, get_unique_list_of_videos(coco)[0])
-
 def recursive_search(video_basename, root_dir):
     for file_name in glob.iglob(os.path.join(root_dir, "**", video_basename), recursive=True):
         return file_name
