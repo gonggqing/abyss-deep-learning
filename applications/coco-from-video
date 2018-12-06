@@ -79,7 +79,7 @@ def main():
             if not os.path.exists(img_dir):
                 os.makedirs(img_dir)
 
-        # Retrieve first image id number in dataset to offset existing images by that amount
+        # Retrieve first image id number in data set to ensure image ids begin from 0
         img_id_offset = int(coco.dataset['images'][0]['id'])
         # Iterate through existing images in coco dataset
         for im_idx, im in enumerate(coco.dataset['images']):
@@ -112,7 +112,7 @@ def main():
                 if args.relative_path:
                     img_path = os.path.join(os.path.basename(img_dir), img_file_name)
             elif not ret:
-                debug_print("Failed to get frame {}".format(img_frame_number))
+                debug_print("Failed to get frame {} for image ".format(img_frame_number, im_idx))
 
             # New Coco Dataset
             coco.dataset['images'][im_idx] = {
@@ -146,7 +146,7 @@ def main():
             # Converting instances to captions
             categories = coco.dataset.pop('categories')
             caption_map_r = {cat['id']: cat['name'] for cat in categories}
-            # Retrieve first annotation id to offset existing annotations by that amount
+            # Retrieve first annotation id to offset existing annotations by that amount to ensure ann ids begin from 0
             ann_id_offset = int(coco.dataset['annotations'][0]['id'])
             for ann in coco.dataset['annotations']:
                 new_ann = {
