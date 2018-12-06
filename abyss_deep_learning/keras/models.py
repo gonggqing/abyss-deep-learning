@@ -414,7 +414,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin):
             custom_objects (None, optional): Description
             compile (bool, optional): Description
         """
-        from keras.utils.io_utils import h5dict
+        from abyss_deep_learning.keras.future_io_utils import h5dict
         from keras.engine.saving import load_weights_from_hdf5_group_by_name#, _deserialize_model
         from json import loads
         from keras.models import model_from_json
