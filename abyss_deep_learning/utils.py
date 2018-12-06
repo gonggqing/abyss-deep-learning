@@ -271,7 +271,7 @@ def image_streamer(sources):
     full_sources = []
     for source in sources:
         if '*' in source and not is_image(source):
-            full_sources += glob(source)
+            full_sources += glob(source, recursive=True)
         else: 
             full_sources.append(source)
 
@@ -281,7 +281,7 @@ def image_streamer(sources):
                 for frame_no, frame in enumerate(reader.nextFrame()):
                     yield source, frame_no, frame
         elif is_image(source):
-            for frame_no, image_path in enumerate(glob(source)):
+            for frame_no, image_path in enumerate(glob(source, recursive=True)):
                 yield image_path, frame_no, imread(image_path)
         elif source.endswith('.json'):
             # COCO database

@@ -167,6 +167,8 @@ def kernel_sparsity(model, min_value=1e-6):
     num = tf.zeros(1)
     den = tf.zeros(1)
     for weight in model.trainable_weights:
+        if 'kernel' not in weight.name:
+            continue
         size = tf.cast(tf.size(weight), tf.float32)
         zeros = size - tf.cast(tf.count_nonzero(tf.greater(weight, min_value)), tf.float32)
         num += zeros
