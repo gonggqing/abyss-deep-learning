@@ -64,8 +64,12 @@ class CocoDataset(object):
         shuffle(images)
         for i, image in enumerate(images):
             if limit_images is None or i < limit_images:
-                path = image['path'] if 'path' in image else os.path.join(
-                    image_dir, image['file_name'])
+                if 'path' in image:
+                    path = image['path']
+                elif image_dir:
+                    path = os.path.join(image_dir, image['file_name'])
+                else:
+                    path = None
                 dataset.add_image(
                     (image['height'], image['width']
                      ), image['file_name'], image['flickr_url'],
@@ -276,13 +280,12 @@ class CocoDataset(object):
         image_set = set([img['id'] for img in self.images])
         datasets = []
         for split in splits:
-            num_choices = int(round(len(self.images) * split))
+            num_choices = int(np.floor(len(self.images) * split))
             if verbose:
                 print("{:d} images, choosing {:d}".format(
                     len(image_set), num_choices), file=sys.stderr)
             split_ids = np.random.choice(
-                list(image_set), num_choices, replace=False
-            ).tolist()
+                list(image_set), num_choices, replace=False).tolist()
             image_set -= set(split_ids)
             dataset = CocoDataset(is_pretty=self.pretty)
             for category in self.categories:

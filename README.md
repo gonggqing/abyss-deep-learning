@@ -40,6 +40,7 @@ mkdir -p ~/src/abyss
 cd ~/src/abyss
 git clone https://github.com/abyss-solutions/deep-learning.git
 cd deep-learning/docker
+chmod 600 ssh/*
 docker build -t abyss/dl .
 ```
 
@@ -48,13 +49,20 @@ Add the following alias to your host that will allow you to run the image easily
 echo 'alias docker-dl="nvidia-docker run --user docker -it --rm -v /home/$USER:/home/docker -v /:/host -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix -p 8888:8888 -p 7001:7001 abyss/dl bash"' > ~/.abyss_aliases
 source ~/.abyss_aliases
 ```
-
+ 
 Now run docker with xhost sharing:
 ```bash
 xhost +local:root
 xhost +local:$USER
 docker-dl
 ```
+Alternative:
+```bash
+echo 'alias docker-dl="nvidia-docker run --user docker --net=host -e DISPLAY=$DISPLAY -it -p 8888:8888 -p 7001:7001 -p 6006:6006 --volume "$HOME/.Xauthority:/root/.Xauthority:rw" -v ~/src:/home/docker/src -v /mnt:/mnt -v /tmp/.X11-unix:/tmp/.X11-unix -v /:/host --rm abyss/dl bash"' > ~/.abyss_aliases
+source ~/.abyss_aliases
+docker-dl
+```
+
 TODO: X forwarding from docker>local when ssh'ed in to hippo.
 
 You should now be in an environment that will have all the prerequisites for you to install the deep-learning repo:
@@ -68,7 +76,6 @@ Now you are ready to run maskrcnn-trainval, etc...
 
 To run Jupyter Notebook from Docker whilst ssh'ed to hippo:
 ```bash
-sudo pip3 install jupyter
 jupyter notebook --no-browser --port 9000
 ```
 
@@ -85,6 +92,7 @@ Now visit localhost:8889/?token= _____ with the token given by the jupyter serve
 * coco-merge: Merge multiple COCO datasets
 * coco-split: Split a COCO dataset into subsets given split ratios
 * coco-to-csv: Convert a COCO dataset into a series of CSV files (similar to VOC format)
+* coco-from-video: For one or more labeled videos, create COCO json files and, optionally, corresponding image frames
 * coco-viewer: View coco images and annotations, calculate RGB mean pixel
 * image-dirs-to-coco: Convert VOC style annotations into COCO
 * labelme-to-coco: Convert labelme dataset into COCO
@@ -93,3 +101,32 @@ Now visit localhost:8889/?token= _____ with the token given by the jupyter serve
 * maskrcnn-test: Test a trained network on a COCO Dataset
 * maskrcnn-trainval: Train a Mask RCNN network with COCO dataset* 
 
+## Repo Summary - WIP
+* abyss_deep_learning
+  * base
+  * datasets
+  * keras
+  * abyss_dataset.py - 
+  * coco_classes.py
+  * metrics.py
+  * ocr.py
+  * utils.py
+    * cv2_to_Pil()
+    * instance_to_caption() - deprecated, replaced by Translator classes
+    * config_gpu()
+    * import_config() - generic json/yaml config reader
+    * balanced_set()
+    * tile_gen()
+    * detile()
+    * instance_to_categorical()
+    * cat_to_onehot()
+    * ann_rle_encode()
+    * warn_on_call()
+    * warn_once()
+    * image_streamer()
+  * visualize.py
+* applications
+* configs
+* data
+* docker
+* jupyter

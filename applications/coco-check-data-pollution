@@ -6,7 +6,7 @@ for i in $(seq $# ); do
   path1="${*:$i:1}"
   path2="${*:$j:1}"
   echo "Checking $path1 agains $path2:"
-  comm -12 <(jq '.images[].path' "$path1" | sort) <(jq '.images[].path' "$path2" | sort)
+  comm -12 <(jq '.images[].file_name' "$path1" | sort) <(jq '.images[].file_name' "$path2" | sort)
   echo ""
  done
 done

@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+from __future__ import print_function
+from math import floor
+from sys import stderr
+import argparse
+import os
+
+from pycocotools.coco import COCO
+
+def bbox_to_roi(bbox):
+    x, y, w, h = bbox
+    roi = [x, y, x + w, y + w]
+    return roi
+
+def coco_to_yolo3(args):
+    assert os.path.exists(args.coco_path), "COCO file not found."
+    coco = COCO(args.coco_path)
+    with open(args.output_file, 'w') as file_handle:
+        for image_id, image in coco.imgs.items():
+            file_name = '.'.join(image['file_name'].split('.')[:-1])
+            if args.verbose:
+                print(file_name, file=stderr)
+            annotations = coco.loadAnns(coco.getAnnIds(imgIds=[image_id]))
+            if not annotations:
+                continue
+            path = image['path'] if 'path' in image else os.path.join(args.image_dir, image['file_name'])
+
+            bbox = ' '.join([','.join([str(int(i)) for i in bbox_to_roi(ann['bbox'])]  + [str(ann['category_id']-1)])  for ann in annotations])
+            out_str = "{:s} {:s}\n".format(path, bbox)
+            print(out_str)
+            file_handle.write(out_str)
+
+
+def get_args():
+    parser = argparse.ArgumentParser(
+        description="Convert a COCO JSON into CSV"
+    )
+    parser.add_argument('coco_path', help="Path to the coco JSON.")
+    # parser.add_argument('image_dir', help="Path the images are stored in")
+    parser.add_argument(
+        'output_file', help="Path to output the annotations")
+    parser.add_argument(
+        '--image-dir', default=None,
+        help="Set image dir for relative pathed images."
+    )
+    parser.add_argument('--verbose', action='store_true',
+                        help="verbose output to stderr")
+    args = parser.parse_args()
+    return args
+
+
+if __name__ == '__main__':
+    coco_to_yolo3(get_args())
