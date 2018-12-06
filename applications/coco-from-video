@@ -25,7 +25,7 @@ examples
 """
 
 
-# todo
+# TODO:
 #   ! output video details in info/dataset section
 #   ! output bare minimum (see confluence) of fields in images section
 #   ? pad frame numbers in filenames? 00001234.png vs 1234.png?
@@ -33,7 +33,7 @@ examples
 #   ? add --relative option?
 #   ? add --absolute option?
 
-# TODO: cleaning .avi
+# TODO: must be able to handle .avi video format?
 
 
 def main():
@@ -45,7 +45,7 @@ def main():
 
     for json_file in args.json_files:
         coco = COCO(json_file)
-        if number_of_videos_per_json(coco) > 1:
+        if len(get_unique_list_of_videos()) > 1:
             raise EnvironmentError("JSON has more than one video")
         video_basename = os.path.basename(get_unique_list_of_videos(coco)[0])
 
@@ -201,33 +201,6 @@ def get_unique_list_of_videos(coco):
     return list(set(video_list))
 
 
-def number_of_videos_per_json(coco):
-    """Ensures there is only one video in each dataset
-
-    Args:
-        coco (COCO): Description of parameter `coco`.
-
-    Returns:
-        int: True if there is less than 1 video in the dataset
-
-    """
-    video_list = get_unique_list_of_videos(coco)
-    return len(video_list)
-
-
-# def get_video_basename(coco):
-#     """Get the basename of the video, with no .mp4
-#
-#     Args:
-#         coco (COCO): A coco dataset
-#
-#     Returns:
-#         str: basename of video
-#
-#     """
-#     return get_unique_list_of_videos(coco)[0].split(".")[0]
-
-
 def get_video_path(coco):
     """Get the video path
 
@@ -278,8 +251,6 @@ def get_args():
                         help="Extract images from video and save as PNG")
     parser.add_argument("--output-dir", type=str,
                         help="Output directory for database", default=os.getcwd())
-    # TODO: parser.add_argument("--output-dir", help="Path to the new directory")
-    # print("coco-from-video: todo", file=sys.stderr)
     return parser.parse_args()
 
 
