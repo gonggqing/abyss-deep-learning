@@ -45,7 +45,7 @@ def main():
 
     for json_file in args.json_files:
         coco = COCO(json_file)
-        if len(get_unique_list_of_videos()) > 1:
+        if len(get_unique_list_of_videos(coco)) > 1:
             raise EnvironmentError("JSON has more than one video")
         video_basename = os.path.basename(get_unique_list_of_videos(coco)[0])
 
@@ -57,17 +57,26 @@ def main():
             continue
 
         video_name, video_ext = os.path.splitext(video_basename)
-        # Make a new folder for the video, and frames
 
         cap = cv2.VideoCapture(video_path)
 
-        output_data_set_dir = None
+        # Retrieve sub-directories if they exist
+        path = Path(video_path)
+        rel_dir = path.relative_to(args.video_dir)
+        sub_dir, video_basename = os.path.split(rel_dir)
+
+        # Create output data set folder that contains the coco.json file
+        output_data_set_dir = os.path.join(args.output_dir, sub_dir, video_name)
+        if not os.path.exists(output_data_set_dir):
+            os.makedirs(output_data_set_dir)
+
+        img_dir = None
 
         if args.make_images:
             # Create image folder
-            output_data_set_dir = os.path.join(args.output_dir, video_name, 'images')
-            if not os.path.exists(output_data_set_dir):
-                os.makedirs(output_data_set_dir)
+            img_dir = os.path.join(output_data_set_dir, 'images')
+            if not os.path.exists(img_dir):
+                os.makedirs(img_dir)
 
         # Retrieve first image id number in dataset to offset existing images by that amount
         img_id_offset = int(coco.dataset['images'][0]['id'])
@@ -89,15 +98,19 @@ def main():
             ret, img = cap.read()
 
             # Default is video path and frame number
-            new_path = video_path + ":" + str(img_frame_number)
+            img_path = video_path + ":" + str(img_frame_number)
 
             # If image folder exists, extract image in png format
-            if ret and output_data_set_dir:
-                # New Path
-                new_path = os.path.join(output_data_set_dir, str(img_frame_number).zfill(8) + ".png")
+            if ret and img_dir:
+                img_file_name = str(img_frame_number).zfill(8) + ".png"
+                if args.relative_path:
+                    img_path = os.path.join(os.path.basename(img_dir), img_file_name)
+                else:
+                    # New Path
+                    img_path = os.path.join(img_dir, img_file_name)
 
                 # Write the image to the new path
-                cv2.imwrite(new_path, img)
+                cv2.imwrite(img_path, img)
             elif not ret:
                 debug_print("Failed to get frame {}".format(img_frame_number))
 
@@ -107,10 +120,10 @@ def main():
                 'height': int(im['height']),
                 'width': int(im['width']),
                 'original_uri': video_path + "?begin=" + str(img_frame_number) + "&end=" + str(img_frame_number),
-                'path': new_path,
+                'path': img_path,
             }
 
-        # if 'dataset' not in coco.dataset['info']: # Unsure if necessary if statement
+        # if 'dataset' not in coco.dataset['info']: # Unsure if necessary 'if' statement
         coco.dataset['info']['dataset'] = {
             "license": 1,
             "video": {
@@ -154,16 +167,6 @@ def main():
 
         remove_redundant_fields_in_coco(coco)
 
-        # Retrieve sub-directories if they exist
-        path = Path(video_path)
-        rel_dir = path.relative_to(args.video_dir)
-        sub_dir, video_basename = os.path.split(rel_dir)
-
-        # Create output data set folder that contains the coco.json file
-        output_data_set_dir = os.path.join(args.output_dir, sub_dir, video_name)
-        if not os.path.exists(output_data_set_dir):
-            os.makedirs(output_data_set_dir)
-
         # Write the new data set
         with open(os.path.join(output_data_set_dir, 'coco.json'), 'w') as outfile:
             json.dump(coco.dataset, outfile, sort_keys=True, indent=4)
@@ -201,26 +204,39 @@ def get_unique_list_of_videos(coco):
     return list(set(video_list))
 
 
-def recursive_search(video_basename, root_dir):
-    for file_name in glob.iglob(os.path.join(root_dir, "**", video_basename), recursive=True):
-        return file_name
+def recursive_search(video_basename: str, root_dir: str) -> str:
+    """
+
+    Args:
+        video_basename: Base video file name
+        root_dir: Root directory to search recursively in sub directories for video file
+
+    Returns: Full file path to specified video base name
+
+    """
+    for file_path in glob.iglob(os.path.join(root_dir, "**", video_basename), recursive=True):
+        return file_path
 
 
 def get_args():
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("json_files", nargs='*', type=str, help="Path to JSON file")
-    parser.add_argument("--video-dir", "--dir", type=str,
+    parser.add_argument("json_files", nargs='+', type=str, help="Path to JSON file")
+    parser.add_argument("--video-dir", "--video", "-v", type=str,
                         help="Path under which all the videos referenced in JSON file(s) expected to be found")
-    parser.add_argument("--keep-segmentation", "--seg", action='store_true',
+    parser.add_argument("--output-dir", "--output", "-o", type=str,
+                        help="Output directory path for database", default=os.getcwd())
+    parser.add_argument("--keep-segmentation", "--seg", "-s", action='store_true',
                         help="Keep segmentation regions, otherwise assume to be classification task (and discard "
                              "regions)")
     # TODO: Check to see what differs between cloud factory format and other formats
-    parser.add_argument("--cloud-factory", "--cloud", action="store_true",
+    parser.add_argument("--cloud-factory", "--cloud", "-c", action="store_true",
                         help="Input JSON files are in (deprecated) cloud factory format flavour")
-    parser.add_argument("--make-images", "--images", action="store_true",
+    parser.add_argument("--make-images", "--image", "-i", action="store_true",
                         help="Extract images from video and save as PNG")
-    parser.add_argument("--output-dir", type=str,
-                        help="Output directory for database", default=os.getcwd())
+    parser.add_argument("--relative-path", "--relative", "-r", action="store_true",
+                        help="Image paths will be relative to the "
+                             "coco.json file in output data set "
+                             "directory")
     return parser.parse_args()
 
 
@@ -230,39 +246,38 @@ def translate_caption(input_format, label):
 
 
 def remove_redundant_fields_in_coco(coco: COCO):
-    remove_redundant_fields_in_data_set(coco.dataset)
-    remove_redundant_fields_in_images(coco.dataset['images'])
-    remove_redundant_fields_in_info(coco.dataset['info'])
+    """
+    Filter old formatted COCO object to new format
+
+    Args:
+        coco: COCO object
+
+    """
+    remove_redundant_fields(coco.dataset, ['info', 'images', 'annotations'])
+    for img in coco.dataset['images']:
+        remove_redundant_fields(img, ["height", "width", "id", "path", "original_uri"])
+    remove_redundant_fields(coco.dataset['info'], ["url",
+                                                   "year",
+                                                   "contributor",
+                                                   "total_time",
+                                                   "description",
+                                                   "version",
+                                                   "date_created",
+                                                   "dataset",
+                                                   ])
 
 
-def remove_redundant_fields_in_info(info: dict):
-    fields_of_interest = ["url",
-                          "year",
-                          "contributor",
-                          "total_time",
-                          "description",
-                          "version",
-                          "date_created",
-                          "dataset",
-                          ]
-    for field in list(info.keys()):
-        if field not in fields_of_interest:
-            del info[field]
+def remove_redundant_fields(dictionary: dict, fields: list):
+    """
 
+    Args:
+        dictionary: Standard dictionary inside a COCO object
+        fields: Fields of interest to keep
 
-def remove_redundant_fields_in_images(images: list):
-    fields_of_interest = ["height", "width", "id", "path", "original_uri"]
-    for img in images:
-        for field in list(img):
-            if field not in fields_of_interest:
-                del img[field]
-
-
-def remove_redundant_fields_in_data_set(data_set: dict):
-    fields_of_interest = ['info', 'images', 'annotations']
-    for field in list(data_set.keys()):
-        if field not in fields_of_interest:
-            del data_set[field]
+    """
+    for field in list(dictionary):
+        if field not in fields:
+            del dictionary[field]
 
 
 if __name__ == "__main__":
