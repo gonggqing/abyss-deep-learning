@@ -92,6 +92,7 @@ Now visit localhost:8889/?token= _____ with the token given by the jupyter serve
 * coco-merge: Merge multiple COCO datasets
 * coco-split: Split a COCO dataset into subsets given split ratios
 * coco-to-csv: Convert a COCO dataset into a series of CSV files (similar to VOC format)
+* coco-from-video: For one or more labeled videos, create COCO json files and, optionally, corresponding image frames
 * coco-viewer: View coco images and annotations, calculate RGB mean pixel
 * image-dirs-to-coco: Convert VOC style annotations into COCO
 * labelme-to-coco: Convert labelme dataset into COCO
