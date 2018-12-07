@@ -436,8 +436,8 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         Args:
             filepath (TYPE): Path to model to load
         """
-        return ModelPersistence._load_model(filepath, ImageClassifier)
 
+        return ModelPersistence._load_model(filepath, ImageClassifier)
 
 
 

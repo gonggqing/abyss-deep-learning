@@ -92,6 +92,7 @@ Now visit localhost:8889/?token= _____ with the token given by the jupyter serve
 * coco-merge: Merge multiple COCO datasets
 * coco-split: Split a COCO dataset into subsets given split ratios
 * coco-to-csv: Convert a COCO dataset into a series of CSV files (similar to VOC format)
+* coco-from-video: For one or more labeled videos, create COCO json files and, optionally, corresponding image frames
 * coco-viewer: View coco images and annotations, calculate RGB mean pixel
 * image-dirs-to-coco: Convert VOC style annotations into COCO
 * labelme-to-coco: Convert labelme dataset into COCO
@@ -102,28 +103,28 @@ Now visit localhost:8889/?token= _____ with the token given by the jupyter serve
 
 ## Repo Summary - WIP
 * abyss_deep_learning
-** base
-** datasets
-** keras
-** abyss_dataset.py - 
-** coco_classes.py
-** metrics.py
-** ocr.py
-** utils.py
-*** cv2_to_Pil()
-*** instance_to_caption() - deprecated, replaced by Translator classes
-*** config_gpu()
-*** import_config() - generic json/yaml config reader
-*** balanced_set()
-*** tile_gen()
-*** detile()
-*** instance_to_categorical()
-*** cat_to_onehot()
-*** ann_rle_encode()
-*** warn_on_call()
-*** warn_once()
-*** image_streamer()
-** visualize.py
+  * base
+  * datasets
+  * keras
+  * abyss_dataset.py - 
+  * coco_classes.py
+  * metrics.py
+  * ocr.py
+  * utils.py
+    * cv2_to_Pil()
+    * instance_to_caption() - deprecated, replaced by Translator classes
+    * config_gpu()
+    * import_config() - generic json/yaml config reader
+    * balanced_set()
+    * tile_gen()
+    * detile()
+    * instance_to_categorical()
+    * cat_to_onehot()
+    * ann_rle_encode()
+    * warn_on_call()
+    * warn_once()
+    * image_streamer()
+  * visualize.py
 * applications
 * configs
 * data

@@ -111,8 +111,8 @@ class ClassificationTask(CocoInterface, DatasetTaskBase):
               Should be used for example remapping captions.
         '''
         CocoInterface.__init__(self, coco, **kwargs)
-        assert isinstance(translator, (AnnotationTranslator, type(None)))
         self.translator = translator or AnnotationTranslator()
+        assert isinstance(translator, (AnnotationTranslator, type(None)))
         self.captions = set(sorted([
             caption
             for annotation in self.coco.loadAnns(self.coco.getAnnIds(imgIds=[]))
@@ -260,10 +260,20 @@ class ImageClassificationDataset(CocoDataset, ImageDatatype, ClassificationTask)
     #   *  Support for forcing class balance by selecting IDs evenly
     #   *  Generator data order optimization
     #   *  Support for visualising data sample or prediction with same format
+
     def __init__(self, json_path, **kwargs):
         CocoDataset.__init__(self, json_path, **kwargs)
+        """
+        kwargs - 
+        """
         ImageDatatype.__init__(self, self.coco, **kwargs)
+        """
+            kwargs - 
+        """
         ClassificationTask.__init__(self, self.coco, **kwargs)
+        """
+            kwargs - 
+        """
 
     def sample(self, image_id=None, **kwargs):
         if not image_id:
