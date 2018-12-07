@@ -29,7 +29,7 @@ def main(args):
         ds = CocoDataset(json_file)
         new_ds = CocoDataset(json_file)
 
-        sample = random.sample(ds.coco.imgs, args.num_imgs)
+        sample = random.sample(list(ds.coco.imgs), args.num_imgs)
         new_ds.imgs = sample
         new_ds.anns = []
 
