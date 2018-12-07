@@ -23,11 +23,11 @@ def main(args):
     coco_name = '.'.join(os.path.basename(args.coco_path).split('.')[0:-1])
     if args.verbose: print("loading {:s}".format(args.coco_path), file=sys.stderr)
     if not os.path.exists(args.coco_path): print( "coco-split: file not found: '" + args.coco_path + '"', file=sys.stderr); sys.exit(1)
-    args.split_names = args.split_names.split(',')
-    split_ratios = [1.0/len(args.split_names)]*len(args.split_names) if args.split_ratios is None or len(args.split_ratios) == 0 \
+    split_names = args.split_names.split(',')
+    split_ratios = [1.0/len(split_names)]*len(split_names) if args.split_ratios is None or len(args.split_ratios) == 0 \
                    else (float(i) for i in args.split_ratios.split(','))
     database = CocoDataset.from_COCO(COCO(args.coco_path), image_dir=args.image_dir, limit_images=args.limit)
-    for dataset_split, split_name in zip(database.split(split_ratios), args.split_names):
+    for dataset_split, split_name in zip(database.split(split_ratios), split_names):
         split_path = os.path.join(coco_dir, "{:s}.{:s}.json".format(coco_name, split_name))
         if args.verbose:
             print(
@@ -39,7 +39,7 @@ def main(args):
 def get_args():
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('coco_path', help="Path to the coco JSON.")
-    parser.add_argument('split_names', help="CSV-delimited names of the splits, e.g: coco-split a.json 'x,y' ... yields a.x.json, b.x.json")
+    parser.add_argument('split_names', help="CSV-delimited names of the splits, e.g: coco-split a.json 'x,y' ... yields a.x.json, a.y.json")
     parser.add_argument("--image-dir", help="If images referenced relatively, give the image dir", default=None)
     parser.add_argument("--limit", help="Limit the amount of images to read from the dataset before splitting", default=None, type=int)
     parser.add_argument("--split-ratios", "--ratios", type=str, help="CSV-delimited ratios of the splits (0.0 to 1.0); if absent, equal ratios")
