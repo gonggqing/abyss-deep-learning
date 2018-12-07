@@ -6,7 +6,17 @@ import sys
 
 from pycocotools.coco import COCO
 
-description = \
+CAPTION = 'caption'
+
+PATH = 'path'
+
+ORIGINAL_URI = 'original_uri'
+
+WIDTH = 'width'
+
+HEIGHT = 'height'
+
+DESCRIPTION = \
     """
     
     Read coco.json file(s) defined on command line or from a list of json files on stdin.
@@ -35,23 +45,22 @@ def main():
             args.coco_jsons.append(line.strip())
 
     for coco_json in args.coco_jsons:
-        # File cannot be found
+        # File cannot be found, skip it
         if not os.path.exists(coco_json):
             continue
         coco = COCO(coco_json)
-        print(coco_json)
 
-        # Mapping from old image id to new image id for use in the new annotation dict
+        # Map from old image id to new image id for use in the new annotation dict
         old_2_new_id = {}
         for image in coco.dataset['images']:
             old_id = image['id']
             new_id = len(images)
             images.append({
                 'id': new_id,
-                'height': image['height'] if 'height' in image else None,
-                'width': image['width'] if 'width' in image else None,
-                'original_uri': image['original_uri'] if 'original_uri' in image else None,
-                'path': os.path.join(coco_json, image['path']) if 'path' in image else None,
+                HEIGHT: image[HEIGHT] if HEIGHT in image else None,
+                WIDTH: image[WIDTH] if WIDTH in image else None,
+                ORIGINAL_URI: image[ORIGINAL_URI] if ORIGINAL_URI in image else None,
+                PATH: os.path.join(coco_json, image[PATH]) if PATH in image else None,
             })
             old_2_new_id[old_id] = new_id
 
@@ -61,7 +70,7 @@ def main():
             annotations.append({
                 'id': len(annotations),
                 'image_id': new_id,
-                'caption': ann['caption'] if 'caption' in ann else None,
+                CAPTION: ann[CAPTION] if CAPTION in ann else None,
             })
 
     merged_data_set = {
@@ -75,7 +84,7 @@ def main():
 
 def get_args():
     """Get args from the command line args"""
-    parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("coco_jsons", nargs='*', type=str, help="Path to coco.json files")
     parser.add_argument("--output-dir", "--output", "-o", type=str,
                         help="Output directory path for merged coco json files", default=os.getcwd())
