@@ -16,12 +16,13 @@ Split a COCO JSON database into multiple
 # todo
 #   ? do not to output the split files into the same directory as the original file?
 #     otherwise readonly directories become pain
+#   ? make sure labels are balanced in the selected ratios (mind that two labels may refer to the same image)
 
 def main(args):
     coco_dir = os.path.dirname(args.coco_path)
     coco_name = '.'.join(os.path.basename(args.coco_path).split('.')[0:-1])
     if args.verbose: print("loading {:s}".format(args.coco_path), file=sys.stderr)
-    if not os.path.exists(args.coco_path): print( "coco-split: file not found: '" + args.coco_path + '"')
+    if not os.path.exists(args.coco_path): print( "coco-split: file not found: '" + args.coco_path + '"', file=sys.stderr); sys.exit(1)
     args.split_names = args.split_names.split(',')
     split_ratios = [1.0/len(args.split_names)]*len(args.split_names) if args.split_ratios is None or len(args.split_ratios) == 0 \
                    else (float(i) for i in args.split_ratios.split(','))
