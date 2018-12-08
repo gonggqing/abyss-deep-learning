@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+from __future__ import print_function
+import argparse
+import os
+
+from pycocotools.coco import COCO
+
+from abyss_deep_learning.datasets.coco import CocoDataset
+import sys
+import json
+import random
+
+
+"""
+
+usage: coco-grep my.json "RI" 
+
+"""
+
+
+def main(args):
+
+    # TODO: what are edge cases for this function isatty()?
+    if not sys.stdin.isatty():
+        for line in sys.stdin:
+            args.json_files.append(line.strip())
+
+    for json_file in args.json_files:
+        ds = CocoDataset(json_file)
+        new_ds = CocoDataset(json_file)
+
+        sample = random.sample(list(ds.coco.imgs), args.num_imgs)
+        new_ds.imgs = sample
+        new_ds.anns = []
+
+        im_ids = new_ds.coco.getImgIds()
+
+        for ann in ds.coco.anns:
+            if ann['image_id'] in im_ids:
+                new_ds.anns.append(ann)
+
+        with (sys.stdout) as outfile:
+            json.dump(new_ds.coco.dataset, outfile, sort_keys=True, indent=4)
+
+    sys.exit(0)
+
+
+def get_args():
+    parser = argparse.ArgumentParser(
+        description="Split a COCO JSON database into multiple."
+    )
+    parser.add_argument('json_files', nargs='+',type=str,help='JSON file to grep from')
+    parser.add_argument('num_imgs', type=str, help="todo")
+
+    args = parser.parse_args()
+    return args
+
+
+if __name__ == '__main__':
+    main(get_args())
