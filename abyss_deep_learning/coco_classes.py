@@ -53,12 +53,12 @@ class CocoDataset(object):
             return 0.5 * np.abs(np.dot(pts_x, np.roll(pts_y, 1)) - np.dot(pts_y, np.roll(pts_x, 1)))
 
     @staticmethod
-    def from_COCO(coco, image_dir=None, limit_images=None):
+    def load(coco, image_dir=None, limit_images=None):
         dataset = CocoDataset()
         if coco.cats:
             for category in coco.loadCats(ids=coco.getCatIds()):
                 dataset.add_category(
-                    category['name'], id_number=int(category['id']), supercategory=category['supercategory']
+                    category['name'], cat_id=category['id'], supercategory=category['supercategory']
                 )
         images = coco.loadImgs(ids=coco.getImgIds())
         shuffle(images)
@@ -71,24 +71,13 @@ class CocoDataset(object):
                 else:
                     path = None
                 dataset.add_image(
-                    (image['height'], image['width']
-                     ), image['file_name'], image['flickr_url'],
-                    force_id=image['id'], path=path
-                )
+                    (image['height'], image['width']),
+                    image['file_name'], image['flickr_url'],
+                    force_id=image['id'], path=path)
         image_ids = [image['id'] for image in dataset.images]
         for annotation in coco.loadAnns(coco.getAnnIds()):
             if annotation['image_id'] in image_ids:
                 dataset.add_annotation(annotation)
-                # if 'caption' in annotation:
-                #     dataset.add_caption(
-                #         int(annotation['image_id']),
-                #         annotation['caption'])
-                # else:
-                #     dataset.add_segmentation(
-                #         int(annotation['image_id']),
-                #         int(annotation['category_id']),
-                #         annotation['segmentation']
-                #     )
         return dataset
 
     @staticmethod
@@ -113,14 +102,12 @@ class CocoDataset(object):
         label_type = CocoDataset.get_label_type(label)
         segm, area, bbox = None, None, None
         if label_type == 'coco_mask':
-            # raise NotImplementedError("Haven't done coco_mask -> poly yet")
             bbox = coco_mask.toBbox(label).tolist()
             area = int(coco_mask.area(label))
             segm = label
             if not isinstance(segm["counts"], str):
                 # TODO find out why this doesnt work on coco-calc-masks
                 segm["counts"] = segm["counts"].decode("utf-8")
-            # segm = [CocoDataset.Utils.polygon_from_bbox(bbox)]
         elif label_type == 'bbox':
             bbox = label if isinstance(bbox, list) else label.tolist()
             area = label[2] * label[3]
@@ -130,11 +117,7 @@ class CocoDataset(object):
             bbox = CocoDataset.Utils.bbox_from_points(points)
             area = CocoDataset.Utils.area_polygon(points)
             segm = [points.ravel().tolist()]
-            # import matplotlib.pyplot as plt
-            # plt.plot(points[:, 0], points[:, 1], '.')
-            # plt.show()
         elif label_type == 'mask':  # No conversion to poly
-            # raise NotImplementedError("Haven't done mask -> poly yet")
             segm = coco_mask.encode(np.asfortranarray(label.astype(np.uint8)))
             segm["counts"] = segm["counts"].decode("utf-8")
             area = int(coco_mask.area(segm))
@@ -152,10 +135,10 @@ class CocoDataset(object):
         self.categories = []
         self.annotations = []
         self.info = {
-            "contributor": "ACFR",
-            "date_created": "2017-05-01 10:30:00.000000",
-            "description": "This is a dataset for training agricultural datasets.",
-            "url": "http://www.acfr.usyd.edu.au/",
+            "contributor": "Abyss Solutions.",
+            "date_created": "2017-01-01 00:00:00.000000",
+            "description": "",
+            "url": "http://www.abysssolutions.co",
             "version": "1.0",
             "year": 2017
         }
@@ -169,35 +152,34 @@ class CocoDataset(object):
             }
         ]
 
-    def add_category(self, class_name, id_number=None, supercategory=''):
-        if id_number is None:
-            id_number = next_smallest_free_id(self.category_ids)
-        if (class_name not in self.class_dict) and (id_number not in self.class_dict.inv):
-            self.class_dict[class_name] = id_number
+    def add_category(self, class_name, cat_id=None, supercategory=''):
+        if cat_id is None:
+            cat_id = next_smallest_free_id(self.category_ids)
+        if (class_name not in self.class_dict) and (cat_id not in self.class_dict.inv):
+            self.class_dict[class_name] = cat_id
             self.categories.append(
                 {
                     'name': class_name,
-                    'id': int(self.class_dict[class_name]),
+                    'id': self.class_dict[class_name],
                     'supercategory': supercategory
                 }
             )
-        self.category_ids.add(id_number)
-        return id_number
+        self.category_ids.add(cat_id)
+        return cat_id
 
     def add_image(
-        self, image_size, filename, url,
-        force_id=None, license=0, date_captured=None, path=None,
-        **kwargs
-    ):
+            self, image_size, filename, url,
+            force_id=None, license=0, date_captured=None, path=None,
+            **kwargs):
         if force_id in self.image_ids:
             raise Exception(
                 "add_image: tried to add an image with force_id and encountered a key clash")
         if date_captured is None:
             date_captured = "1970-01-01 00:00:00"
-        id_number = force_id if force_id is not None else next_smallest_free_id(
+        image_id = force_id if force_id is not None else next_smallest_free_id(
             self.image_ids)
         record = {
-            "id": id_number,
+            "id": image_id,
             "width": int(image_size[1]),
             "height": int(image_size[0]),
             "file_name": str(filename),
@@ -210,8 +192,8 @@ class CocoDataset(object):
         if path is not None:
             record['path'] = path
         self.images.append(record)
-        self.image_ids.add(id_number)
-        return id_number
+        self.image_ids.add(image_id)
+        return image_id
 
     def add_annotation(self, ann):
         '''Add the annotation regardless of annotation type without any type and structure checking.
@@ -231,9 +213,9 @@ class CocoDataset(object):
             annotation = {
                 "area": float(area),
                 "bbox": bbox if isinstance(bbox, list) else bbox.tolist(),
-                "category_id": int(category_id),
-                "id": int(annotation_id),
-                "image_id": int(image_id),
+                "category_id": category_id,
+                "id": annotation_id,
+                "image_id": image_id,
                 "iscrowd": 0,
                 "segmentation": segm
             }
@@ -252,8 +234,8 @@ class CocoDataset(object):
             [ann['id'] for ann in self.annotations])
         annotation = {
             "caption": caption,
-            "id": int(annotation_id),
-            "image_id": int(image_id),
+            "id": annotation_id,
+            "image_id": image_id,
         }
         if other is not None:
             annotation.update(other)
@@ -289,8 +271,8 @@ class CocoDataset(object):
             image_set -= set(split_ids)
             dataset = CocoDataset(is_pretty=self.pretty)
             for category in self.categories:
-                dataset.add_category(category['name'], int(
-                    category['id']), category['supercategory'])
+                dataset.add_category(
+                    category['name'], category['id'], category['supercategory'])
             dataset.images = [
                 image for image in self.images
                 if image['id'] in split_ids
@@ -361,16 +343,6 @@ class CocoDataset(object):
             annotation['image_id'] = img_map[annotation['image_id']]
             annotation['category_id'] = cat_map[annotation['category_id']]
             self.add_annotation(annotation)
-            # if 'caption' in annotation:
-            #     self.add_caption(
-            #         int(annotation['image_id']),
-            #         annotation['caption'])
-            # elif 'segm' in annotation:
-            #     self.add_segmentation(
-            #         img_map[annotation['image_id']],
-            #         cat_map[annotation['category_id']],
-            #         annotation['segmentation']
-            #     )
         return self
 
     def __str__(self):
@@ -404,8 +376,8 @@ class CocoResults(object):
         mask should be np.array with ndim == 2
         keypoints should be a list [x1,y1,v1,...,xk,yk,vk]'''
         result = {
-            "image_id": int(image_id),
-            "category_id": int(category_id),
+            "image_id": image_id,
+            "category_id": category_id,
             "score": float(score)
         }
         if isinstance(detection, np.ndarray) and detection.size % 3 == 0:

@@ -13,7 +13,7 @@ def main(args):
     coco = COCO(args.coco_path)
     for ann in coco.anns.values():
         ann['segmentation'] = mask.encode(coco.annToMask(ann))
-    coco2 = coco_classes.CocoDataset.from_COCO(coco, image_dir=args.image_dir)
+    coco2 = coco_classes.CocoDataset.load(coco, image_dir=args.image_dir)
     coco2.save(args.output_path)
 
 

@@ -21,7 +21,7 @@ def main(args):
     with redirect_stdout(sys.stderr):
         coco = COCO(coco_path)
     balanced_ids = balanced_set(coco)
-    coco = CocoDataset.from_COCO(coco)#, image_dir=args.image_dir)
+    coco = CocoDataset.load(coco)#, image_dir=args.image_dir)
     coco.images = [v for v in coco.images if v['id'] in balanced_ids]
     coco.annotations = [v for v in coco.annotations if v['image_id'] in balanced_ids]
     print(coco)
