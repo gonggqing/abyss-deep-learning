@@ -7,7 +7,7 @@ from pycocotools import mask as maskUtils
 import cv2
 import numpy as np
 import PIL.Image
-
+import pandas as pd
 def cv2_to_Pil(image):
     image = cv2.cvtColor(image ,cv2.COLOR_BGR2RGB)
     return PIL.Image.fromarray(image)
@@ -39,7 +39,7 @@ def config_gpu(gpu_ids=[], allow_growth=False, log_device_placement=True):
     '''Setup which GPUs to use (or CPU), must be called before "import keras".
     Note that in Keras GPUs are allocated to processes, and memory is only released
     when that process ends.
-    
+
     Args:
         gpu_ids (list, optional): A list of integer GPU IDs, or None for CPU.
         allow_growth (bool, optional): Allow memory growth in GPUs if True, else allocate entire GPUs.
@@ -48,7 +48,7 @@ def config_gpu(gpu_ids=[], allow_growth=False, log_device_placement=True):
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     if gpu_ids is None:
-        os.environ['CUDA_VISIBLE_DEVICES'] = ''    
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
     elif gpu_ids:
         os.environ['CUDA_VISIBLE_DEVICES'] = ','.join([str(i) for i in gpu_ids])
     # default empty list does not overwrite CUDA_VISIBLE_DEVICES
@@ -72,52 +72,57 @@ def import_config(args):
             raise ValueError("Config file needs to be a .yaml or .json file")
     return cfg
 
-# Find a balanced set
-def balanced_set(coco, ignore_captions=None):
-    ignore_captions = ignore_captions or []
-    captions = [caption 
-            for ann in coco.anns.values() if 'caption' in ann
-           for caption in ann['caption'].split(',') if caption != "background" and caption not in ignore_captions]
-    smallest_caption, smallest_caption_value = min(Counter(captions).items(), key=lambda x: x[1])
-    
+def balanced_annotation_set(coco, ann_type='caption', num_anns=None, ignore=None):
+    """Return a subset of image IDs that produces a balanced set with at least num_anns annotations per class.
+
+    Args:
+        coco (pycocotools.COCO): The loaded COCO database
+        ann_type ('caption' or 'category_id'): Whether to operate on caption or instance data.
+        num_anns (int, optional): The number of annotations per class to aim for.
+            If None then make a balanced set equal to the smallest class count.
+        ignore (list, optional): A list of captions or category IDs to ignore.
+
+    Returns:
+        list of ints: A list of the image ids that form the subset.
+    """
+    ignore = ignore or []
+    annotations = [ann for ann in coco.anns.values() if ann_type in ann and ann[ann_type] not in ignore]
+    captions = [
+        ann[ann_type] for ann in annotations
+        if ann_type in ann and ann[ann_type] not in ignore]
+    count_captions = Counter(captions)
     unique_captions = np.unique(captions)
-    images_in_caption = {
-        caption: [ann['image_id'] for ann in coco.anns.values() if caption in ann['caption'].split(',')]
-        for caption in unique_captions}
-    for images in images_in_caption.values():
-        np.random.shuffle(images)
-    
-    # Count how many captions are in each image
-    captions_in_image = {
+    image_ids_for_class = dict(pd.DataFrame(list(coco.anns.values()))[["image_id", ann_type]] \
+        .groupby(ann_type).apply(lambda x: x['image_id'].as_matrix().tolist()))
+    captions_in_image = { # Counts how many captions are in each image
         image_id: ([
-            caption
-            for ann in coco.anns.values() if ann['image_id'] == image_id and 'caption' in ann
-            for caption in ann['caption'].split(',') if len(caption) and caption != "background" and caption not in ignore_captions])
-        for image_id in coco.imgs}
-    balanced = []
+            ann[ann_type]
+            for ann in annotations if ann['image_id'] == image_id])
+        for image_id in coco.getImgIds()}
+
     out = {caption: [] for caption in unique_captions}
-    
+    caption_count = {caption: 0 for caption in unique_captions}
+
     def add_to_counts(image_id):
         # Increment counts for all captions in image
         for caption in captions_in_image[image_id]:
             out[caption].append(image_id)
+            caption_count[caption] += 1
         # Remove image_id from all images_in_caption
-        for images in images_in_caption.values():
+        for images in image_ids_for_class.values():
             if image_id in images:
                 images.pop(images.index(image_id))
-    
-    while any([len(out[caption]) < smallest_caption_value for caption in unique_captions]):
-        least = min(out.items(), key=lambda x: len(x[1]))
-        image_id = images_in_caption[least[0]].pop()
-        add_to_counts(image_id)
-        
-    # print("balanced images in caption")
-    # print({k: len(v) for k, v in out.items()})
-    out = set([j
-           for i in out.values()
-          for j in i])
 
+    target_set_size = num_anns or min(count_captions.values())
+    while any([caption_count[caption] < target_set_size for caption in unique_captions]):
+        least = min(out.items(), key=lambda x: len(x[1]))
+        image_id = image_ids_for_class[least[0]].pop()
+        add_to_counts(image_id)
+    out = list(set([j
+           for i in out.values()
+          for j in i]))
     return out
+
 
 def tile_gen(image, window_size, fill_const=0):
     '''window_size must be tuple of ints'''
@@ -125,7 +130,7 @@ def tile_gen(image, window_size, fill_const=0):
 #     print("tile gen")
     num_tiles = np.ceil(image.shape[0] / window_size[0]), np.ceil(image.shape[1] / window_size[1])
     num_tiles = [int(i) for i in num_tiles]
-    
+
     for i, j in product(*[range(k) for k in num_tiles]):
         window = np.ones(window_size + image.shape[2:], dtype=image.dtype) * fill_const
         y1, y2 = np.array([i, i + 1]) * window_size[0]
@@ -138,12 +143,12 @@ def tile_gen(image, window_size, fill_const=0):
 
 def detile(tiles, window_size, image_size):
     """Reassembles tiled images.
-    
+
     Args:
         tiles (iterable of np.ndarray): The list of tiles to assemble, in order.
         window_size (tuple of ints): The (height, width) size of the window to tile.
         image_size (tuple of ints): The original (height, width) of the image.
-    
+
     Yields:
         np.ndarray: The reassembled image.
     """
@@ -165,12 +170,12 @@ def detile(tiles, window_size, image_size):
 
 def instance_to_categorical(masks, mask_classes, num_classes):
     '''Convert a instance mask array into a categorical mask array.
-    
+
     Args:
         masks (np.ndarray): An array of shape [height, width, #instances] of type np.bool.
         mask_classes (np.ndarray): An array of shape [#instances] of integer type.
         num_classes (int): The maximum number of classes to return in the last dimension.
-    
+
     Returns:
         np.ndarray: An array of shape [height, width, max_classes] of type np.uint8.
     '''
@@ -188,11 +193,11 @@ def instance_to_categorical(masks, mask_classes, num_classes):
 
 def cat_to_onehot(cats, num_classes):
     """Convert categorical labels into a onehot.
-    
+
     Args:
         cats (list of ints): A list of ints where each int encodes the class number.
         num_classes (int): The total number of classes.
-    
+
     Returns:
         np.array: The onehot encoded label.
     """
@@ -252,7 +257,7 @@ def warn_once(func, message):
     return new_func
 
 
-def image_streamer(sources):
+def image_streamer(sources, start=0):
     '''Iterate over frames from multiple sources, expanding any globs.
     Currently accepts video, images and COCO datasets.'''
     from skimage.io import imread
@@ -261,21 +266,21 @@ def image_streamer(sources):
     from pycocotools.coco import COCO
     from skvideo.io import FFmpegReader
     from contextlib import closing, redirect_stdout
-    
+
     def is_image(path):
         return path.endswith(('.png', '.jpg', '.jpeg', '.tiff'))
     def is_video(path):
         return path.endswith(('.avi', '.mpg', '.mp4'))
-    
+
     # Expand any globbed paths, but not for images since we want to keep the sequence
     full_sources = []
     for source in sources:
         if '*' in source and not is_image(source):
             full_sources += glob(source, recursive=True)
-        else: 
+        else:
             full_sources.append(source)
 
-    for source in full_sources:
+    for source in full_sources[start:]:
         if is_video(source):
             with closing(FFmpegReader(source)) as reader:
                 for frame_no, frame in enumerate(reader.nextFrame()):
@@ -294,6 +299,7 @@ def image_streamer(sources):
             del coco
         else:
             warn("Skipped an unknown source type {}.".format(source))
+
 
 
 
