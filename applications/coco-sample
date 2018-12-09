@@ -27,7 +27,12 @@ def main(args):
         new_ds = CocoDataset(json_file)
 
         # TODO: Use case when args.num_imgs is greater than number of images in dataset
-        sample = random.sample(list(ds.coco.imgs), args.num_imgs)
+        if args.num_imgs <= len(ds.coco.imgs):
+            sample = random.sample(list(ds.coco.imgs), args.num_imgs)
+        else:
+            # TODO: figure out correct exception type to raise
+            raise Exception("Number of images to be sampled [{}] is greater than number of images in data set [{}]"
+                            .format(args.num_imgs, len(ds.coco.imgs)))
         new_ds.coco.imgs = {img['id']: img for img in ds.coco.loadImgs(sample)}
 
         # TODO: Fix up code, pretty hacky doesn't make much sense
@@ -41,7 +46,7 @@ def main(args):
             'annotations': new_ds.coco.anns,
         }
 
-        with (sys.stdout) as outfile:
+        with sys.stdout as outfile:
             json.dump(dataset, outfile, indent=4)
 
     sys.exit(0)
