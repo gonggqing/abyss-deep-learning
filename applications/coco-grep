@@ -43,14 +43,15 @@ def main(args):
                     if args.caption == ann['caption']:
                         bad_img_list.append(ann['image_id'])
 
-            for img in ds.coco.loadImgs(ids=bad_img_list):
-                new_ds.imgs.append(img)
+            for img in ds.coco.loadImgs(ds.coco.getImgIds()):
+                if img['id'] not in bad_img_list:
+                    new_ds.imgs.append(img)
 
             for ann in ds.coco.loadAnns(ds.coco.getAnnIds()):
                 if ann['image_id'] not in bad_img_list:
                     new_ds.anns.append(ann)
 
-        with (sys.stdout) as outfile:
+        with sys.stdout as outfile:
             json.dump(new_ds.coco.dataset, outfile, sort_keys=True, indent=4)
 
     sys.exit(0)
