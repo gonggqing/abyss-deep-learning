@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+
+import json
+import os
+import sys
+
+from argparse import ArgumentParser
+from operator import itemgetter
+
+
+def get_args():
+    parser = ArgumentParser(
+        description="Count all unique caption instances in given coco files"
+    )
+    parser.add_argument('json_files', nargs='+', type=str, help='JSON files to caption count')
+    parser.add_argument('-m', '--multi-label', action='store_true', help='Option to treat multi-labels as unique')
+    return parser.parse_args()
+
+
+def main():
+    args = get_args()
+
+    caption_count = {}
+
+    # Append files from stdin pipe to list of json files passed as command line args
+    if not sys.stdin.isatty():
+        for line in sys.stdin:
+            args.json_files.append(line.strip())
+
+    for json_file in args.json_files:
+        if not os.path.exists(json_file):
+            continue
+
+        with open(json_file, 'r') as in_file:
+            data = json.load(in_file)
+
+        if 'annotations' in data:
+            anns = data['annotations']
+
+            if not anns:
+                continue
+            anns = sorted(anns, key=itemgetter('image_id'))
+
+            curr_img = None
+            caption = None
+
+            first_ann = anns[0]
+            if 'image_id' in first_ann:
+                curr_img = first_ann['image_id']
+            if 'caption' in first_ann:
+                caption = first_ann['caption']
+
+            for ann in anns:
+                if not ('image_id' and 'caption' in ann):
+                    continue
+
+                if args.multi_label:
+                    if curr_img != ann['image_id']:
+                        add_caption_to_count(caption, caption_count)
+                        caption = ann['caption']
+                    else:
+                        caption = ','.join((caption, ann['caption']))
+                else:
+                    caption = ann['caption']
+                    add_caption_to_count(caption, caption_count)
+
+    with sys.stdout as out_file:
+        json.dump(caption_count, out_file, sort_keys=True, indent=4)
+
+
+def add_caption_to_count(caption, caption_count):
+    if caption not in caption_count:
+        caption_count[caption] = 0
+    caption_count[caption] += 1
+
+
+if __name__ == '__main__':
+    main()
