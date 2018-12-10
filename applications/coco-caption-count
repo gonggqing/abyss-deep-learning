@@ -2,7 +2,6 @@
 
 import json
 import os
-import random
 import sys
 from argparse import ArgumentParser
 from operator import itemgetter
@@ -18,7 +17,6 @@ def get_args():
 
 
 def main():
-    random.seed(1)
     args = get_args()
 
     caption_count = {}
@@ -38,14 +36,9 @@ def main():
         if 'annotations' in data:
             anns = data['annotations']
 
-            #print(anns)
-            random.shuffle(anns)
-
             if not anns:
                 continue
             anns = sorted(anns, key=itemgetter('image_id', 'id'))
-
-            #print(anns)
 
             curr_img = None
             caption = None
