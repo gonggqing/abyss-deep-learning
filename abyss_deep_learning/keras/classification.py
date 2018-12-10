@@ -22,8 +22,15 @@ from tensorboard.plugins.pr_curve import summary as pr_summary
 
 from abyss_deep_learning.keras.utils import batching_gen, gen_dump_data
 from abyss_deep_learning.utils import cat_to_onehot, warn_on_call
+import skimage.color
 
 
+def sequential_process(images):
+    # images = np.array([
+    #     skimage.color.rgb2grey(image)
+    #     for image in images])
+
+    return images.astype("float") / 255.0
 
 @deprecated("Use ImageClassifier instead.")
 class Inference(object):
@@ -61,7 +68,9 @@ class Inference(object):
         elif self.config['architecture']['backbone'] == "resnet50":
             from keras.applications.resnet50 import preprocess_input 
         elif self.config['architecture']['backbone'].lower() == "xception":
-            from keras.applications.xception import preprocess_input 
+            from keras.applications.xception import preprocess_input
+        elif self.config['architecture']['backbone'].lower() == 'sequential':
+            preprocess_input = sequential_process
         else:
             raise ValueError(
                 "Unknown model architecture.backbone '{:s}'".format(
