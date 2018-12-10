@@ -6,7 +6,7 @@ import json
 import random
 import sys
 
-from abyss_deep_learning.datasets.coco import CocoDataset
+from pycocotools.coco import COCO
 
 """
 
@@ -23,30 +23,29 @@ def main(args):
             args.json_files.append(line.strip())
 
     for json_file in args.json_files:
-        ds = CocoDataset(json_file)
-        new_ds = CocoDataset(json_file)
+        ds = COCO(json_file)
+        new_ds = COCO(json_file)
 
         # TODO: Use case when args.num_imgs is greater than number of images in dataset
-        if args.num_imgs <= len(ds.coco.imgs):
-            sample = random.sample(list(ds.coco.imgs), args.num_imgs)
+        if args.num_imgs <= len(ds.imgs):
+            sample = random.sample(list(ds.imgs), args.num_imgs)
         else:
             # TODO: figure out correct exception type to raise
             raise Exception("Number of images to be sampled [{}] is greater than number of images in data set [{}]"
-                            .format(args.num_imgs, len(ds.coco.imgs)))
-        new_ds.coco.imgs = {img['id']: img for img in ds.coco.loadImgs(sample)}
+                            .format(args.num_imgs, len(ds.imgs)))
+        new_ds.imgs = {img['id']: img for img in ds.loadImgs(sample)}
 
-        # TODO: Fix up code, pretty hacky doesn't make much sense
-        im_ids = new_ds.coco.getImgIds()
-        ann_ids = ds.coco.getAnnIds(imgIds=im_ids)
+        im_ids = new_ds.getImgIds()
+        ann_ids = ds.getAnnIds(imgIds=im_ids)
 
-        new_ds.coco.anns = ds.coco.loadAnns(ids=ann_ids)
+        new_ds.anns = ds.loadAnns(ids=ann_ids)
 
         dataset = {
-            'images': list(new_ds.coco.imgs.values()),
-            'annotations': new_ds.coco.anns,
+            'images': list(new_ds.imgs.values()),
+            'annotations': new_ds.anns,
         }
 
-        with sys.stdout as outfile:
+        with open("sampled_" + json_file, 'w') as outfile:
             json.dump(dataset, outfile, indent=4)
 
     sys.exit(0)
