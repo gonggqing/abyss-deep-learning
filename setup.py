@@ -19,6 +19,7 @@ setup(
     },
     scripts=[
         "applications/coco-calc-masks",
+        "applications/coco-caption-count",
         "applications/coco-check-data-pollution",
         "applications/coco-extract-masks",
         "applications/coco-grep",
@@ -28,6 +29,7 @@ setup(
         "applications/coco-split",
         "applications/coco-sample",
         "applications/coco-to-csv",
+        "applications/coco-sample",
         "applications/coco-viewer",
         "applications/image-dirs-to-coco",
         "applications/keras-graph",
