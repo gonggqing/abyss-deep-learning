@@ -5,7 +5,7 @@ import argparse
 import json
 import random
 import sys
-
+from contextlib import redirect_stdout
 from pycocotools.coco import COCO
 
 """
@@ -23,8 +23,9 @@ def main(args):
             args.json_files.append(line.strip())
 
     for json_file in args.json_files:
-        ds = COCO(json_file)
-        new_ds = COCO(json_file)
+         with redirect_stdout(sys.stderr):
+            ds = COCO(json_file)
+            new_ds = COCO(json_file)
 
         # TODO: Use case when args.num_imgs is greater than number of images in dataset
         if args.num_imgs <= len(ds.imgs):
@@ -45,8 +46,8 @@ def main(args):
             'annotations': new_ds.anns,
         }
 
-        with open("sampled_" + json_file, 'w') as outfile:
-            json.dump(dataset, outfile, indent=4)
+        # with open("sampled_" + json_file, 'w') as outfile:
+        json.dump(sys.stdout, outfile, indent=4)
 
     sys.exit(0)
 

@@ -3,7 +3,7 @@ import argparse
 import json
 import os
 import sys
-
+from contextlib import redirect_stdout
 from pycocotools.coco import COCO
 
 CAPTION = 'caption'
@@ -48,7 +48,8 @@ def main():
         # File cannot be found, skip it
         if not os.path.exists(coco_json):
             continue
-        coco = COCO(coco_json)
+        with redirect_stdout(sys.stderr):
+            coco = COCO(coco_json)
 
         # Map from old image id to new image id for use in the new annotation dict
         old_2_new_id = {}
@@ -78,16 +79,16 @@ def main():
         'annotations': annotations,
     }
 
-    with open(os.path.join(args.output_dir, 'coco.json'), 'w') as output_file:
-        json.dump(merged_data_set, output_file, indent=4)
+    # with open(os.path.join(args.output_dir, 'coco.json'), 'w') as output_file:
+    json.dump(merged_data_set, sys.stdout, indent=4)
 
 
 def get_args():
     """Get args from the command line args"""
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("coco_jsons", nargs='*', type=str, help="Path to coco.json files")
-    parser.add_argument("--output-dir", "--output", "-o", type=str,
-                        help="Output directory path for merged coco json files", default=os.getcwd())
+    # parser.add_argument("--output-dir", "--output", "-o", type=str,
+                        # help="Output directory path for merged coco json files", default=os.getcwd())
     return parser.parse_args()
 
 
