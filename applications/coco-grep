@@ -4,6 +4,7 @@ from __future__ import print_function
 import argparse
 import json
 import sys
+from contextlib import redirect_stdout
 
 from pycocotools.coco import COCO
 
@@ -12,6 +13,21 @@ from pycocotools.coco import COCO
 usage: coco-grep my.json "RI" 
 
 """
+
+class RedirectStdStreams(object):
+    def __init__(self, stdout=None, stderr=None):
+        self._stdout = stdout or sys.stdout
+        self._stderr = stderr or sys.stderr
+
+    def __enter__(self):
+        self.old_stdout, self.old_stderr = sys.stdout, sys.stderr
+        self.old_stdout.flush(); self.old_stderr.flush()
+        sys.stdout, sys.stderr = self._stdout, self._stderr
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self._stdout.flush(); self._stderr.flush()
+        sys.stdout = self.old_stdout
+        sys.stderr = self.old_stderr
 
 
 def main(args):
@@ -22,8 +38,11 @@ def main(args):
             args.json_files.append(line.strip())
 
     for json_file in args.json_files:
-        ds = COCO(json_file)
-        new_ds = COCO(json_file)
+
+        with redirect_stdout(sys.stderr):
+            ds = COCO(json_file)
+            new_ds = COCO(json_file)
+
         new_ds.dataset.pop('annotations')
         new_ds.dataset.pop('images')
         new_ds.anns = new_ds.dataset['annotations'] = []
@@ -51,8 +70,7 @@ def main(args):
                 if ann['image_id'] not in bad_img_list:
                     new_ds.anns.append(ann)
 
-        with sys.stdout as outfile:
-            json.dump(new_ds.dataset, outfile, sort_keys=True, indent=4)
+        json.dump(new_ds.dataset, sys.stdout, sort_keys=True, indent=4)
 
     sys.exit(0)
 
