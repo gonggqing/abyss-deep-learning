@@ -38,22 +38,24 @@ def main():
 
             if not anns:
                 continue
-            anns = sorted(anns, key=itemgetter('image_id', 'id'))
+            anns.sort(key=itemgetter('image_id', 'id'))
 
             curr_img = None
             caption = None
-
-            first_ann = anns[0]
-            if 'image_id' in first_ann:
-                curr_img = first_ann['image_id']
-            if 'caption' in first_ann:
-                caption = first_ann['caption']
 
             for ann in anns:
                 if not ('image_id' and 'caption' in ann):
                     continue
 
                 if args.multi_label:
+                    if caption is None and curr_img is None:
+                        first_ann = anns[0]
+                        if 'image_id' in first_ann:
+                            curr_img = first_ann['image_id']
+                        if 'caption' in first_ann:
+                            caption = first_ann['caption']
+                        continue
+
                     if curr_img != ann['image_id']:
                         add_caption_to_count(caption, caption_count)
                         caption = ann['caption']
