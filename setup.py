@@ -26,6 +26,7 @@ setup(
         "applications/coco-merge",
         "applications/coco-repath",
         "applications/coco-split",
+        "applications/coco-sample",
         "applications/coco-to-csv",
         "applications/coco-viewer",
         "applications/image-dirs-to-coco",
