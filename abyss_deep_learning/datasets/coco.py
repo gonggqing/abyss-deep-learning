@@ -58,10 +58,10 @@ class CocoDataset(CocoInterface):
 
     def split(self, ratios):
         with redirect_stdout(sys.stderr):
-            ds = COCO(self.json_path)
+            ds = self._coco
             dss = []
             for r in ratios:
-                dss.append(COCO(self.json_path))
+                dss.append(COCO())
 
         # sys.stdout = sys.__stdout__
 
