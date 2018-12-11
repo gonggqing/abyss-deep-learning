@@ -89,12 +89,18 @@ Now visit localhost:8889/?token= _____ with the token given by the jupyter serve
 * coco-calc-masks: Open a COCO dataset and save a new one, where the segmentations are always masks.
 * coco-check-data-pollution: Examine combinations of COCO datasets to ensure there are no common images between them.
 * coco-extract-masks: Extract masks from COCO to pngs
-* coco-merge: Merge multiple COCO datasets
+* coco-from-video: For one or more labeled videos, create COCO json files and, optionally, corresponding image frames 
+* coco-grep: For given json files, search for all images of a specific caption type
+* coco-merge: For given json files, merge them into a single json file
+* coco-repath: TODO
+* coco-sample: For a give json file, randomly sample N images from all images
 * coco-split: Split a COCO dataset into subsets given split ratios
+* coco-subsample-balanced:
 * coco-to-csv: Convert a COCO dataset into a series of CSV files (similar to VOC format)
-* coco-from-video: For one or more labeled videos, create COCO json files and, optionally, corresponding image frames
+* coco-to-yolo3: TODO
 * coco-viewer: View coco images and annotations, calculate RGB mean pixel
 * image-dirs-to-coco: Convert VOC style annotations into COCO
+* keras-graph: TODO
 * labelme-to-coco: Convert labelme dataset into COCO
 * maskrcnn-find-lr: Search in log space for a suitable learning rate for a network and dataset.
 * maskrcnn-predict: Predict on input images or streams using a trained Mask RCNN model and output labels or overlay
