@@ -26,30 +26,32 @@ def main(args):
             ds = COCO(json_file)
             new_ds = COCO(json_file)
 
-        # TODO: Use case when args.num_imgs is greater than number of images in dataset
-    if args.num_imgs <= len(ds.imgs):
-        sample = random.sample(list(ds.imgs), args.num_imgs)
-    else:
-        # TODO: figure out correct exception type to raise
-        raise Exception("Number of images to be sampled [{}] is greater than number of images in data set [{}]"
-                        .format(args.num_imgs, len(ds.imgs)))
-    new_ds.imgs = {img['id']: img for img in ds.loadImgs(sample)}
+        # sys.stdout = sys.__stdout__
 
-    im_ids = new_ds.getImgIds()
-    ann_ids = ds.getAnnIds(imgIds=im_ids)
+            # TODO: Use case when args.num_imgs is greater than number of images in dataset
+        if args.num_imgs <= len(ds.imgs):
+            sample = random.sample(list(ds.imgs), args.num_imgs)
+        else:
+            # TODO: figure out correct exception type to raise
+            raise Exception("Number of images to be sampled [{}] is greater than number of images in data set [{}]"
+                            .format(args.num_imgs, len(ds.imgs)))
+        new_ds.imgs = {img['id']: img for img in ds.loadImgs(sample)}
 
-    new_ds.anns = ds.loadAnns(ids=ann_ids)
+        im_ids = new_ds.getImgIds()
+        ann_ids = ds.getAnnIds(imgIds=im_ids)
 
-    dataset = {
-        'images': list(new_ds.imgs.values()),
-        'annotations': new_ds.anns,
-    }
+        new_ds.anns = ds.loadAnns(ids=ann_ids)
 
-    # with open("sampled_" + json_file, 'w') as outfile:
-    json.dump(dataset, sys.stdout, indent=4)
+        dataset = {
+            'images': list(new_ds.imgs.values()),
+            'annotations': new_ds.anns,
+        }
+
+        # with open("sampled_" + json_file, 'w') as outfile:
+        json.dump(dataset, sys.stdout, indent=4)
 
 
-sys.exit(0)
+    sys.exit(0)
 
 
 def get_args():
