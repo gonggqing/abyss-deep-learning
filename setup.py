@@ -29,6 +29,7 @@ setup(
         "applications/coco-split",
         "applications/coco-sample",
         "applications/coco-to-csv",
+        "applications/labelbox-to-coco",
         "applications/coco-sample",
         "applications/coco-viewer",
         "applications/image-dirs-to-coco",
