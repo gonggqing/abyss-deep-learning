@@ -4,27 +4,46 @@ from math import floor
 from sys import stderr, stdout
 import os
 import json
+import urllib.request
 from urllib.parse import urlparse, unquote
 from contextlib import redirect_stdout
 
-def fixed_filename(file_name, prefix=None):
-    basename = os.path.basename(urlparse(unquote(file_name)).path)
-    return os.path.join(prefix, basename) if prefix else basename
+def download_coco_images(coco, destination='./images'):
+    if destination != '.':
+        os.makedirs(destination, exist_ok=True)
+    for image in coco['images']:
+        filename = os.path.basename(urlparse(unquote(image['coco_url'])).path)
+        file_dest = os.path.join(destination, filename)
+        if not os.path.exists(file_dest): # Don't re-download
+            print("Downloading: {:s}".format(filename), file=stderr)
+            urllib.request.urlretrieve(image['coco_url'], file_dest)
 
-def main(args):
-    with open(args.coco_path, "r") as file:
-        coco = json.load(file)
+
+def demangle_coco(coco, prefix=None):
+    """Note: This mutates the coco parameter"""
+    def fixed_filename(file_name, prefix=None):
+        basename = os.path.basename(urlparse(unquote(file_name)).path)
+        return os.path.join(prefix, basename) if prefix else basename
+    
     image_id_map = {image['id']: 1 + new_id for new_id, image in enumerate(coco['images'])}
     annotation_id_map = {annotation['id']: 1 + new_id for new_id, annotation in enumerate(coco['annotations'])}
     for i, _ in enumerate(image_id_map):
         coco['images'][i]['id'] = image_id_map[coco['images'][i]['id']]
-        coco['images'][i]['file_name'] = fixed_filename(coco['images'][i]['file_name'], prefix=args.prefix)
+        coco['images'][i]['file_name'] = fixed_filename(coco['images'][i]['file_name'], prefix=prefix)
         del coco['images'][i]['flickr_url']
         del coco['images'][i]['coco_url']
     for i, _ in enumerate(annotation_id_map):
         coco['annotations'][i]['id'] = annotation_id_map[coco['annotations'][i]['id']]
         coco['annotations'][i]['image_id'] = image_id_map[coco['annotations'][i]['image_id']]
-    stdout.write(json.dumps(coco))
+    return coco
+
+def main(args):
+    with open(args.coco_path, "r") as file_in:
+        coco = json.load(file_in)
+    if args.download is not None:
+            download_coco_images(coco, args.download)
+    stdout.write(json.dumps(demangle_coco(coco, prefix=args.prefix)))
+    
 
 def get_args():
     import argparse
@@ -40,7 +59,7 @@ The following changes are made:
     * Remove image flickr URL and COCO URL
 Additionally, with options:
     --prefix: Add this prefix to the image file_name (change relative path or make absolute)
-    --download: (TODO) Download the dataset first into given dir"""
+    --download: Download the dataset into given dir, before continuing."""
     )
     parser.add_argument(
         'coco_path', type=str,
