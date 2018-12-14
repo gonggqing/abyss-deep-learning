@@ -241,23 +241,6 @@ class CocoDataset(object):
             annotation.update(other)
         self.annotations.append(annotation)
 
-    def convert_instances_to_captions(self):
-        caption_map_r = {cat['id']: cat['name'] for cat in self.categories}
-        annotations = {}
-        for image in self.images:
-            image_id = image['id']
-            anns = [
-                annotation for annotation in self.annotations 
-                if 'category_id' in annotation and annotation['image_id'] == image_id]
-            anns_str = set([caption_map_r[ann['category_id']] for ann in anns]) if anns else {'background'}
-            annotations[image_id] = {
-              "caption": ','.join(list(anns_str)),
-              "id": image_id,
-              "image_id": image_id
-            }
-        self.annotations = list(annotations.values())
-        self.categories = []
-
     def split(self, splits, verbose=False):
         image_set = set([img['id'] for img in self.images])
         datasets = []

@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+from __future__ import print_function
+from math import floor
+from sys import stderr, stdout
+import os
+import json
+from urllib.parse import urlparse, unquote
+from contextlib import redirect_stdout
+
+def fixed_filename(file_name, prefix=None):
+    basename = os.path.basename(urlparse(unquote(file_name)).path)
+    return os.path.join(prefix, basename) if prefix else basename
+
+def main(args):
+    with open(args.coco_path, "r") as file:
+        coco = json.load(file)
+    image_id_map = {image['id']: 1 + new_id for new_id, image in enumerate(coco['images'])}
+    annotation_id_map = {annotation['id']: 1 + new_id for new_id, annotation in enumerate(coco['annotations'])}
+    for i, _ in enumerate(image_id_map):
+        coco['images'][i]['id'] = image_id_map[coco['images'][i]['id']]
+        coco['images'][i]['file_name'] = fixed_filename(coco['images'][i]['file_name'], prefix=args.prefix)
+        del coco['images'][i]['flickr_url']
+        del coco['images'][i]['coco_url']
+    for i, _ in enumerate(annotation_id_map):
+        coco['annotations'][i]['id'] = annotation_id_map[coco['annotations'][i]['id']]
+        coco['annotations'][i]['image_id'] = image_id_map[coco['annotations'][i]['image_id']]
+    stdout.write(json.dumps(coco))
+
+def get_args():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawTextHelpFormatter,
+        description="""
+Convert a LabelBox COCO JSON into an Abyss COCO JSON.
+
+The following changes are made:
+    * Remap image and annotation IDs from string to int
+    * Remap image filename from URL to image basename
+    * Remove image flickr URL and COCO URL
+Additionally, with options:
+    --prefix: Add this prefix to the image file_name (change relative path or make absolute)
+    --download: (TODO) Download the dataset first into given dir"""
+    )
+    parser.add_argument(
+        'coco_path', type=str,
+        help="Path to the coco JSON.")
+    parser.add_argument(
+        '--output-dir',
+        default="./annotations", type=str,
+        help="Path to output the annotations (default ./annotations)")
+    parser.add_argument(
+        '--prefix',
+        default=None, type=str,
+        help="If present, set the path attribute for each image to '<prefix>/<file_name>'."
+    )
+    parser.add_argument(
+        '--download',
+        default=None, type=str,
+        help="Download dataset to this path")
+    parser.add_argument(
+        '--verbose', action='store_true', help="verbose output to stderr")
+    args = parser.parse_args()
+    return args
+
+
+if __name__ == '__main__':
+    main(get_args())
