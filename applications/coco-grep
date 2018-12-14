@@ -1,20 +1,33 @@
 #!/usr/bin/env python3
 from __future__ import print_function
+
 import argparse
-import os
+import json
+import sys
+from contextlib import redirect_stdout
 
 from pycocotools.coco import COCO
-
-from abyss_deep_learning.datasets.coco import CocoDataset
-import sys
-import json
-
 
 """
 
 usage: coco-grep my.json "RI" 
 
 """
+
+class RedirectStdStreams(object):
+    def __init__(self, stdout=None, stderr=None):
+        self._stdout = stdout or sys.stdout
+        self._stderr = stderr or sys.stderr
+
+    def __enter__(self):
+        self.old_stdout, self.old_stderr = sys.stdout, sys.stderr
+        self.old_stdout.flush(); self.old_stderr.flush()
+        sys.stdout, sys.stderr = self._stdout, self._stderr
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self._stdout.flush(); self._stderr.flush()
+        sys.stdout = self.old_stdout
+        sys.stderr = self.old_stderr
 
 
 def main(args):
@@ -25,36 +38,39 @@ def main(args):
             args.json_files.append(line.strip())
 
     for json_file in args.json_files:
-        ds = CocoDataset(json_file)
-        new_ds = CocoDataset(json_file)
-        new_ds.coco.dataset.pop('annotations')
-        new_ds.coco.dataset.pop('images')
-        new_ds.anns = new_ds.coco.dataset['annotations'] = []
-        new_ds.imgs = new_ds.coco.dataset['images'] = []
+
+        with redirect_stdout(sys.stderr):
+            ds = COCO(json_file)
+            new_ds = COCO(json_file)
+
+        new_ds.dataset.pop('annotations')
+        new_ds.dataset.pop('images')
+        new_ds.anns = new_ds.dataset['annotations'] = []
+        new_ds.imgs = new_ds.dataset['images'] = []
 
         if not args.invert_match:
-            for ann in ds.coco.loadAnns(ds.coco.getAnnIds()):
+            for ann in ds.loadAnns(ds.getAnnIds()):
                     if args.caption == ann['caption']:
                         new_ds.anns.append(ann)
 
             for new_ann in new_ds.anns:
-                new_ds.imgs.append(ds.coco.loadImgs(ids=[new_ann['image_id']]))
-
+                for img in ds.loadImgs(ids=[new_ann['image_id']]):
+                    new_ds.imgs.append(img)
         else:
             bad_img_list = []
-            for ann in ds.coco.loadAnns(ds.coco.getAnnIds()):
+            for ann in ds.loadAnns(ds.getAnnIds()):
                     if args.caption == ann['caption']:
                         bad_img_list.append(ann['image_id'])
 
-            for img in ds.coco.loadImgs(ids=bad_img_list):
-                new_ds.imgs.append(img)
+            for img in ds.loadImgs(ds.getImgIds()):
+                if img['id'] not in bad_img_list:
+                    new_ds.imgs.append(img)
 
-            for ann in ds.coco.loadAnns(ds.coco.getAnnIds()):
+            for ann in ds.loadAnns(ds.getAnnIds()):
                 if ann['image_id'] not in bad_img_list:
                     new_ds.anns.append(ann)
 
-        with (sys.stdout) as outfile:
-            json.dump(new_ds.coco.dataset, outfile, sort_keys=True, indent=4)
+        json.dump(new_ds.dataset, sys.stdout, sort_keys=True, indent=4)
 
     sys.exit(0)
 
@@ -65,7 +81,8 @@ def get_args():
     )
     parser.add_argument('json_files', nargs='+',type=str,help='JSON file to grep from')
     parser.add_argument('--caption', type=str, help="extract given caption")
-    parser.add_argument('--exclude-multiple',action='store_true',help='Include only images with JUST the given label (ie not roots & joint, just roots')
+    parser.add_argument('--exclude-multiple', action='store_true',
+                        help='Include only images with JUST the given label (ie not roots & joint, just roots')
     parser.add_argument('--expression', '--expr', type=str, help="todo")
     parser.add_argument('--invert-match', '-v', action='store_true', help='invert match')
 

@@ -1,4 +1,5 @@
 # from abc import ABCMeta, abstractmethod
+import json
 from collections import Counter
 from contextlib import redirect_stdout
 from sys import stderr
@@ -6,6 +7,7 @@ import concurrent.futures
 import itertools
 import os
 import random
+import sys
 
 from mrcnn.utils import Dataset as MatterportMrcnnDataset
 from pycocotools import mask as maskUtils
@@ -17,6 +19,7 @@ import numpy as np
 from abyss_deep_learning.base.datasets import DatasetTaskBase, DatasetTypeBase
 from abyss_deep_learning.datasets.translators import AnnotationTranslator
 
+
 ######################## Abstract Classes with COCO data format ########################
 class CocoInterface(object):
     @property
@@ -26,20 +29,64 @@ class CocoInterface(object):
     def __init__(self, coco, **kwargs):
         self._coco = coco
 
+
 class CocoDataset(CocoInterface):
-    '''An dataset that fits the COCO JSON model.'''
-    def __init__(self, json_path, **kwargs):
+    """An dataset that fits the COCO JSON model."""
+
+    def __init__(self, json_path_or_string, **kwargs):
         '''Base type for datasets using the COCO JSON data model.'''
-        self.json_path = json_path
+        self.json_path = json_path_or_string
         self.image_dir = kwargs.get('image_dir', None)
         with redirect_stdout(stderr):
-            self._coco = COCO(json_path)
+            if os.path.exists(self.json_path):
+                self._coco = COCO(json_path_or_string)
+            else:
+                self._coco = COCO()
+                try:
+                    json_dict = json.loads(json_path_or_string)
+                    if 'images' in json_dict and 'annotations' in json_dict:
+                        self._coco.dataset = json_dict
+                        self._coco.createIndex()
+                    else:
+                        raise SyntaxError("Invalid json data format - JSON not in COCO format")
+                except json.decoder.JSONDecodeError:
+                    raise SyntaxError("Invalid json data format - JSON malformed")
+
+
         CocoInterface.__init__(self, self.coco, **kwargs)
         self.data_ids = kwargs.pop('data_ids', [image['id'] for image in self.coco.imgs.values()])
+
+    def split(self, ratios):
+        with redirect_stdout(sys.stderr):
+            ds = self._coco
+            dss = []
+            for r in ratios:
+                dss.append(COCO())
+
+        # sys.stdout = sys.__stdout__
+
+        sample_nums = [r * len(ds.imgs) for r in ratios]
+
+        shuffled_imgs = random.shuffle(ds.imgs)
+
+        last_index = 0
+
+        for i, sn in enumerate(sample_nums):
+            dss[i].imgs = {img['id']: img for img in shuffled_imgs[last_index:last_index + sn]}
+            last_index += sn
+
+            im_ids = dss[i].getImgIds()
+            ann_ids = dss[i].getAnnIds(imgIds=im_ids)
+
+            dss[i].anns = ds.loadAnns(ids=ann_ids)
+
+        return dss
+
 
 ########### COCO Dataset Types #################
 def _noop(*args):
     return args if len(args) > 1 else args[0]
+
 
 class ImageDatatype(CocoInterface, DatasetTypeBase):
     '''Do not rely on the presence of categories, as this implys it is an object dataset.
@@ -55,6 +102,7 @@ class ImageDatatype(CocoInterface, DatasetTypeBase):
       * image_dir: (string)
           The image dir to use if no path is given in a dataset image.
     '''
+
     def __init__(self, coco, **kwargs):
         CocoInterface.__init__(self, coco, **kwargs)
         self._data = dict()
@@ -73,7 +121,7 @@ class ImageDatatype(CocoInterface, DatasetTypeBase):
             return self._data[image_id]
 
         if 'path' in self.coco.imgs[image_id]:
-            path = self.coco.imgs[image_id]['path'] 
+            path = self.coco.imgs[image_id]['path']
         else:
             assert self.image_dir, "Dataset image dir must be set as no path is provided in database."
             path = os.path.join(self.image_dir, self.coco.imgs[image_id]['file_name'])
@@ -93,6 +141,7 @@ class ImageDatatype(CocoInterface, DatasetTypeBase):
         iterator = itertools.cycle if endless else iter
         for data_id in iterator(data_ids):
             yield self.load_data(data_id, **kwargs)
+
 
 ########### COCO Task Types #################
 
@@ -118,7 +167,7 @@ class ClassificationTask(CocoInterface, DatasetTaskBase):
             for annotation in self.coco.loadAnns(self.coco.getAnnIds(imgIds=[]))
             if self.translator.filter(annotation)
             for caption in self.translator.translate(annotation)
-            ]))
+        ]))
         self.num_classes = len(self.captions)
         self.stats = dict()
         self._targets = dict()
@@ -174,6 +223,7 @@ class ClassificationTask(CocoInterface, DatasetTaskBase):
         print(" ", self.class_weights)
         print("trivial result accuracy:\n  {:.2f} or {:.2f}".format(
             self.stats['trivial_accuracy'], 1 - self.stats['trivial_accuracy']))
+
 
 class SemanticSegmentationTask(CocoInterface, DatasetTaskBase):
     def __init__(self, coco, translator=None, **kwargs):
@@ -251,6 +301,7 @@ class SemanticSegmentationTask(CocoInterface, DatasetTaskBase):
         print("class weights:")
         print(" ", self.class_weights)
 
+
 #### COCO Realisations ########
 
 class ImageClassificationDataset(CocoDataset, ImageDatatype, ClassificationTask):
@@ -289,6 +340,7 @@ class ImageClassificationDataset(CocoDataset, ImageDatatype, ClassificationTask)
         for data_id in iterator(data_ids):
             yield self.load_data(data_id, **kwargs), self.load_targets(data_id, **kwargs)
 
+
 class ImageSemanticSegmentationDataset(CocoDataset, ImageDatatype, SemanticSegmentationTask):
     # TODO: 
     #   *  Class statistics readout
@@ -315,10 +367,12 @@ class ImageSemanticSegmentationDataset(CocoDataset, ImageDatatype, SemanticSegme
         for data_id in iterator(data_ids):
             yield self.load_data(data_id, **kwargs), self.load_targets(data_id, **kwargs)
 
+
 class MaskRcnnInstSegDataset(CocoDataset, ImageDatatype, MatterportMrcnnDataset):
     '''
     NOTE: This dataset scales between +/- 127.5 rather than +/- 1.0.
     '''
+
     def __init__(self, json_path, config, **kwargs):
         import importlib
         from bidict import bidict
@@ -335,7 +389,7 @@ class MaskRcnnInstSegDataset(CocoDataset, ImageDatatype, MatterportMrcnnDataset)
             cat['id']: cat['name'] for cat in
             sorted(cats, key=lambda x: x['id'])})
         self.class_names = list(self.class_map.values())
-        
+
         if isinstance(config, str):
             import importlib.util
             spec = importlib.util.spec_from_file_location("mrcnn.config_file", config)
@@ -485,4 +539,3 @@ class MaskRcnnInstSegDataset(CocoDataset, ImageDatatype, MatterportMrcnnDataset)
 
     def generator(self):
         raise NotImplementedError()
-

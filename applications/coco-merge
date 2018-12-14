@@ -1,65 +1,96 @@
 #!/usr/bin/env python3
 import argparse
-import importlib.util
+import json
 import os
 import sys
 from contextlib import redirect_stdout
 from pycocotools.coco import COCO
-from abyss_deep_learning.coco_classes import CocoDataset
+
+CAPTION = 'caption'
+
+PATH = 'path'
+
+ORIGINAL_URI = 'original_uri'
+
+WIDTH = 'width'
+
+HEIGHT = 'height'
+
+DESCRIPTION = \
+    """
+    
+    Read coco.json file(s) defined on command line or from a list of json files on stdin.
+    Output a merged coco.json file in the current directory
+    
+    examples
+        coco-merge labelled/abc/coco.json labelled/def/coco.json
+        find . -name coco.json | coco-from-video
+    
+    """
 
 
-def main(args):
-    with redirect_stdout(sys.stderr):
-        coco_list = []
-        for coco_path in args.input:
-            coco_dir = os.path.dirname(coco_path)
-            coco_name = '.'.join(os.path.basename(coco_path).split('.')[0:-1])
-            if args.verbose:
-                print("loading {:s}".format(coco_path), file=sys.stderr)
-            if not os.path.exists(coco_path):
-                raise Exception("No such COCO json exists")
-            coco_list.append(CocoDataset.load(COCO(coco_path), image_dir=args.image_dir))
-    print("Loaded {:d} COCO datasets".format(len(coco_list)), file=sys.stderr)
-    result = coco_list[0]
-    for coco_dataset in coco_list[1:]:
-        result += coco_dataset
-    print(result)
+def main():
+    args = get_args()
+
+    images = []
+    annotations = []
+
+    # Create the output directory
+    # os.makedirs(args.output_dir, exist_ok=True)
+
+    # Read from stdin if source is from terminal?
+    # TODO: Not 100% sure about usage of sys.stdin.isatty()
+    if not sys.stdin.isatty():
+        for line in sys.stdin:
+            args.coco_jsons.append(line.strip())
+
+    for coco_json in args.coco_jsons:
+        # File cannot be found, skip it
+        if not os.path.exists(coco_json):
+            continue
+        with redirect_stdout(sys.stderr):
+            coco = COCO(coco_json)
+
+        # Map from old image id to new image id for use in the new annotation dict
+        old_2_new_id = {}
+        for image in coco.dataset['images']:
+            old_id = image['id']
+            new_id = len(images)
+            images.append({
+                'id': new_id,
+                HEIGHT: image[HEIGHT] if HEIGHT in image else None,
+                WIDTH: image[WIDTH] if WIDTH in image else None,
+                ORIGINAL_URI: image[ORIGINAL_URI] if ORIGINAL_URI in image else None,
+                PATH: os.path.join(coco_json, image[PATH]) if PATH in image else None,
+            })
+            old_2_new_id[old_id] = new_id
+
+        for ann in coco.dataset['annotations']:
+            old_id = ann['image_id']
+            new_id = old_2_new_id[old_id]
+            annotations.append({
+                'id': len(annotations),
+                'image_id': new_id,
+                CAPTION: ann[CAPTION] if CAPTION in ann else None,
+            })
+
+    merged_data_set = {
+        'images': images,
+        'annotations': annotations,
+    }
+
+    # with open(os.path.join(args.output_dir, 'coco.json'), 'w') as output_file:
+    json.dump(merged_data_set, sys.stdout, indent=4)
 
 
 def get_args():
-    '''Get args from the command line args'''
-    class MyAction(argparse.Action):
-        def __call__(self, parser, namespace, values, option_string=None):
-            # Set optional arguments to True or False
-            if option_string:
-                attr = True if values else False
-                setattr(namespace, self.dest, attr)
-            # Modify value of "input" in the namespace
-            if hasattr(namespace, 'input'):
-                current_values = getattr(namespace, 'input')
-                try:
-                    current_values.extend(values)
-                except AttributeError:
-                    current_values = values
-                finally:
-                    setattr(namespace, 'input', current_values)
-            else:
-                setattr(namespace, 'input', values)
-
-    parser = argparse.ArgumentParser(
-        description="Join multiple COCO datasets into one. Assumes there are no clashes in category IDs"
-    )
-    parser.add_argument('input', nargs='+', action=MyAction)
-    parser.add_argument('--verbose', action='store_true',
-                        help="verbose output to stderr")
-    parser.add_argument(
-        "--image-dir", default=None,
-        help="If images referenced relatively and in different dirs, you must give the CSV-delimited paths"
-    )
-
-    args = parser.parse_args()
-    return args
+    """Get args from the command line args"""
+    parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("coco_jsons", nargs='*', type=str, help="Path to coco.json files")
+    # parser.add_argument("--output-dir", "--output", "-o", type=str,
+                        # help="Output directory path for merged coco json files", default=os.getcwd())
+    return parser.parse_args()
 
 
 if __name__ == '__main__':
-    main(get_args())
+    main()
