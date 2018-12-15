@@ -7,7 +7,7 @@ EXPOSE 7001
 
 COPY setup.sh /tmp/setup.sh
 COPY install-pip /tmp/install-pip
-COPY install-apt-python3 /tmp/install-apt
+COPY install-apt /tmp/install-apt
 
 RUN bash /tmp/setup.sh prerequisites
 
@@ -16,12 +16,12 @@ RUN chown -R docker /home/docker/.ssh
 RUN chgrp -R docker /home/docker/.ssh
 RUN chmod 600 /home/docker/.ssh/*
 RUN chmod 644 /home/docker/.ssh/*.pub
-COPY git-clone-with-key /home/docker/bin
+COPY post-install.sh /home/docker
+COPY git-deployment-clone /home/docker/bin
+COPY git-deployment-pull /home/docker/bin
 RUN bash /tmp/setup.sh local-packages
 
 RUN bash /tmp/setup.sh configure
-COPY jupyter /home/docker/.jupyter
-
 RUN bash /tmp/setup.sh clean
 
 USER docker

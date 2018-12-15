@@ -34,5 +34,6 @@ mkdir -p $SCRATCH_DIR
 echo "Creating alias:"
 ALIAS="alias abyss-dl='nvidia-docker run --user docker -it --rm -v $SCRATCH_DIR:/scratch -v $DATA_DIR:/data -e DISPLAY=:0 -v /tmp/.X11-unix:/tmp/.X11-unix $PORTS --hostname $HOSTNAME abyss/dl'"
 echo $ALIAS
-echo $ALIAS | tee -a /etc/skel/.bashrc | tee -a $HOME/.bashrc
-echo "Run abyss-dl using alias 'abyss-dl (use new terminal or source ~/.bashrc)"
+echo $ALIAS >> $HOME/abyss-aliases.sh
+
+echo "Run 'source $HOME/abyss-aliases.sh' then 'abyss-dl' to run docker instance with port forwarding '$PORTS'."
