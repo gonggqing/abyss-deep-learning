@@ -4,73 +4,99 @@ from __future__ import print_function
 import argparse
 import json
 import sys
+import itertools
+
 from contextlib import redirect_stdout
+from operator import itemgetter
 
 from pycocotools.coco import COCO
 
-"""
-
-usage: coco-grep my.json "RI" 
-
-"""
-
-class RedirectStdStreams(object):
-    def __init__(self, stdout=None, stderr=None):
-        self._stdout = stdout or sys.stdout
-        self._stderr = stderr or sys.stderr
-
-    def __enter__(self):
-        self.old_stdout, self.old_stderr = sys.stdout, sys.stderr
-        self.old_stdout.flush(); self.old_stderr.flush()
-        sys.stdout, sys.stderr = self._stdout, self._stderr
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self._stdout.flush(); self._stderr.flush()
-        sys.stdout = self.old_stdout
-        sys.stderr = self.old_stderr
-
 
 def main(args):
-
     # TODO: what are edge cases for this function isatty()?
     if not sys.stdin.isatty():
         for line in sys.stdin:
             args.json_files.append(line.strip())
 
     for json_file in args.json_files:
-
         with redirect_stdout(sys.stderr):
-            ds = COCO(json_file)
-            new_ds = COCO(json_file)
+            coco = COCO(json_file)
+            new_dataset = {
+                'images': [],
+                'annotations': [],
+            }
 
-        new_ds.dataset.pop('annotations')
-        new_ds.dataset.pop('images')
-        new_ds.anns = new_ds.dataset['annotations'] = []
-        new_ds.imgs = new_ds.dataset['images'] = []
+        # Pre-parse the dataset for all available keys
+        unique_captions = {value['caption']: False for key, value in coco.anns.items()}
+        globals().update(unique_captions)
 
-        if not args.invert_match:
-            for ann in ds.loadAnns(ds.getAnnIds()):
-                    if args.caption == ann['caption']:
-                        new_ds.anns.append(ann)
+        # Find the minimum set combination satisfies the expression so as to find images that have the minimum
+        # required captions
 
-            for new_ann in new_ds.anns:
-                for img in ds.loadImgs(ids=[new_ann['image_id']]):
-                    new_ds.imgs.append(img)
-        else:
-            bad_img_list = []
-            for ann in ds.loadAnns(ds.getAnnIds()):
-                    if args.caption == ann['caption']:
-                        bad_img_list.append(ann['image_id'])
+        # TODO: Refactor code, not very efficient, could be implemented better
+        if args.exclude_multiple:
+            min_expr = None
+            for i in range(len(unique_captions) + 1):
+                combs = list(itertools.combinations(unique_captions.keys(), i))
+                for comb in combs:
+                    for caption in comb:
+                        globals()[caption] = True
+                    if eval(args.expression):
+                        min_expr = set(comb)
+                        break
+                    for caption in comb:
+                        globals()[caption] = False
+                if min_expr is not None:
+                    break
 
-            for img in ds.loadImgs(ds.getImgIds()):
-                if img['id'] not in bad_img_list:
-                    new_ds.imgs.append(img)
+        # Sort the annotations
+        anns = coco.loadAnns(coco.getAnnIds())
+        anns.sort(key=itemgetter('image_id', 'id'))
 
-            for ann in ds.loadAnns(ds.getAnnIds()):
-                if ann['image_id'] not in bad_img_list:
-                    new_ds.anns.append(ann)
+        curr_img_id = None
+        captions = []
+        for idx, ann in enumerate(anns):
+            # Captions have been merged for current image
+            if curr_img_id != ann['image_id']:
+                if args.exclude_multiple:
+                    if set(captions) != min_expr:
+                        curr_img_id = ann['image_id']
+                        captions.clear()
+                        continue
 
-        json.dump(new_ds.dataset, sys.stdout, sort_keys=True, indent=4)
+                for caption in captions:
+                    globals()[caption] = True
+
+                if eval(args.expression):
+                    # Add the image annotations and image to the new COCO file
+                    # Choose to either add all associated annotations, or only annotations in grep
+                    start_id = idx - len(captions)
+                    end_id = idx
+                    for i in range(start_id, end_id):
+                        if anns[i]['caption'] in unique_captions:
+                            new_dataset['annotations'].append(anns[i])
+
+                # Reset global captions
+                for caption in captions:
+                    globals()[caption] = False
+
+                # Empty caption list for next image
+                curr_img_id = ann['image_id']
+                captions.clear()
+
+            captions.append(ann['caption'])
+
+        # Iterate through annotations and add associated images to new dataset
+        for img in coco.loadImgs(coco.getImgIds()):
+            img_ids = [ann['image_id'] for ann in new_dataset['annotations']]
+            if img['id'] in img_ids:
+                # Skip images that have been added already
+                if img in new_dataset['images']:
+                    continue
+
+                new_dataset['images'].append(img)
+
+        json.dump(new_dataset, sys.stdout, sort_keys=True, indent=4)
 
     sys.exit(0)
 
@@ -79,12 +105,14 @@ def get_args():
     parser = argparse.ArgumentParser(
         description="Split a COCO JSON database into multiple."
     )
-    parser.add_argument('json_files', nargs='+',type=str,help='JSON file to grep from')
+    parser.add_argument('json_files', nargs='+', type=str, help='JSON file to grep from')
     parser.add_argument('--caption', type=str, help="extract given caption")
     parser.add_argument('--exclude-multiple', action='store_true',
                         help='Include only images with JUST the given label (ie not roots & joint, just roots')
     parser.add_argument('--expression', '--expr', type=str, help="todo")
-    parser.add_argument('--invert-match', '-v', action='store_true', help='invert match')
+    # parser.add_argument('--all-annotations', action='store_true', help='Include all associated image annotations when '
+    #                                                                   'creating the new dataset')
+    # parser.add_argument('--invert-match', '-v', action='store_true', help='invert match')
 
     args = parser.parse_args()
     return args
