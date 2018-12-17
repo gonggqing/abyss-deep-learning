@@ -132,7 +132,7 @@ def tile_gen(image, window_size, fill_const=0):
     num_tiles = [int(i) for i in num_tiles]
 
     for i, j in product(*[range(k) for k in num_tiles]):
-        window = np.ones(window_size + image.shape[2:], dtype=image.dtype) * fill_const
+        window = np.ones(tuple(window_size) + image.shape[2:], dtype=image.dtype) * fill_const
         y1, y2 = np.array([i, i + 1]) * window_size[0]
         x1, x2 = np.array([j, j + 1]) * window_size[1]
         y2a = np.minimum(image.shape[0], y2)

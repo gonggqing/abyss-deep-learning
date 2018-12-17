@@ -226,11 +226,18 @@ class ClassificationTask(CocoInterface, DatasetTaskBase):
 
 
 class SemanticSegmentationTask(CocoInterface, DatasetTaskBase):
-    def __init__(self, coco, translator=None, **kwargs):
+    def __init__(self, coco, translator=None, num_classes=None, **kwargs):
+        """
+        Segmentation arguments:
+            coco (pycocotools.COCO): The COCO object to read the targes from
+            translator (AnnotationTranslator, optional): An instance of an abyss_deep_learning.datasets.translators.AnnotationTranslator
+            num_classes (int, optional): The number of classes to generate data for; if None then infer from coco.cats
+            cached (bool, optional): Whether to cache the entire dataset into memory.
+        """
         CocoInterface.__init__(self, coco, **kwargs)
         assert isinstance(translator, (AnnotationTranslator, type(None)))
         self.translator = translator or AnnotationTranslator()
-        self.num_classes = len(self.coco.cats) + 1
+        self.num_classes = num_classes if num_classes else len(self.coco.cats) + 1
         self.stats = dict()
         self._targets = dict()
 
