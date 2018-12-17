@@ -40,12 +40,12 @@ git clone https://github.com/abyss-solutions/deep-learning.git
 cd deep-learning/docker
 chmod 600 ssh/*
 docker build -t abyss/dl .
-./setup-host.sh
+sudo ./setup-host.sh
 ```
 
 Then run the docker container and do the post-install setup using:
 ```bash
-source ~/abyss-aliases
+source ~/abyss-aliases.sh
 abyss-dl
 # Now you will be in the docker container
 ~/post-install.sh # This builds and installs crfasrnn_keras, needs to be done separately for now
