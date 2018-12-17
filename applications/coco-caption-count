@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3.6
 
 import json
 import os
@@ -7,66 +7,95 @@ from argparse import ArgumentParser
 from operator import itemgetter
 
 
-def get_args():
-    parser = ArgumentParser(
-        description="Count all unique caption instances in given coco files"
-    )
-    parser.add_argument('json_files', nargs='+', type=str, help='JSON files to caption count')
-    parser.add_argument('-m', '--multi-label', action='store_true', help='Option to treat multi-labels as unique')
-    return parser.parse_args()
-
-
 def main():
     args = get_args()
-
     caption_count = {}
+    json_strings = []
 
-    # Append files from stdin pipe to list of json files passed as command line args
     if not sys.stdin.isatty():
         for line in sys.stdin:
-            args.json_files.append(line.strip())
+            stripped_line = line.strip()
+            if os.path.exists(stripped_line):
+                args.json_files.append(stripped_line)
+            else:
+                json_strings.append(stripped_line)
+
+    stdin_data = json.loads("".join(json_strings)) if json_strings else None
 
     for json_file in args.json_files:
         if not os.path.exists(json_file):
             continue
 
         with open(json_file, 'r') as in_file:
-            data = json.load(in_file)
+            json_data = json.load(in_file)
 
-        if 'annotations' in data:
-            anns = data['annotations']
+        caption_count = extract_data(json_data, caption_count)
 
-            if not anns:
-                continue
-            anns.sort(key=itemgetter('image_id', 'id'))
+    caption_count = extract_data(stdin_data, caption_count)
 
-            curr_img = None
-            caption = None
+    total_count = sum(caption_count.values())
 
-            for ann in anns:
-                if not ('image_id' and 'caption' in ann):
-                    continue
-
-                if args.multi_label:
-                    if caption is None and curr_img is None:
-                        first_ann = anns[0]
-                        if 'image_id' in first_ann:
-                            curr_img = first_ann['image_id']
-                        if 'caption' in first_ann:
-                            caption = first_ann['caption']
-                        continue
-
-                    if curr_img != ann['image_id']:
-                        add_caption_to_count(caption, caption_count)
-                        caption = ann['caption']
-                    else:
-                        caption = ','.join((caption, ann['caption']))
-                else:
-                    caption = ann['caption']
-                    add_caption_to_count(caption, caption_count)
+    if args.percent:
+        for caption, count in caption_count.items():
+            caption_count[caption] = {
+                'count': count,
+                'percentage': count / total_count * 100,
+            }
 
     with sys.stdout as out_file:
         json.dump(caption_count, out_file, sort_keys=True, indent=4)
+
+
+def get_args():
+    parser = ArgumentParser(
+        description="Count all unique caption instances in given coco files"
+    )
+    parser.add_argument('json_files', nargs='*', type=str, help='JSON files to caption count')
+    parser.add_argument('-m', '--multi-label', action='store_true', help='Option to treat multi-labels as unique')
+    parser.add_argument('-p', '--percent', action='store_true', help='Option to output percentage of entire data set')
+    return parser.parse_args()
+
+
+def extract_data(data, caption_count):
+    args = get_args()
+
+    if not data or 'annotations' not in data:
+        return caption_count
+
+    anns = data['annotations']
+
+    if not anns:
+        return caption_count
+
+    anns.sort(key=itemgetter('image_id', 'id'))
+
+    curr_img = None
+    caption = None
+
+    for ann in anns:
+        if not ('image_id' and 'caption' in ann):
+            continue
+
+        if args.multi_label:
+            if caption is None and curr_img is None:
+                first_ann = anns[0]
+                if 'image_id' in first_ann:
+                    curr_img = first_ann['image_id']
+                if 'caption' in first_ann:
+                    caption = first_ann['caption']
+                continue
+
+            if curr_img != ann['image_id']:
+                curr_img = ann['image_id']
+                add_caption_to_count(caption, caption_count)
+                caption = ann['caption']
+            else:
+                caption = ','.join((caption, ann['caption']))
+        else:
+            caption = ann['caption']
+            add_caption_to_count(caption, caption_count)
+
+    return caption_count
 
 
 def add_caption_to_count(caption, caption_count):
