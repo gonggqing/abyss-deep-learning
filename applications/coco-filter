@@ -1,0 +1,66 @@
+#!/usr/bin/python3.6
+import json
+import os
+import sys
+from argparse import ArgumentParser
+
+
+def main():
+    args = get_args()
+    json_strings = []
+    captions = args.captions.split(',')
+    dataset = {
+        'images': [],
+        'annotations': []
+    }
+
+    if not sys.stdin.isatty():
+        for line in sys.stdin:
+            stripped_line = line.strip()
+            if os.path.exists(stripped_line):
+                args.json_files.append(stripped_line)
+            else:
+                json_strings.append(stripped_line)
+
+    stdin_data = json.loads("".join(json_strings)) if json_strings else None
+
+    for json_file in args.json_files:
+        if not os.path.exists(json_file):
+            continue
+
+        with open(json_file, 'r') as in_file:
+            json_data = json.load(in_file)
+
+        dataset = filter_captions(captions, dataset, json_data)
+
+    dataset = filter_captions(captions, dataset, stdin_data)
+
+    with sys.stdout as out_file:
+        json.dump(dataset, out_file, indent=4)
+
+
+def filter_captions(captions, dataset, json_data):
+    if json_data is None:
+        return dataset
+
+    img_ids = set()
+    for ann in json_data['annotations']:
+        if ann['caption'] in captions:
+            dataset['annotations'].append(ann)
+            img_ids.add(ann['image_id'])
+    for img in json_data['images']:
+        if img['id'] in img_ids:
+            dataset['images'].append(img)
+    return dataset
+
+def get_args():
+    parser = ArgumentParser(
+        description="Count all unique caption instances in given coco files"
+    )
+    parser.add_argument('json_files', nargs='*', type=str, help='JSON files to caption count')
+    parser.add_argument('-c', '--captions', type=str, help='Captions to keep for each image annotations')
+    return parser.parse_args()
+
+
+if __name__ == '__main__':
+    main()

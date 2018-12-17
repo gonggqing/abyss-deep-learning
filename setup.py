@@ -38,5 +38,6 @@ setup(
         "applications/maskrcnn-find-lr",
         "applications/maskrcnn-predict",
         "applications/maskrcnn-test",
-        "applications/maskrcnn-trainval"],
+        "applications/maskrcnn-trainval",
+        "applications/coco-filter"],
 )
