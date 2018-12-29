@@ -13,6 +13,12 @@ from PIL import Image
 import numpy as np
 import pycocotools.mask as pcm
 
+VERBOSE = 0
+
+def print_v(*args, level=0):
+    if VERBOSE >= level:
+        print(*args, file=stderr)
+
 def download_images(uris, destination='./images'):
     if destination != '.':
         os.makedirs(destination, exist_ok=True)
@@ -20,7 +26,7 @@ def download_images(uris, destination='./images'):
         filename = os.path.basename(urlparse(unquote(uri)).path)
         file_dest = os.path.join(destination, filename)
         if not os.path.exists(file_dest): # Don't re-download
-            print("Downloading: {:s}".format(filename), file=stderr)
+            print_v("Downloading: {:s}".format(filename), level=1)
             urllib.request.urlretrieve(uri, file_dest)
 
 
@@ -59,10 +65,13 @@ def demangle_json(labelbox, args):
     images = []
     annotations = []
     categories = {}
+    print_v("Downloading {:d} images".format(len(labelbox)), level=1)
 
     for image_id, record in enumerate(labelbox):
         parts = urlparse(record['Labeled Data'])
         file_name = unquote(parts.path)[1:]
+        print_v("Downloading masks: {:s}".format(file_name), level=1)
+
         if args.prefix:
             file_name = os.path.join(args.prefix, file_name)
         im = Image.open(file_name)
@@ -96,7 +105,6 @@ def demangle_json(labelbox, args):
                 'bbox': pcm.toBbox(mask),
                 'iscrowd': 0
             })
-        # break #TODO remove
     coco = {
         'images': images,
         'annotations': annotations,
@@ -127,6 +135,7 @@ def main(args):
     
 
 def get_args():
+    global VERBOSE
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -164,6 +173,7 @@ Additionally, with options:
     parser.add_argument(
         '--verbose', action='store_true', help="verbose output to stderr")
     args = parser.parse_args()
+    VERBOSE = int(args.verbose)
     return args
 
 
