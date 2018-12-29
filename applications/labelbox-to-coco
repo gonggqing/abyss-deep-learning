@@ -96,7 +96,7 @@ def demangle_json(labelbox, args):
                 'bbox': pcm.toBbox(mask),
                 'iscrowd': 0
             })
-        break #TODO remove
+        # break #TODO remove
     coco = {
         'images': images,
         'annotations': annotations,
