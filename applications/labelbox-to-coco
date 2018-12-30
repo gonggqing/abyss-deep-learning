@@ -19,6 +19,34 @@ def print_v(*args, level=0):
     if VERBOSE >= level:
         print(*args, file=stderr)
 
+
+def geometry_to_coco_bbox(point_list):
+    """
+    Converts a list of point dictionaries from LabelBox to a COCO bbox
+
+    Args:
+        point_list: list of point dictionaries with x,y as keys.
+
+    Returns: [x,y,width,height]
+
+    """
+    x_points = [p['x'] for p in point_list]
+    y_points = [p['y'] for p in point_list]
+    min_x = min(x_points)
+    min_y = min(y_points)
+    max_x = max(x_points)
+    max_y = max(y_points)
+    bbox = [min_x, min_y, max_x - min_x, max_y - min_y]
+    return bbox
+
+
+def geometry_to_coco_mask(point_list):
+    points = []
+    for p in point_list:
+        points.append([p['x'], p['y']])
+    raise NotImplementedError("TODO") # TODO - make this work
+
+
 def download_images(uris, destination='./images'):
     if destination != '.':
         os.makedirs(destination, exist_ok=True)
@@ -74,7 +102,18 @@ def demangle_json(labelbox, args):
 
         if args.prefix:
             file_name = os.path.join(args.prefix, file_name)
-        im = Image.open(file_name)
+
+        if os.path.exists(file_name):
+            im = Image.open(file_name)
+        else:
+            # Try JPG
+            if file_name.endswith('png'):
+                im = Image.open(file_name.replace('png', 'jpg'))
+            elif file_name.endswith('jpg'):
+                im = Image.open(file_name.replace('jpg', 'png'))
+            else:
+                raise ValueError("File could not be found")
+
         width, height = im.size
         images.append({
             'id': image_id + 1,
@@ -86,25 +125,47 @@ def demangle_json(labelbox, args):
         })
         if record['Label'] == 'Skip':
             continue
-        for class_name, label in record['Label']['segmentationMasksByName'].items():
-            if class_name == 'Background':
-                continue
-            mask = download_mask(label)
-            if class_name not in categories:
-                categories[class_name] = {
-                    'id': len(categories) + 1,
-                    'name': class_name,
-                    'supercategory': '',
-                }
-            annotations.append({
-                'id': len(annotations) + 1,
-                'image_id': image_id + 1,
-                'category_id': categories[class_name]['id'],
-                'segmentation': mask,
-                'area': int(pcm.area(mask)),
-                'bbox': pcm.toBbox(mask),
-                'iscrowd': 0
-            })
+        if 'segmentationMasksByName' in record['Label']:
+            for class_name, label in record['Label']['segmentationMasksByName'].items():
+                if class_name == 'Background':
+                    continue
+                mask = download_mask(label)
+                if class_name not in categories:
+                    categories[class_name] = {
+                        'id': len(categories) + 1,
+                        'name': class_name,
+                        'supercategory': '',
+                    }
+                annotations.append({
+                    'id': len(annotations) + 1,
+                    'image_id': image_id + 1,
+                    'category_id': categories[class_name]['id'],
+                    'segmentation': mask,
+                    'area': int(pcm.area(mask)),
+                    'bbox': pcm.toBbox(mask),
+                    'iscrowd': 0
+                })
+        else:  # A vector annotation - its a list of classes
+            for class_name, labels in record['Label'].items():
+                if class_name not in categories:
+                    categories[class_name] = {
+                        'id': len(categories) + 1,
+                        'name': class_name,
+                        'supercategory': '',
+                    }
+                for lab in labels:
+                    bbox = geometry_to_coco_bbox(lab['geometry'])
+                    annotations.append({
+                        'id': len(annotations) + 1,
+                        'image_id': image_id + 1,
+                        'category_id': categories[class_name]['id'],
+                        # 'segmentation': geometry_to_coco_mask(),
+                        'area': bbox[2]*bbox[3],
+                        'bbox': bbox,
+                        'iscrowd': 0
+                    })
+
+
     coco = {
         'images': images,
         'annotations': annotations,
