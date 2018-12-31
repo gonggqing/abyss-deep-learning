@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 from __future__ import print_function
-from contextlib import redirect_stdout
 from math import floor
 from urllib.parse import unquote, urlparse
 from sys import stderr, stdout
@@ -15,8 +14,9 @@ import pycocotools.mask as pcm
 
 VERBOSE = 0
 
-def print_v(*args, level=0):
-    if VERBOSE >= level:
+def print_v(*args, **kwargs):
+    # global VERBOSE
+    if VERBOSE >= kwargs['level']:
         print(*args, file=stderr)
 
 
@@ -40,11 +40,6 @@ def geometry_to_coco_bbox(point_list):
     return bbox
 
 
-def geometry_to_coco_mask(point_list):
-    points = []
-    for p in point_list:
-        points.append([p['x'], p['y']])
-    raise NotImplementedError("TODO") # TODO - make this work
 
 
 def download_images(uris, destination='./images'):
@@ -84,15 +79,31 @@ def main_coco(dataset, args):
     return demangle_coco(dict(dataset), prefix=args.prefix)
 
 def demangle_json(labelbox, args):
+    def geometry_to_coco_mask(point_list):
+        points = []
+        for p in point_list:
+            points.append([p['x'], p['y']])
+        raise NotImplementedError("TODO") # TODO - make this work
+
     def download_mask(mask_uri):
         req = urllib.request.urlopen(mask_uri)
         mask = np.array(Image.open(req), order='F')[..., -1] > 0
         rle = pcm.encode(mask.astype(np.uint8))
         rle['counts'] = str(rle['counts'], encoding='utf-8')
         return rle
+
+    def maybe_add_category(class_name):
+        if class_name not in categories:
+            categories[class_name] = {
+                'id': len(categories) + 1,
+                'name': class_name,
+                'supercategory': '',
+            }
+
     images = []
     annotations = []
     categories = {}
+
     print_v("Downloading {:d} images".format(len(labelbox)), level=1)
 
     for image_id, record in enumerate(labelbox):
@@ -100,21 +111,27 @@ def demangle_json(labelbox, args):
         file_name = unquote(parts.path)[1:]
         print_v("Downloading masks: {:s}".format(file_name), level=1)
 
-        if args.prefix:
-            file_name = os.path.join(args.prefix, file_name)
+        parts = os.path.splitext(file_name)
+        file_parts = {
+            "filename": parts[0],
+            "extension": parts[1],
+            "basename": os.path.basename(file_name),
+            "dirname": os.path.dirname(file_name)
+        }
+        file_name = args.output_format.format(**file_parts)
 
-        if os.path.exists(file_name):
-            im = Image.open(file_name)
-        else:
-            # Try JPG
-            if file_name.endswith('png'):
-                im = Image.open(file_name.replace('png', 'jpg'))
-            elif file_name.endswith('jpg'):
-                im = Image.open(file_name.replace('jpg', 'png'))
-            else:
-                raise ValueError("File could not be found")
+        # if os.path.exists(file_name):
+        #     im = Image.open(file_name)
+        # else:
+        #     # Try JPG
+        #     if file_name.endswith('png'):
+        #         im = Image.open(file_name.replace('png', 'jpg'))
+        #     elif file_name.endswith('jpg'):
+        #         im = Image.open(file_name.replace('jpg', 'png'))
+        #     else:
+        #         raise ValueError("File could not be found")
 
-        width, height = im.size
+        width, height = Image.open(file_name).size
         images.append({
             'id': image_id + 1,
             'file_name': file_name,
@@ -126,45 +143,39 @@ def demangle_json(labelbox, args):
         if record['Label'] == 'Skip':
             continue
         if 'segmentationMasksByName' in record['Label']:
-            for class_name, label in record['Label']['segmentationMasksByName'].items():
-                if class_name == 'Background':
+            for category_name, category in record['Label']['segmentationMasksByName'].items():
+                if category_name == 'Background':
                     continue
-                mask = download_mask(label)
-                if class_name not in categories:
-                    categories[class_name] = {
-                        'id': len(categories) + 1,
-                        'name': class_name,
-                        'supercategory': '',
-                    }
+                maybe_add_category(category_name)
+                mask = download_mask(category)
                 annotations.append({
                     'id': len(annotations) + 1,
                     'image_id': image_id + 1,
-                    'category_id': categories[class_name]['id'],
+                    'category_id': categories[category_name]['id'],
                     'segmentation': mask,
                     'area': int(pcm.area(mask)),
                     'bbox': pcm.toBbox(mask),
                     'iscrowd': 0
                 })
-        else:  # A vector annotation - its a list of classes
-            for class_name, labels in record['Label'].items():
-                if class_name not in categories:
-                    categories[class_name] = {
-                        'id': len(categories) + 1,
-                        'name': class_name,
-                        'supercategory': '',
-                    }
-                for lab in labels:
-                    bbox = geometry_to_coco_bbox(lab['geometry'])
+        else:
+            # Vector annotations - its a list of categories
+            for category_name, category in record['Label'].items():
+                maybe_add_category(category_name)
+                for instance in category:
+                    #TODO: Support for multiple polygons, if needed
+                    poly = [
+                        i for pt in instance['geometry']
+                        for i in (pt['x'], pt['y'])]
+                    bbox = geometry_to_coco_bbox(instance['geometry'])
                     annotations.append({
                         'id': len(annotations) + 1,
                         'image_id': image_id + 1,
-                        'category_id': categories[class_name]['id'],
-                        # 'segmentation': geometry_to_coco_mask(),
+                        'category_id': categories[category_name]['id'],
+                        'segmentation': [poly], # COCO requires multi-poly support, hack for now
                         'area': bbox[2]*bbox[3],
                         'bbox': bbox,
                         'iscrowd': 0
                     })
-
 
     coco = {
         'images': images,
@@ -210,6 +221,7 @@ The following changes are made:
     * Remove image flickr URL and COCO URL
 Additionally, with options:
     --prefix: Add this prefix to the image file_name (change relative path or make absolute)
+
     --download: Download the dataset into given dir, before continuing."""
     )
     parser.add_argument(
@@ -223,10 +235,17 @@ Additionally, with options:
         default="./annotations", type=str,
         help="Path to output the annotations (default ./annotations)")
     parser.add_argument(
-        '--prefix',
+        '--output-format',
         default=None, type=str,
-        help="If present, set the path attribute for each image to '<prefix>/<file_name>'."
+        help="A format string (python str.format style) to apply to the image file_name." \
+            + "Available fields: basename, dirname, filename, extension."
+            + " Default: '{dirname:}/{filename:}.{extension:}'"
     )
+    # parser.add_argument(
+    #     '--prefix',
+    #     default=None, type=str,
+    #     help="If present, set the path attribute for each image to '<prefix>/<file_name>'."
+    # )
     parser.add_argument(
         '--download',
         default=None, type=str,
