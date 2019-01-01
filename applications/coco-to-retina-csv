@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+from __future__ import print_function
+from math import floor
+from sys import stderr
+import argparse
+import os
+import csv
+
+from pycocotools.coco import COCO
+
+
+def get_annotations(image, annotations, caption_map):
+    output_list = []
+    for annotation in annotations:
+        if 'path' in image:
+            file_path = image['path']
+        else:
+            file_path = image['file_name']  # TODO add prefix
+        bbox = annotation['bbox']
+        bb = [floor(bbox[0]), floor(bbox[1]), floor(bbox[0] + bbox[2]), floor(bbox[1] + bbox[3])]
+        cl = caption_map[annotation['category_id']]
+        # Add to output string
+        output_list.append([file_path, int(bb[0]), int(bb[1]), int(bb[2]), int(bb[3]), cl])
+    return output_list
+
+
+def coco_to_csv(args):
+    assert os.path.exists(args.coco_path), "COCO file not found."
+    coco = COCO(args.coco_path)
+    if not os.path.exists(args.output_dir):
+        os.mkdir(args.output_dir)
+
+    caption_map = {}
+    for cat_id, cat in coco.cats.items():
+        caption_map[cat['id']] = cat['name']
+
+    with open(os.path.join(args.output_dir,'class_mapping.csv'), mode='w') as cmf:
+        class_writer = csv.writer(cmf, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        for key, value in caption_map.items():
+            if args.index_from_zero:
+                class_writer.writerow([value, str(key-1)])
+            else:
+                class_writer.writerow([value, str(key)])
+
+    with open(os.path.join(args.output_dir, 'annotations.csv'), mode='w') as af:
+        for image_id, image in coco.imgs.items():
+            annotation_writer = csv.writer(af, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            annotations = coco.loadAnns(coco.getAnnIds(imgIds=[image_id]))
+            anninfo = get_annotations(image, annotations, caption_map) # List of [filename, x1, y1, x2, y2, class]
+            for a in anninfo:
+                annotation_writer.writerow(a)
+
+
+
+def get_args():
+    parser = argparse.ArgumentParser(
+        description="Convert a COCO JSON into CSVs"
+    )
+    parser.add_argument('coco_path', help="Path to the coco JSON.")
+    # parser.add_argument('image_dir', help="Path the images are stored in")
+    parser.add_argument(
+        'output_dir', help="Path to put the desired")
+    parser.add_argument('--verbose', action='store_true',
+                        help="verbose output to stderr")
+    parser.add_argument('--index_from_zero', action='store_true', help="Index categories from zero - Annotation Tool indexes from 1")
+    parser.add_argument('--prefix', help="The prefix to the images directory")
+    parser.add_argument('--use_filename', help="Use prefix/filename instead of path attributes")
+    args = parser.parse_args()
+    return args
+
+
+if __name__ == '__main__':
+    coco_to_csv(get_args())
