@@ -135,6 +135,7 @@ def demangle_json(labelbox, args):
         images.append({
             'id': image_id + 1,
             'file_name': file_name,
+            'path': file_name,
             "width": width,
             "height": height,
             "license": 0,
@@ -177,10 +178,30 @@ def demangle_json(labelbox, args):
                         'iscrowd': 0
                     })
 
+    info = {
+        "contributor": "Abyss Solutions",
+        "date_created": "2018-11-27 12:24:43.456821",
+        "description": "This is a dataset configured by Abyss Solutions.",
+        "total_time": "02h24m00s",
+        "url": "http://www.abysssolutions.com.au/",
+        "version": "1.0",
+        "year": 2018
+    }  # TODO make this meaningful - it is a placeholder atm
+
+    licenses = [
+        {
+            "id": 1,
+            "name": "Attribution-NonCommercial-ShareAlike License",
+            "url": "http://creativecommons.org/licenses/by-nc-sa/2.0/"
+        }
+    ]
+
     coco = {
         'images': images,
         'annotations': annotations,
-        'categories': list(categories.values())
+        'categories': list(categories.values()),
+        'info': info,
+        'licenses': licenses
     }
     return coco
 

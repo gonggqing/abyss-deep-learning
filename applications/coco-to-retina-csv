@@ -12,7 +12,10 @@ from pycocotools.coco import COCO
 def get_annotations(image, annotations, caption_map):
     output_list = []
     for annotation in annotations:
-        file_path = image['path']
+        if 'path' in image:
+            file_path = image['path']
+        else:
+            file_path = image['file_name']  # TODO add prefix
         bbox = annotation['bbox']
         bb = [floor(bbox[0]), floor(bbox[1]), floor(bbox[0] + bbox[2]), floor(bbox[1] + bbox[3])]
         cl = caption_map[annotation['category_id']]
@@ -60,6 +63,8 @@ def get_args():
     parser.add_argument('--verbose', action='store_true',
                         help="verbose output to stderr")
     parser.add_argument('--index_from_zero', action='store_true', help="Index categories from zero - Annotation Tool indexes from 1")
+    parser.add_argument('--prefix', help="The prefix to the images directory")
+    parser.add_argument('--use_filename', help="Use prefix/filename instead of path attributes")
     args = parser.parse_args()
     return args
 
