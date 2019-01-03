@@ -20,7 +20,8 @@ def masks(labels, image=None, colors=None, alpha=0.3, image_alpha=1, bg_label=-1
     overlay = skic.label2rgb( labels, alpha=1, bg_label=bg_label, bg_color=bg_color, kind=kind )
     overlay *= 255
     overlay = overlay.astype( np.uint8 )
-    return overlay if image is None else cv2.addWeighted( image, image_alpha, overlay, alpha, 0 )
+    if image is None: return overlay
+    return cv2.addWeighted( image, image_alpha, overlay, alpha, 0 )
 
 def draw_semantic_seg(labels, rgb, class_idxs=None, num_classes=None):
     """Draws the semantic segmentation on to an RGB image.
