@@ -3,22 +3,11 @@ import argparse
 import json
 import os
 import sys
-from collections import Counter
-from contextlib import redirect_stdout
 from operator import itemgetter
 from pathlib import Path
 
-from pycocotools.coco import COCO
-
-CAPTION = 'caption'
-
-PATH = 'path'
-
-ORIGINAL_URI = 'original_uri'
-
-WIDTH = 'width'
-
-HEIGHT = 'height'
+import cv2
+from abyss_deep_learning.datasets.coco import CocoDataset
 
 DESCRIPTION = \
     """
@@ -36,115 +25,101 @@ DESCRIPTION = \
 def main():
     args = get_args()
 
-    images = []
-    annotations = []
-
-    # Read from stdin if source is from terminal?
-    # TODO: Not 100% sure about usage of sys.stdin.isatty()
+    json_string = ""
     if not sys.stdin.isatty():
         for line in sys.stdin:
-            args.json_files.append(line.strip())
+            json_string += line.strip()
 
-    count = {}
+    if json_string:
+        args.json_files.append(json_string)
 
-    path_2_new_id = {}
-    old_id_2_path = {}
+    images = []  # Merged images
+    annotations = []  # Merged annotations
+    img_count = {}  # Count occurrences of an image across all json files to be merged
+    old_id_2_path = {}  # Mapping of old image id to the unique image path, many to one relationship
+    path_2_new_id = {}  # Mapping of unique image path to new id, one to one relationship
 
     for json_file in args.json_files:
-        # File cannot be found, skip it
-        if not os.path.exists(json_file):
-            continue
-
-        with redirect_stdout(sys.stderr):
-            coco = COCO(json_file)
+        old_dataset = CocoDataset(json_file).coco.dataset
 
         # Retrieve sub-directories if they exist between root video directory and video file path
         path = Path(os.path.join(os.getcwd(), json_file))
         rel_dir = path.relative_to(os.getcwd())
-        sub_dir, video_basename = os.path.split(rel_dir)
+        sub_dir, file_basename = os.path.split(rel_dir)
 
-        # Map from old image id to new image id for use in the new annotation dict
-        # TODO: Clean up code
-        for image in coco.dataset['images']:
-            old_id = image['id']
-            new_id = len(images)
-            new_path = os.path.join(os.getcwd(), sub_dir, image[PATH]) if PATH in image else None
-            if new_path in count:
-                count[new_path] += 1
+        for image in old_dataset['images']:
+            if 'path' not in image:
+                continue
+
+            img_path = os.path.join(os.getcwd(), sub_dir, image['path'])
+            if img_path in img_count:
+                img_count[img_path] += 1
             else:
-                count[new_path] = 1
-            if count[new_path] == 1:
+                img_count[img_path] = 1
+
+            if img_count[img_path] == 1:
+                new_id = len(images)
+                if not ('height' in image or 'weight' in image):
+                    img = cv2.imread(img_path)
+
                 images.append({
                     'id': new_id,
-                    HEIGHT: image[HEIGHT] if HEIGHT in image else None,
-                    WIDTH: image[WIDTH] if WIDTH in image else None,
-                    ORIGINAL_URI: image[ORIGINAL_URI] if ORIGINAL_URI in image else None,
-                    PATH: new_path,
+                    'height': image['height'] if 'height' in image else img.shape[0],
+                    'width': image['width'] if 'width' in image else img.shape[1],
+                    'original_uri': image['original_uri'] if 'original_uri' in image else None,
+                    'path': img_path,
                 })
-                path_2_new_id[new_path] = new_id
-            old_id_2_path[old_id] = new_path
+                path_2_new_id[img_path] = new_id
 
-        for ann in coco.dataset['annotations']:
+            # Keep note of any image ids even duplicates to map the annotations to the correct new id
+            old_id = image['id']
+            old_id_2_path[old_id] = img_path
+
+        for ann in old_dataset['annotations']:
             old_id = ann['image_id']
-            new_path = old_id_2_path[old_id]
-            new_id = path_2_new_id[new_path]
+            img_path = old_id_2_path[old_id]
+            new_id = path_2_new_id[img_path]
             annotations.append({
                 'image_id': new_id,
-                CAPTION: ann[CAPTION] if CAPTION in ann else None,
+                'caption': ann['caption']
             })
 
-    # Post-process output
-#    images = filter_duplicate_images(images)
-#    annotations = filter_duplicate_anns(annotations, images)
+    # Remove duplicate annotations
+    annotations = [dict(item) for item in set(tuple(ann.items()) for ann in annotations)]
 
-    annotations = [dict(t) for t in set(tuple(ann.items()) for ann in annotations)]
-
+    # Sort annotations by image id
     annotations.sort(key=itemgetter('image_id'))
 
-    new_anns = []
+    # Assign annotation ids
+    tmp_annotations = annotations.copy()
+    annotations.clear()
 
-    for idx, ann in enumerate(annotations):
+    for idx, ann in enumerate(tmp_annotations):
         ann = {
             'id': idx,
             'image_id': ann['image_id'],
-            'caption':  ann['caption'],
+            'caption': ann['caption'],
         }
-        new_anns.append(ann)
+        annotations.append(ann)
 
     merged_data_set = {
         'images': images,
-        'annotations': new_anns,
+        'annotations': annotations,
     }
 
-    json.dump(merged_data_set, sys.stdout, indent=4)
+    indent = 4
+    if args.min:
+        indent = None
+
+    json.dump(merged_data_set, sys.stdout, indent=indent)
 
 
 def get_args():
     """Get args from the command line args"""
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("json_files", nargs='*', type=str, help="JSON files to merge together into one json")
+    parser.add_argument('json_files', nargs='*', type=str, help="JSON files to merge together into one json")
+    parser.add_argument('-m', '--min', action='store_true', help="Remove indentation from output json")
     return parser.parse_args()
-
-
-def filter_duplicate_images(dup_imgs: list) -> list:
-    counter = Counter()
-    imgs = []
-
-    for entry in dup_imgs:
-        counter[entry['path']] += 1
-        if counter[entry['path']] == 1:
-            imgs.append(entry)
-
-    return imgs
-
-
-def filter_duplicate_anns(dup_anns: list, imgs: list) -> list:
-    img_ids = {img['id'] for img in imgs}
-    dup_ann_ids = {ann['image_id'] for ann in dup_anns}
-    ann_ids = img_ids & dup_ann_ids
-    anns = [ann for ann in dup_anns if ann['id'] in ann_ids]
-
-    return anns
 
 
 if __name__ == '__main__':
