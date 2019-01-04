@@ -15,6 +15,8 @@ def masks(labels, image=None, fill=True, border=False, colors=None, alpha=0.3, i
     
     
     todo: document parameters
+    todo: review usage
+    todo: review performance (currently some 5 seconds for 1860x1240 image)
     
     
     Returns
@@ -35,30 +37,47 @@ def masks(labels, image=None, fill=True, border=False, colors=None, alpha=0.3, i
         masked = b if masked is None else cv2.addWeighted( masked, image_alpha, b, 1, 0 )
     return masked
 
-def boxes(labels, image, fill=True, border=False, colors=skic.colorlabel.DEFAULT_COLORS, alpha=0.3, image_alpha=1, bg_color=(0, 0, 0), thickness=None):
+def boxes(labels, image, fill=False, border=False, colors=skic.colorlabel.DEFAULT_COLORS, alpha=0.3, image_alpha=1, thickness=1):
     """Draw boxes
     
-    example: abyss_deep_learning.draw.boxes( labels, image, image_alpha=0.7, border=True )
-    
-    
     todo: document parameters
-    todo? reconcile ski.color and cv2 colors
+    todo? labels: separate boxes and labels? represent as tuples? (may be yet another performance hit)
+    todo? reconcile ski.color and cv2 colors (something like # todo? use_skimage_color_dict = type(colors[0]) is str?)
     todo? is it worth to keep border parameter? (added just for compatibility to masks(), which probably is unimportant
-    
+    todo? bg_color=(0, 0, 0)
+    todo? draw border and fill separately (just like in masks()?
+    todo? if image not given, draw on blank canvas (but then need to pass image dimensions)
+    todo: review performance
     
     Returns
     -------
     np.ndarray
         RGB base-256 image
+    
+    Example
+    -------
+    import cv2
+    import numpy as np
+    import abyss_deep_learning as adl
+    from abyss_deep_learning import draw
+
+    image = cv2.imread( 'sphinx.large.jpg' )
+    labels = np.fromfile("labels.bin",dtype=np.float32)
+    labels = np.reshape( labels, ( 1240, 1860 ) )
+
+    drawn = adl.draw.masks( labels, image, image_alpha=0.7, border=True, bg_label=0, colors=('orange', 'white') )
+    drawn = adl.draw.boxes( [[200,200,300,400,0],[500,600,800,900,1]], drawn, fill=True, colors=('darkorange', 'green'), image_alpha=0.7 )
+    drawn = adl.draw.boxes( [[200,200,300,400,0],[500,600,800,900,1]], drawn, colors=('darkorange', 'green'), alpha=1 )
+    cv2.imshow( 'drawn', drawn )
+    cv2.waitKey( 0 )
+    cv2.destroyAllWindows()
     """
     if fill: thickness = -1
-    
-    #for label in labels
-    #cv2.rectangle(image, pt1, pt2, color[, thickness[, lineType[, shift]]])
-    #cv2.rectangle(image, (200,200), (800,1000), skic.colorlabel.color_dict[colors[0]] * 255, thickness=-1)
-    cv2.rectangle(image, (200,200), (800,1000), (255, 255, 255), thickness=-1)
-    
-    return image
+    mask = np.zeros((len(image),len(image[0]),3), dtype=np.uint8)
+    for label in labels:  # quick and dirty, watch performance
+        c = skic.colorlabel.color_dict[colors[label[4]%len(colors)]]
+        cv2.rectangle(mask, (label[0], label[1]), (label[2], label[3]), (int(c[2]*255), int(c[1]*255), int(c[0]*255)), thickness)
+    return cv2.addWeighted( image, image_alpha, mask, alpha, 0 )
 
 def draw_semantic_seg(labels, rgb, class_idxs=None, num_classes=None):
     """Draws the semantic segmentation on to an RGB image.
