@@ -5,23 +5,38 @@ Module for visualizing various machine learning outputs.
 
 import numpy as np
 import cv2
-import skimage.color as skic
+from skimage import color as skic
+from skimage import segmentation as skis
 
-def masks(labels, image=None, colors=None, alpha=0.3, image_alpha=1, bg_label=-1, bg_color=(0, 0, 0), kind='overlay'):
+def masks(labels, image=None, fill=True, border=False, colors=None, alpha=0.3, image_alpha=1, bg_label=-1, bg_color=(0, 0, 0), kind='overlay'):
     """Draws mask on image or just mask, if image not present
     
+    example: abyss_deep_learning.draw.masks( labels, image, image_alpha=0.7, border=True, bg_label=0 )
+    
+    
     todo: document parameters
+    
     
     Returns
     -------
     np.ndarray
         RGB base-256 image
     """
-    overlay = skic.label2rgb( labels, alpha=1, bg_label=bg_label, bg_color=bg_color, kind=kind )
-    overlay *= 255
-    overlay = overlay.astype( np.uint8 )
-    if image is None: return overlay
-    return cv2.addWeighted( image, image_alpha, overlay, alpha, 0 )
+    masked = image
+    if fill:
+        f = skic.label2rgb( labels, alpha=1, bg_label=bg_label, bg_color=bg_color, kind=kind )
+        f = ( f * 255 ).astype( np.uint8 )
+        masked = f if masked is None else cv2.addWeighted( masked, image_alpha, f, alpha, 0 )
+    if border:
+        b = skic.label2rgb( labels * skis.find_boundaries(labels), alpha=1, bg_label=bg_label, bg_color=bg_color )
+        b = ( b * 255 ).astype( np.uint8 )
+        masked = b if masked is None else cv2.addWeighted( masked, image_alpha, b, 1, 0 )
+    return masked
+
+def boxes():
+    """Draw boxes
+    """
+    raise Exception( "todo" )
 
 def draw_semantic_seg(labels, rgb, class_idxs=None, num_classes=None):
     """Draws the semantic segmentation on to an RGB image.
