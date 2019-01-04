@@ -2,39 +2,61 @@
 from __future__ import print_function
 
 import argparse
-import json
-import sys
 import itertools
+import json
+import os
+import sys
 
 from contextlib import redirect_stdout
 from operator import itemgetter
 
-from pycocotools.coco import COCO
+from abyss_deep_learning.datasets.coco import CocoDataset
+
+DESCRIPTION = """
+
+Read JSON file(s) defined on command line or a list of JSON files on stdin and apply a search for images given a 
+boolean expression of captions to search for. 
+
+Examples:
+    coco-grep coco.json --expression "JD and F"
+    coco-merge coco_a.json coco_b.json | coco-grep --expression "RI and F"
+
+"""
 
 
 def main(args):
-    # TODO: what are edge cases for this function isatty()?
+    json_string = ''
+
+    # TODO: What are edge cases for this function isatty()?
     if not sys.stdin.isatty():
         for line in sys.stdin:
-            args.json_files.append(line.strip())
+            stripped_line = line.strip()
+            if os.path.exists(stripped_line):
+                args.json_files.append(stripped_line)
+            else:
+                json_string += stripped_line
+
+    # Create temporary json file and append file name to list of json files to store data to be read from COCO()
+    if json_string:
+        args.json_files.append(json_string)
 
     for json_file in args.json_files:
         with redirect_stdout(sys.stderr):
-            coco = COCO(json_file)
+            coco_ds = CocoDataset(json_file)
             new_dataset = {
                 'images': [],
                 'annotations': [],
             }
 
+        # TODO: How to handle case when user searches for caption that does not exist in data set
         # Pre-parse the dataset for all available keys
-        unique_captions = {value['caption']: False for key, value in coco.anns.items()}
-        globals().update(unique_captions)
+        unique_captions = {value['caption']: False for key, value in coco_ds.coco.anns.items()}
 
         # Find the minimum set combination satisfies the expression so as to find images that have the minimum
         # required captions
 
         # TODO: Refactor code, not very efficient, could be implemented better
-        if args.exclude_multiple:
+        if args.exact_match:
             min_expr = None
             for i in range(len(unique_captions) + 1):
                 combs = list(itertools.combinations(unique_captions.keys(), i))
@@ -49,8 +71,10 @@ def main(args):
                 if min_expr is not None:
                     break
 
+        globals().update(unique_captions)
+
         # Sort the annotations
-        anns = coco.loadAnns(coco.getAnnIds())
+        anns = coco_ds.coco.loadAnns(coco_ds.coco.getAnnIds())
         anns.sort(key=itemgetter('image_id', 'id'))
 
         curr_img_id = None
@@ -58,7 +82,7 @@ def main(args):
         for idx, ann in enumerate(anns):
             # Captions have been merged for current image
             if curr_img_id != ann['image_id']:
-                if args.exclude_multiple:
+                if args.exact_match:
                     if set(captions) != min_expr:
                         curr_img_id = ann['image_id']
                         captions.clear()
@@ -87,7 +111,7 @@ def main(args):
             captions.append(ann['caption'])
 
         # Iterate through annotations and add associated images to new dataset
-        for img in coco.loadImgs(coco.getImgIds()):
+        for img in coco_ds.coco.loadImgs(coco_ds.coco.getImgIds()):
             img_ids = [ann['image_id'] for ann in new_dataset['annotations']]
             if img['id'] in img_ids:
                 # Skip images that have been added already
@@ -96,24 +120,18 @@ def main(args):
 
                 new_dataset['images'].append(img)
 
-        json.dump(new_dataset, sys.stdout, sort_keys=True, indent=4)
+        json.dump(new_dataset, sys.stdout, indent=4)
 
     sys.exit(0)
 
 
 def get_args():
-    parser = argparse.ArgumentParser(
-        description="Split a COCO JSON database into multiple."
-    )
-    parser.add_argument('json_files', nargs='+', type=str, help='JSON file to grep from')
-    parser.add_argument('--caption', type=str, help="extract given caption")
-    parser.add_argument('--exclude-multiple', action='store_true',
-                        help='Include only images with JUST the given label (ie not roots & joint, just roots')
-    parser.add_argument('--expression', '--expr', type=str, help="todo")
-    # parser.add_argument('--all-annotations', action='store_true', help='Include all associated image annotations when '
-    #                                                                   'creating the new dataset')
-    # parser.add_argument('--invert-match', '-v', action='store_true', help='invert match')
-
+    parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('json_files', nargs='*', type=str, help="JSON files to grep from")
+    parser.add_argument('-e', '--expression', type=str, help="Boolean expression to search for image captions in an "
+                                                             "image")
+    parser.add_argument('-x', '--exact-match', action='store_true',
+                        help="Include only images with exact match to the given label (ie not roots & joint, just roots")
     args = parser.parse_args()
     return args
 

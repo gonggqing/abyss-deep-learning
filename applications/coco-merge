@@ -1,22 +1,13 @@
-#!/usr/bin/python3.6
+#!/usr/bin/env python3.6
 import argparse
 import json
 import os
 import sys
-from contextlib import redirect_stdout
+from operator import itemgetter
 from pathlib import Path
 
-from pycocotools.coco import COCO
-
-CAPTION = 'caption'
-
-PATH = 'path'
-
-ORIGINAL_URI = 'original_uri'
-
-WIDTH = 'width'
-
-HEIGHT = 'height'
+import cv2
+from abyss_deep_learning.datasets.coco import CocoDataset
 
 DESCRIPTION = \
     """
@@ -34,66 +25,100 @@ DESCRIPTION = \
 def main():
     args = get_args()
 
-    images = []
-    annotations = []
-
-    # Create the output directory
-    #os.makedirs(args.output_dir, exist_ok=True)
-
-    # Read from stdin if source is from terminal?
-    # TODO: Not 100% sure about usage of sys.stdin.isatty()
+    json_string = ""
     if not sys.stdin.isatty():
         for line in sys.stdin:
-            args.coco_jsons.append(line.strip())
+            json_string += line.strip()
 
-    for coco_json in args.coco_jsons:
-        # File cannot be found, skip it
-        if not os.path.exists(coco_json):
-            continue
+    if json_string:
+        args.json_files.append(json_string)
 
-        with redirect_stdout(sys.stderr):
-            coco = COCO(coco_json)
+    images = []  # Merged images
+    annotations = []  # Merged annotations
+    img_count = {}  # Count occurrences of an image across all json files to be merged
+    old_id_2_path = {}  # Mapping of old image id to the unique image path, many to one relationship
+    path_2_new_id = {}  # Mapping of unique image path to new id, one to one relationship
+
+    for json_file in args.json_files:
+        old_dataset = CocoDataset(json_file).coco.dataset
 
         # Retrieve sub-directories if they exist between root video directory and video file path
-        path = Path(os.path.join(os.getcwd(), coco_json))
+        path = Path(os.path.join(os.getcwd(), json_file))
         rel_dir = path.relative_to(os.getcwd())
-        sub_dir, video_basename = os.path.split(rel_dir)
+        sub_dir, file_basename = os.path.split(rel_dir)
 
-        # Map from old image id to new image id for use in the new annotation dict
-        old_2_new_id = {}
-        for image in coco.dataset['images']:
+        for image in old_dataset['images']:
+            if 'path' not in image:
+                continue
+
+            img_path = os.path.join(os.getcwd(), sub_dir, image['path'])
+            if img_path in img_count:
+                img_count[img_path] += 1
+            else:
+                img_count[img_path] = 1
+
+            if img_count[img_path] == 1:
+                new_id = len(images)
+                if not ('height' in image or 'weight' in image):
+                    img = cv2.imread(img_path)
+
+                images.append({
+                    'id': new_id,
+                    'height': image['height'] if 'height' in image else img.shape[0],
+                    'width': image['width'] if 'width' in image else img.shape[1],
+                    'original_uri': image['original_uri'] if 'original_uri' in image else None,
+                    'path': img_path,
+                })
+                path_2_new_id[img_path] = new_id
+
+            # Keep note of any image ids even duplicates to map the annotations to the correct new id
             old_id = image['id']
-            new_id = len(images)
-            images.append({
-                'id': new_id,
-                HEIGHT: image[HEIGHT] if HEIGHT in image else None,
-                WIDTH: image[WIDTH] if WIDTH in image else None,
-                ORIGINAL_URI: image[ORIGINAL_URI] if ORIGINAL_URI in image else None,
-                PATH: os.path.join(os.getcwd(), sub_dir, image[PATH]) if PATH in image else None,
-            })
-            old_2_new_id[old_id] = new_id
+            old_id_2_path[old_id] = img_path
 
-        for ann in coco.dataset['annotations']:
+        for ann in old_dataset['annotations']:
             old_id = ann['image_id']
-            new_id = old_2_new_id[old_id]
+            img_path = old_id_2_path[old_id]
+            new_id = path_2_new_id[img_path]
             annotations.append({
-                'id': len(annotations),
                 'image_id': new_id,
-                CAPTION: ann[CAPTION] if CAPTION in ann else None,
+                'caption': ann['caption']
             })
+
+    # Remove duplicate annotations
+    annotations = [dict(item) for item in set(tuple(ann.items()) for ann in annotations)]
+
+    # Sort annotations by image id
+    annotations.sort(key=itemgetter('image_id'))
+
+    # Assign annotation ids
+    tmp_annotations = annotations.copy()
+    annotations.clear()
+
+    for idx, ann in enumerate(tmp_annotations):
+        ann = {
+            'id': idx,
+            'image_id': ann['image_id'],
+            'caption': ann['caption'],
+        }
+        annotations.append(ann)
 
     merged_data_set = {
         'images': images,
         'annotations': annotations,
     }
 
-    json.dump(merged_data_set, sys.stdout, indent=4)
+    indent = 4
+    if args.min:
+        indent = None
+
+    json.dump(merged_data_set, sys.stdout, indent=indent)
 
 
 def get_args():
     """Get args from the command line args"""
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("coco_jsons", nargs='*', type=str, help="Path to coco.json files")
+    parser.add_argument('json_files', nargs='*', type=str, help="JSON files to merge together into one json")
+    parser.add_argument('-m', '--min', action='store_true', help="Remove indentation from output json")
     return parser.parse_args()
 
 
