@@ -24,19 +24,41 @@ def masks(labels, image=None, fill=True, border=False, colors=None, alpha=0.3, i
     """
     masked = image
     if fill:
-        f = skic.label2rgb( labels, alpha=1, bg_label=bg_label, bg_color=bg_color, kind=kind )
+        f = skic.label2rgb( labels, colors=colors, alpha=1, bg_label=bg_label, bg_color=bg_color, kind=kind )
         f = ( f * 255 ).astype( np.uint8 )
+        f = f[..., ::-1]
         masked = f if masked is None else cv2.addWeighted( masked, image_alpha, f, alpha, 0 )
     if border:
-        b = skic.label2rgb( labels * skis.find_boundaries(labels), alpha=1, bg_label=bg_label, bg_color=bg_color )
+        b = skic.label2rgb( labels * skis.find_boundaries(labels), colors=colors, alpha=1, bg_label=bg_label, bg_color=bg_color )
         b = ( b * 255 ).astype( np.uint8 )
+        b = b[..., ::-1]
         masked = b if masked is None else cv2.addWeighted( masked, image_alpha, b, 1, 0 )
     return masked
 
-def boxes():
+def boxes(labels, image, fill=True, border=False, colors=skic.colorlabel.DEFAULT_COLORS, alpha=0.3, image_alpha=1, bg_color=(0, 0, 0), thickness=None):
     """Draw boxes
+    
+    example: abyss_deep_learning.draw.boxes( labels, image, image_alpha=0.7, border=True )
+    
+    
+    todo: document parameters
+    todo? reconcile ski.color and cv2 colors
+    todo? is it worth to keep border parameter? (added just for compatibility to masks(), which probably is unimportant
+    
+    
+    Returns
+    -------
+    np.ndarray
+        RGB base-256 image
     """
-    raise Exception( "todo" )
+    if fill: thickness = -1
+    
+    #for label in labels
+    #cv2.rectangle(image, pt1, pt2, color[, thickness[, lineType[, shift]]])
+    #cv2.rectangle(image, (200,200), (800,1000), skic.colorlabel.color_dict[colors[0]] * 255, thickness=-1)
+    cv2.rectangle(image, (200,200), (800,1000), (255, 255, 255), thickness=-1)
+    
+    return image
 
 def draw_semantic_seg(labels, rgb, class_idxs=None, num_classes=None):
     """Draws the semantic segmentation on to an RGB image.
