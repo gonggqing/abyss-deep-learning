@@ -2,13 +2,15 @@
 import json
 import os
 import sys
+
 from argparse import ArgumentParser
+
+from abyss_deep_learning.datasets.coco import CocoDataset
 
 
 def main():
     args = get_args()
-    json_strings = []
-    captions = args.captions.split(',')
+    json_string = ''
     dataset = {
         'images': [],
         'annotations': []
@@ -20,29 +22,20 @@ def main():
             if os.path.exists(stripped_line):
                 args.json_files.append(stripped_line)
             else:
-                json_strings.append(stripped_line)
+                json_string += stripped_line
 
-    stdin_data = json.loads("".join(json_strings)) if json_strings else None
+    if json_string:
+        args.json_files.append(json_string)
 
     for json_file in args.json_files:
-        if not os.path.exists(json_file):
-            continue
+        coco_ds = CocoDataset(json_file)
+        dataset = filter_captions(dataset, coco_ds.coco.dataset)
 
-        with open(json_file, 'r') as in_file:
-            json_data = json.load(in_file)
-
-        dataset = filter_captions(captions, dataset, json_data)
-
-    dataset = filter_captions(captions, dataset, stdin_data)
-
-    with sys.stdout as out_file:
-        json.dump(dataset, out_file, indent=4)
+    json.dump(dataset, sys.stdout, indent=4)
 
 
-def filter_captions(captions, dataset, json_data):
-    if json_data is None:
-        return dataset
-
+def filter_captions(dataset, json_data):
+    captions = get_args().captions.split(',')
     img_ids = set()
     for ann in json_data['annotations']:
         if ann['caption'] in captions:
@@ -53,12 +46,13 @@ def filter_captions(captions, dataset, json_data):
             dataset['images'].append(img)
     return dataset
 
+
 def get_args():
-    parser = ArgumentParser(
-        description="Count all unique caption instances in given coco files"
-    )
-    parser.add_argument('json_files', nargs='*', type=str, help='JSON files to caption count')
-    parser.add_argument('-c', '--captions', type=str, help='Captions to keep for each image annotations')
+    parser = ArgumentParser(description="Filter out extraneous captions associated with images in a given json file")
+    parser.add_argument('json_files', nargs='*', type=str, help="JSON files to caption count")
+    parser.add_argument('-c', '--captions', type=str, help="Captions to keep for each image annotations. Can be a "
+                                                           "single caption or multiple captions that are comma "
+                                                           "separated")
     return parser.parse_args()
 
 
