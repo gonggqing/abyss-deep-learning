@@ -2,9 +2,7 @@
 from __future__ import print_function
 
 import json
-import os
 import sys
-
 from argparse import ArgumentParser
 from operator import itemgetter
 
@@ -16,23 +14,18 @@ def main():
     caption_count = {
         'total_images': 0
     }
-    json_string = ''
 
-    # TODO: Check edge case for isatty()
+    json_string = ""
     if not sys.stdin.isatty():
         for line in sys.stdin:
-            stripped_line = line.strip()
-            if os.path.exists(stripped_line):
-                args.json_files.append(stripped_line)
-            else:
-                json_string += stripped_line
+            json_string += line.strip()
 
     if json_string:
         args.json_files.append(json_string)
 
     for json_file in args.json_files:
-        coco_ds = CocoDataset(json_file)
-        caption_count = extract_data(coco_ds.coco.dataset, caption_count)
+        coco_ds = CocoDataset(json_file).coco.dataset
+        caption_count = extract_data(coco_ds, caption_count)
 
     if args.percent:
         total_count = sum(caption_count.values())
@@ -55,10 +48,10 @@ def get_args():
     return parser.parse_args()
 
 
-def extract_data(dataset, caption_count):
+def extract_data(data_set, caption_count):
     args = get_args()
 
-    anns = dataset['annotations']
+    anns = data_set['annotations']
     anns.sort(key=itemgetter('image_id', 'id'))
 
     curr_img_id = None
@@ -73,7 +66,7 @@ def extract_data(dataset, caption_count):
         else:
             add_caption_to_count(ann['caption'], caption_count)
 
-    caption_count['total_images'] += len(dataset['images'])
+    caption_count['total_images'] += len(data_set['images'])
 
     return caption_count
 

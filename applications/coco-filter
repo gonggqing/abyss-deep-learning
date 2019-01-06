@@ -2,9 +2,7 @@
 from __future__ import print_function
 
 import json
-import os
 import sys
-
 from argparse import ArgumentParser
 
 from abyss_deep_learning.datasets.coco import CocoDataset
@@ -12,41 +10,47 @@ from abyss_deep_learning.datasets.coco import CocoDataset
 
 def main():
     args = get_args()
-    json_string = ''
-    dataset = {
+    new_ds = {
         'images': [],
-        'annotations': []
+        'annotations': [],
     }
 
+    json_string = ""
     if not sys.stdin.isatty():
         for line in sys.stdin:
-            stripped_line = line.strip()
-            if os.path.exists(stripped_line):
-                args.json_files.append(stripped_line)
-            else:
-                json_string += stripped_line
+            json_string += line.strip()
 
     if json_string:
         args.json_files.append(json_string)
 
     for json_file in args.json_files:
-        coco_ds = CocoDataset(json_file)
-        dataset = filter_captions(dataset, coco_ds.coco.dataset)
+        old_ds = CocoDataset(json_file).coco.dataset
+        new_ds = filter_captions(new_ds, old_ds)
 
-    json.dump(dataset, sys.stdout, indent=4)
+    json.dump(new_ds, sys.stdout, indent=4)
 
 
-def filter_captions(dataset, json_data):
+def filter_captions(new_ds, old_ds):
+    """
+    Merges new output data set and multiple json file data sets
+
+    Args:
+        new_ds: output data set
+        old_ds: to be merged data set
+
+    Returns: new_ds, the output data set
+
+    """
     captions = get_args().captions.split(',')
     img_ids = set()
-    for ann in json_data['annotations']:
+    for ann in old_ds['annotations']:
         if ann['caption'] in captions:
-            dataset['annotations'].append(ann)
+            new_ds['annotations'].append(ann)
             img_ids.add(ann['image_id'])
-    for img in json_data['images']:
+    for img in old_ds['images']:
         if img['id'] in img_ids:
-            dataset['images'].append(img)
-    return dataset
+            new_ds['images'].append(img)
+    return new_ds
 
 
 def get_args():

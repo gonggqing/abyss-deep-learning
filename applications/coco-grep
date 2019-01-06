@@ -4,53 +4,48 @@ from __future__ import print_function
 import argparse
 import itertools
 import json
-import os
 import sys
-
-from contextlib import redirect_stdout
 from operator import itemgetter
 
 from abyss_deep_learning.datasets.coco import CocoDataset
 
-DESCRIPTION = """
-
+DESCRIPTION = \
+"""
 Read JSON file(s) defined on command line or a list of JSON files on stdin and apply a search for images given a 
 boolean expression of captions to search for. 
 
-Examples:
+examples:
     coco-grep coco.json --expression "JD and F"
     coco-merge coco_a.json coco_b.json | coco-grep --expression "RI and F"
-
 """
 
 
 def main(args):
-    json_string = ''
-
-    # TODO: What are edge cases for this function isatty()?
+    json_string = ""
     if not sys.stdin.isatty():
         for line in sys.stdin:
-            stripped_line = line.strip()
-            if os.path.exists(stripped_line):
-                args.json_files.append(stripped_line)
-            else:
-                json_string += stripped_line
+            json_string += line.strip()
 
-    # Create temporary json file and append file name to list of json files to store data to be read from COCO()
     if json_string:
-        args.json_files.append(json_string)
+        args.json_file.append(json_string)
+
+    new_data_set = {
+        'images': [],
+        'annotations': [],
+    }
 
     for json_file in args.json_files:
-        with redirect_stdout(sys.stderr):
-            coco_ds = CocoDataset(json_file)
-            new_dataset = {
-                'images': [],
-                'annotations': [],
-            }
+        coco_ds = CocoDataset(json_file)
 
-        # TODO: How to handle case when user searches for caption that does not exist in data set
-        # Pre-parse the dataset for all available keys
+        # Pre-parse the data set for all available keys
         unique_captions = {value['caption']: False for key, value in coco_ds.coco.anns.items()}
+
+        # Raise exception when grepped caption can not be found in the data set
+        globals().update(unique_captions)
+        try:
+            eval(args.expression)
+        except NameError as err:
+            raise RuntimeError("Caption [{}] could not be found in the given data set".format(str(err).split("'")[1]))
 
         # Find the minimum set combination satisfies the expression so as to find images that have the minimum
         # required captions
@@ -98,7 +93,7 @@ def main(args):
                     end_id = idx
                     for i in range(start_id, end_id):
                         if anns[i]['caption'] in unique_captions:
-                            new_dataset['annotations'].append(anns[i])
+                            new_data_set['annotations'].append(anns[i])
 
                 # Reset global captions
                 for caption in captions:
@@ -112,16 +107,15 @@ def main(args):
 
         # Iterate through annotations and add associated images to new dataset
         for img in coco_ds.coco.loadImgs(coco_ds.coco.getImgIds()):
-            img_ids = [ann['image_id'] for ann in new_dataset['annotations']]
+            img_ids = [ann['image_id'] for ann in new_data_set['annotations']]
             if img['id'] in img_ids:
                 # Skip images that have been added already
-                if img in new_dataset['images']:
+                if img in new_data_set['images']:
                     continue
 
-                new_dataset['images'].append(img)
+                new_data_set['images'].append(img)
 
-        json.dump(new_dataset, sys.stdout, indent=4)
-
+    json.dump(new_data_set, sys.stdout, indent=4)
     sys.exit(0)
 
 
@@ -132,8 +126,7 @@ def get_args():
                                                              "image")
     parser.add_argument('-x', '--exact-match', action='store_true',
                         help="Include only images with exact match to the given label (ie not roots & joint, just roots")
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()
 
 
 if __name__ == '__main__':

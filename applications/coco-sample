@@ -3,59 +3,53 @@ from __future__ import print_function
 
 import argparse
 import json
-import os
 import random
 import sys
 
-from contextlib import redirect_stdout
-
 from abyss_deep_learning.datasets.coco import CocoDataset
 
+DESCRIPTION = \
 """
+Randomly sample data from coco json file passed as command line arguments or piped in from another coco utility.
 
-usage: coco-grep my.json "RI" 
+Output coco json contents in stdout.
 
+examples:
+    coco-sample coco.a.json coco.b.json
+    find . -name coco.json | coco-merge
 """
 
 
 def main(args):
-    json_string = ''
-
-    # TODO: What are edge cases for this function isatty()?
+    json_string = ""
     if not sys.stdin.isatty():
         for line in sys.stdin:
-            stripped_line = line.strip()
-            if os.path.exists(stripped_line):
-                args.json_files.append(stripped_line)
-            else:
-                json_string += stripped_line
+            json_string += line.strip()
 
     if json_string:
-        args.json_files.append(json_string)
+        args.json_file.append(json_string)
 
-    for json_file in args.json_files:
-        dataset = {}
+    data_set = {
+        'images': [],
+        'annotations': [],
+    }
 
-        with redirect_stdout(sys.stderr):
-            coco_ds = CocoDataset(json_file)
+    for file in args.json_file:
+        coco_ds = CocoDataset(file)
 
-        # sys.stdout = sys.__stdout__
-
-            # TODO: Use case when args.num_imgs is greater than number of images in dataset
         if args.num_imgs <= len(coco_ds.coco.imgs):
             sample = random.sample(list(coco_ds.coco.imgs), args.num_imgs)
         else:
-            # TODO: Change exception to correct one to raise
-            raise Exception("Number of images to be sampled [{}] is greater than number of images in data set [{}]"
-                            .format(args.num_imgs, len(coco_ds.coco.imgs)))
+            raise RuntimeError("Number of images to be sampled [{}] is greater than number of images in the data set "
+                               "[{}] ".format(args.num_imgs, len(coco_ds.coco.imgs)))
 
-        dataset['images'] = [img for img in coco_ds.coco.loadImgs(sample)]
-        img_ids = [img['id'] for img in dataset['images']]
+        data_set['images'] += [img for img in coco_ds.coco.loadImgs(sample)]
+        img_ids = [img['id'] for img in data_set['images']]
 
         ann_ids = coco_ds.coco.getAnnIds(imgIds=img_ids)
-        dataset['annotations'] = coco_ds.coco.loadAnns(ids=ann_ids)
+        data_set['annotations'] += coco_ds.coco.loadAnns(ids=ann_ids)
 
-        json.dump(dataset, sys.stdout, indent=4)
+    json.dump(data_set, sys.stdout, indent=4)
 
     sys.exit(0)
 
@@ -64,11 +58,9 @@ def get_args():
     parser = argparse.ArgumentParser(
         description="Split a COCO JSON database into multiple."
     )
-    parser.add_argument('json_files', nargs='+', type=str, help='JSON file to grep from')
-    parser.add_argument('num_imgs', type=int, help="todo")
-
-    args = parser.parse_args()
-    return args
+    parser.add_argument('json_file', nargs='*', type=str, help='JSON file to sample from')
+    parser.add_argument('num_imgs', type=int, help="Number of images to randomly sample")
+    return parser.parse_args()
 
 
 if __name__ == '__main__':
