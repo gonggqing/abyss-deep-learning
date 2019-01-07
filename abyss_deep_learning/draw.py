@@ -75,6 +75,7 @@ def boxes(labels, image, fill=False, border=False, colors=skic.colorlabel.DEFAUL
         ? bg_color=(0, 0, 0)
         ? draw border and fill separately (just like in masks()?
         ? if image not given, draw on blank canvas (but then need to pass image dimensions)
+        ? refactor using skimage.color.set_color and skimage.color.rectangle
         ! review performance
     
     parameters
