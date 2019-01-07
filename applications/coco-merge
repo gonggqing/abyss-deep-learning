@@ -12,7 +12,6 @@ import cv2
 from abyss_deep_learning.datasets.coco import CocoDataset
 
 DESCRIPTION = \
-DESCRIPTION = \
 """
 Read coco.json file(s) defined on command line or piped in from another coco utility.
 
