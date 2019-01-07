@@ -11,18 +11,45 @@ from skimage import segmentation as skis
 def masks(labels, image=None, fill=True, border=False, colors=None, alpha=0.3, image_alpha=1, bg_label=-1, bg_color=(0, 0, 0), kind='overlay'):
     """Draws mask on image or just mask, if image not present
     
-    example: abyss_deep_learning.draw.masks( labels, image, image_alpha=0.7, border=True, bg_label=0 )
+    todo
+    ----
+        review usage
+        review performance (currently some 5 seconds for 1860x1240 image)
     
+    parameters
+    ----------
+        labels: see skimage.color.labels2rgb() for details
+        image: see skimage.color.labels2rgb() for details
+        fill: bool
+            fill areas 
+        border: bool
+            draw border
+        colors: see skimage.color.labels2rgb() for details
+        alpha: see skimage.color.labels2rgb() for details
+        image_alpha: see skimage.color.labels2rgb() for details
+        bg_label: see skimage.color.labels2rgb() for details
+        bg_color: see skimage.color.labels2rgb() for details
+        kind: see skimage.color.labels2rgb() for details
     
-    todo: document parameters
-    todo: review usage
-    todo: review performance (currently some 5 seconds for 1860x1240 image)
-    
-    
-    Returns
+    returns
     -------
     np.ndarray
         RGB base-256 image
+        
+    example
+    -------
+        import cv2
+        import numpy as np
+        import abyss_deep_learning as adl
+        from abyss_deep_learning import draw
+
+        image = cv2.imread( 'some.image.jpg' )
+        labels = np.fromfile("labels.bin",dtype=np.float32)
+        labels = np.reshape( labels, ( 1240, 1860 ) )
+        drawn = adl.draw.masks( labels, image, image_alpha=0.7, border=True, bg_label=0, colors=('orange', 'white') )
+        cv2.imshow( 'drawn', drawn )
+        cv2.waitKey( 0 )
+        cv2.destroyAllWindows()
     """
     masked = image
     if fill:
@@ -38,39 +65,55 @@ def masks(labels, image=None, fill=True, border=False, colors=None, alpha=0.3, i
     return masked
 
 def boxes(labels, image, fill=False, border=False, colors=skic.colorlabel.DEFAULT_COLORS, alpha=0.3, image_alpha=1, thickness=1):
-    """Draw boxes
+    """Draw boxes on an image
     
-    todo: document parameters
-    todo? labels: separate boxes and labels? represent as tuples? (may be yet another performance hit)
-    todo? reconcile ski.color and cv2 colors (something like # todo? use_skimage_color_dict = type(colors[0]) is str?)
-    todo? is it worth to keep border parameter? (added just for compatibility to masks(), which probably is unimportant
-    todo? bg_color=(0, 0, 0)
-    todo? draw border and fill separately (just like in masks()?
-    todo? if image not given, draw on blank canvas (but then need to pass image dimensions)
-    todo: review performance
+    todo
+    ----
+        ? labels: separate boxes and labels? represent as tuples? (may be yet another performance hit)
+        ? reconcile ski.color and cv2 colors (something like # todo? use_skimage_color_dict = type(colors[0]) is str?)
+        ? is it worth to keep border parameter? (added just for compatibility to masks(), which probably is unimportant
+        ? bg_color=(0, 0, 0)
+        ? draw border and fill separately (just like in masks()?
+        ? if image not given, draw on blank canvas (but then need to pass image dimensions)
+        ! review performance
     
-    Returns
+    parameters
+    ----------
+        labels: np.ndarray
+            cols*rows*5 array where every 5-tuple represents rectangle start coordinates, rectangle end coordinates, and label
+        image: np.ndarray
+            image
+        fill: bool
+            fill rectangle, same as thickness < 0
+        border: bool
+            draw rectangle border
+        colors: list
+            see skimage.color.labels2rgb() for details
+        alpha: float
+            [0,1]: alpha for rectangles
+        image_alpha: float
+            [0,1]: alpha for image
+        thickness: int
+            line thickness, thickness < 0 is same as fill set to True
+    
+    returns
     -------
     np.ndarray
         RGB base-256 image
     
-    Example
+    example
     -------
-    import cv2
-    import numpy as np
-    import abyss_deep_learning as adl
-    from abyss_deep_learning import draw
+        import cv2
+        import numpy as np
+        import abyss_deep_learning as adl
+        from abyss_deep_learning import draw
 
-    image = cv2.imread( 'sphinx.large.jpg' )
-    labels = np.fromfile("labels.bin",dtype=np.float32)
-    labels = np.reshape( labels, ( 1240, 1860 ) )
-
-    drawn = adl.draw.masks( labels, image, image_alpha=0.7, border=True, bg_label=0, colors=('orange', 'white') )
-    drawn = adl.draw.boxes( [[200,200,300,400,0],[500,600,800,900,1]], drawn, fill=True, colors=('darkorange', 'green'), image_alpha=0.7 )
-    drawn = adl.draw.boxes( [[200,200,300,400,0],[500,600,800,900,1]], drawn, colors=('darkorange', 'green'), alpha=1 )
-    cv2.imshow( 'drawn', drawn )
-    cv2.waitKey( 0 )
-    cv2.destroyAllWindows()
+        image = cv2.imread( 'some.image.jpg' )
+        drawn = adl.draw.boxes( [[200,200,300,400,0],[500,600,800,900,1]], drawn, fill=True, colors=('darkorange', 'green'), image_alpha=0.7 )
+        drawn = adl.draw.boxes( [[200,200,300,400,0],[500,600,800,900,1]], drawn, colors=('darkorange', 'green'), alpha=1 )
+        cv2.imshow( 'drawn', drawn )
+        cv2.waitKey( 0 )
+        cv2.destroyAllWindows()
     """
     if fill: thickness = -1
     mask = np.zeros((len(image),len(image[0]),3), dtype=np.uint8)
