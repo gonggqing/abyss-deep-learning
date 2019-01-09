@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
+import os
 import argparse
 import json
 import sys
 from io import StringIO
 
 import pandas as pd
+
+SCRIPT_NAME = os.path.basename(__file__)
 
 DESCRIPTION = \
     """
@@ -37,7 +40,8 @@ def main():
     for idx, row in df.iterrows():
         if 'file_name' in row:
             json_data['file_name'] = row['file_name']
-
+        elif args.file_name is None:
+            raise RuntimeError("No file name can be found in CSV file and --file-name is not specified")
         json_data['segments'].append({
             'id': idx,
             'begin_frame': row['begin_frame'],
@@ -46,13 +50,19 @@ def main():
         })
 
     json.dump(json_data, sys.stdout, indent=4)
+    say("done")
+    sys.exit()
 
 
 def get_args():
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-c', '--csv', type=str, help="Path to CSV file.")
-    parser.add_argument('-f', '--file_name', type=str, help="Path to file.")
+    parser.add_argument('-f', '--file-name', type=str, help="Path to file.")
     return parser.parse_args()
+
+
+def say(*args, **kwargs):
+    print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
 
 
 if __name__ == '__main__':
