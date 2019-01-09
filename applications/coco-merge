@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-from __future__ import print_function
-
 import argparse
 import json
 import os
@@ -9,7 +7,6 @@ from operator import itemgetter
 from pathlib import Path
 
 import cv2
-from abyss_deep_learning.datasets.coco import CocoDataset
 
 DESCRIPTION = \
 """
@@ -26,13 +23,13 @@ examples:
 def main():
     args = get_args()
 
-    json_string = ""
+    stdin_string = ""
     if not sys.stdin.isatty():
         for line in sys.stdin:
-            json_string += line.strip()
+            stdin_string += line.strip()
 
-    if json_string:
-        args.json_files.append(json_string)
+    if stdin_string:
+        args.json_files.append(stdin_string)
 
     images = []  # Merged images
     annotations = []  # Merged annotations
@@ -40,15 +37,17 @@ def main():
     old_id_2_path = {}  # Mapping of old image id to the unique image path, many to one relationship
     path_2_new_id = {}  # Mapping of unique image path to new id, one to one relationship
 
-    for json_file in args.json_files:
-        old_data_set = CocoDataset(json_file).coco.dataset
+    for json_file_path_or_buffer in args.json_files:
+        say("loading dataset")
+        old_ds = load_dataset(json_file_path_or_buffer)
 
         # Retrieve sub-directories if they exist between root video directory and video file path
-        path = Path(os.path.join(os.getcwd(), json_file))
+        path = Path(os.path.join(os.getcwd(), json_file_path_or_buffer))
         rel_dir = path.relative_to(os.getcwd())
         sub_dir, file_basename = os.path.split(rel_dir)
 
-        for image in old_data_set['images']:
+        say("merging dataset")
+        for image in old_ds['images']:
             if 'path' not in image:
                 continue
 
@@ -76,7 +75,7 @@ def main():
             old_id = image['id']
             old_id_2_path[old_id] = img_path
 
-        for ann in old_data_set['annotations']:
+        for ann in old_ds['annotations']:
             old_id = ann['image_id']
             img_path = old_id_2_path[old_id]
             new_id = path_2_new_id[img_path]
@@ -109,6 +108,21 @@ def main():
     }
 
     json.dump(merged_data_set, sys.stdout, indent=4)
+    say("done")
+    sys.exit()
+
+
+def say(*arg, **kwargs):
+    print("{}:".format(os.path.basename(__file__)), *arg, file=sys.stderr, **kwargs)
+
+
+def load_dataset(json_file_path_or_buffer):
+    if os.path.exists(json_file_path_or_buffer):
+        with open(json_file_path_or_buffer, 'r') as file_handle:
+            in_dataset = json.load(file_handle)
+    else:
+        in_dataset = json.loads(json_file_path_or_buffer)
+    return in_dataset
 
 
 def get_args():
