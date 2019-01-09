@@ -19,7 +19,7 @@ function prompt_default(){
 HOSTNAME=$(prompt_default "Enter container hostname" $(hostname)-adl)
 DATA_DIR=$(prompt_default "Enter host data directory" /data)
 SCRATCH_DIR=$(prompt_default "Enter host scratch directory" /scratch)
-# SRC_DIR=$(prompt_default "Enter host src directory" $HOME/src)
+SRC_DIR=$(prompt_default "Enter host src directory" $HOME/src/)
 PORTS="-p 8888:8888 -p 7002:7002 -p 7003:7003"
 
 echo using SCRATCH_DIR: $SCRATCH_DIR
@@ -32,8 +32,8 @@ mkdir -p $SCRATCH_DIR
 # mkdir -p $SRC_DIR
 
 echo "Creating alias:"
-ALIAS="alias abyss-dl='nvidia-docker run --user docker -it --rm -v $SCRATCH_DIR:/scratch -v $DATA_DIR:/data -e DISPLAY=:0 -v /tmp/.X11-unix:/tmp/.X11-unix $PORTS --hostname $HOSTNAME abyss/dl'"
+ALIAS="alias abyss-dl='nvidia-docker run --user docker -it --rm -v $SCRATCH_DIR:/scratch -v $SRC_DIR:/host-src/ -v $DATA_DIR:/data -e DISPLAY=:0 -v /tmp/.X11-unix:/tmp/.X11-unix $PORTS --hostname $HOSTNAME abyss/dl'"
 echo $ALIAS
-echo $ALIAS >> $HOME/abyss-aliases.sh
+echo $ALIAS >> $HOME/.abyss-aliases.sh
 
 echo "Run 'source $HOME/abyss-aliases.sh' then 'abyss-dl' to run docker instance with port forwarding '$PORTS'."

@@ -39,7 +39,7 @@ function install_prerequisites(){
     usermod -aG sudo docker
     echo -en "docker\ndocker\n" | passwd root
     echo -en "docker\ndocker\n" | passwd docker
-    setfacl -dm u::rwX,g:docker:rwX,o::r /home/docker
+    #setfacl -dm u::rwX,g:docker:rwX,o::r /home/docker
     su_docker "pip3 install --user -r /tmp/install-pip"
 
     su_docker 'mkdir /home/docker/python /home/docker/bin'
