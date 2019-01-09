@@ -13,6 +13,7 @@ setup(
         'abyss_deep_learning.base',
         'abyss_deep_learning.keras',
         'abyss_deep_learning.datasets',
+        'abyss_deep_learning.datasets.mrcnn',
     ],
     package_data={
         # 'abyss_deep_learning': ["third-party"]

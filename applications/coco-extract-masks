@@ -103,7 +103,7 @@ def main(args):
 def get_args():
     '''Get args from the command line args'''
     parser = argparse.ArgumentParser(
-        description="Extract labels from COCO JSON and dump them in to annotation images")
+        description="Extract mask segmentation from coco json and write to image.")
     parser.add_argument("coco_path", help="The coco JSON to parse.")
     parser.add_argument("destination_dir",
                         help="The destination to dump the label images.")
