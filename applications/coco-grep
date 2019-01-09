@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-from __future__ import print_function
-
 import argparse
 import itertools
 import json
+import os
 import sys
 from operator import itemgetter
 
-from abyss_deep_learning.datasets.coco import CocoDataset
+from pycocotools.coco import COCO
+
+SCRIPT_NAME = os.path.basename(__file__)
 
 DESCRIPTION = \
 """
@@ -34,11 +35,12 @@ def main(args):
         'annotations': [],
     }
 
-    for json_file in args.json_files:
-        coco_ds = CocoDataset(json_file)
+    for json_file_path_or_buffer in args.json_files:
+        say("creating coco object")
+        coco = load_coco(json_file_path_or_buffer)
 
         # Pre-parse the data set for all available keys
-        unique_captions = {value['caption']: False for key, value in coco_ds.coco.anns.items()}
+        unique_captions = {value['caption']: False for key, value in coco.anns.items()}
 
         # Raise exception when grepped caption can not be found in the data set
         globals().update(unique_captions)
@@ -69,11 +71,12 @@ def main(args):
         globals().update(unique_captions)
 
         # Sort the annotations
-        anns = coco_ds.coco.loadAnns(coco_ds.coco.getAnnIds())
+        anns = coco.loadAnns(coco.getAnnIds())
         anns.sort(key=itemgetter('image_id', 'id'))
 
         curr_img_id = None
         captions = []
+        say("copying captions")
         for idx, ann in enumerate(anns):
             # Captions have been merged for current image
             if curr_img_id != ann['image_id']:
@@ -105,8 +108,9 @@ def main(args):
 
             captions.append(ann['caption'])
 
+        say("copying images")
         # Iterate through annotations and add associated images to new dataset
-        for img in coco_ds.coco.loadImgs(coco_ds.coco.getImgIds()):
+        for img in coco.loadImgs(coco.getImgIds()):
             img_ids = [ann['image_id'] for ann in new_data_set['annotations']]
             if img['id'] in img_ids:
                 # Skip images that have been added already
@@ -116,7 +120,22 @@ def main(args):
                 new_data_set['images'].append(img)
 
     json.dump(new_data_set, sys.stdout, indent=4)
-    sys.exit(0)
+    say("done")
+    sys.exit()
+
+
+def load_coco(json_file_path_or_buffer):
+    if os.path.exists(json_file_path_or_buffer):
+        coco = COCO(json_file_path_or_buffer)
+    else:
+        coco = COCO()
+        coco.dataset = json.loads(json_file_path_or_buffer)
+        coco.createIndex()
+    return coco
+
+
+def say(*args, **kwargs):
+    print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
 
 
 def get_args():
