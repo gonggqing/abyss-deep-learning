@@ -45,7 +45,7 @@ sudo ./setup-host.sh
 
 Then run the docker container and do the post-install setup using:
 ```bash
-source ~/abyss-aliases.sh
+source ~/.abyss-aliases.sh
 abyss-dl
 # Now you will be in the docker container
 ~/post-install.sh # This builds and installs crfasrnn_keras, needs to be done separately for now
