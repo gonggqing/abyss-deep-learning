@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-from __future__ import print_function
-
 import argparse
 import json
+import os
 import random
 import sys
 
-from abyss_deep_learning.datasets.coco import CocoDataset
+from pycocotools.coco import COCO
+
+SCRIPT_NAME = os.path.basename(__file__)
+
 
 DESCRIPTION = \
 """
@@ -21,37 +23,52 @@ examples:
 
 
 def main(args):
-    json_string = ""
+    stdin_string = ""
     if not sys.stdin.isatty():
         for line in sys.stdin:
-            json_string += line.strip()
+            stdin_string += line.strip()
 
-    if json_string:
-        args.json_file.append(json_string)
+    if stdin_string:
+        args.json_file.append(stdin_string)
 
     data_set = {
         'images': [],
         'annotations': [],
     }
 
-    for file in args.json_file:
-        coco_ds = CocoDataset(file)
+    for json_file_path_or_buffer in args.json_file:
+        say("creating coco object")
+        coco = load_coco(json_file_path_or_buffer)
 
-        if args.num_imgs <= len(coco_ds.coco.imgs):
-            sample = random.sample(list(coco_ds.coco.imgs), args.num_imgs)
+        if args.num_imgs <= len(coco.imgs):
+            sample = random.sample(list(coco.imgs), args.num_imgs)
         else:
             raise RuntimeError("Number of images to be sampled [{}] is greater than number of images in the data set "
-                               "[{}] ".format(args.num_imgs, len(coco_ds.coco.imgs)))
+                               "[{}] ".format(args.num_imgs, len(coco.imgs)))
 
-        data_set['images'] += [img for img in coco_ds.coco.loadImgs(sample)]
+        data_set['images'] += [img for img in coco.loadImgs(sample)]
         img_ids = [img['id'] for img in data_set['images']]
 
-        ann_ids = coco_ds.coco.getAnnIds(imgIds=img_ids)
-        data_set['annotations'] += coco_ds.coco.loadAnns(ids=ann_ids)
+        ann_ids = coco.getAnnIds(imgIds=img_ids)
+        data_set['annotations'] += coco.loadAnns(ids=ann_ids)
 
     json.dump(data_set, sys.stdout, indent=4)
-
+    say("done")
     sys.exit(0)
+
+
+def load_coco(json_file_path_or_buffer):
+    if os.path.exists(json_file_path_or_buffer):
+        coco = COCO(json_file_path_or_buffer)
+    else:
+        coco = COCO()
+        coco.dataset = json.loads(json_file_path_or_buffer)
+        coco.createIndex()
+    return coco
+
+
+def say(*args, **kwargs):
+    print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
 
 
 def get_args():
