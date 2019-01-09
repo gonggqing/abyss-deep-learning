@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-from __future__ import print_function
-
 import json
+import os
 import sys
 from argparse import ArgumentParser
 from operator import itemgetter
 
-from abyss_deep_learning.datasets.coco import CocoDataset
+SCRIPT_NAME = os.path.basename(__file__)
 
 
 def main():
@@ -23,9 +22,10 @@ def main():
     if json_string:
         args.json_files.append(json_string)
 
-    for json_file in args.json_files:
-        coco_ds = CocoDataset(json_file).coco.dataset
-        caption_count = extract_data(coco_ds, caption_count)
+    for json_file_path_or_buffer in args.json_files:
+        in_ds = load_dataset(json_file_path_or_buffer)
+        say("counting captions")
+        caption_count = extract_data(in_ds, caption_count)
 
     if args.percent:
         total_count = sum(caption_count.values())
@@ -36,6 +36,8 @@ def main():
             }
 
     json.dump(caption_count, sys.stdout, indent=4)
+    say("done")
+    sys.exit()
 
 
 def get_args():
@@ -75,6 +77,19 @@ def add_caption_to_count(caption, caption_count):
     if caption not in caption_count:
         caption_count[caption] = 0
     caption_count[caption] += 1
+
+
+def load_dataset(json_file_path_or_buffer):
+    if os.path.exists(json_file_path_or_buffer):
+        with open(json_file_path_or_buffer, 'r') as file_handle:
+            in_dataset = json.load(file_handle)
+    else:
+        in_dataset = json.loads(json_file_path_or_buffer)
+    return in_dataset
+
+
+def say(*args, **kwargs):
+    print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
 
 
 if __name__ == '__main__':
