@@ -7,8 +7,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from abyss_maskrcnn.utils import compute_overlaps
-
 def _flat_np(df):
     return df.apply(pd.Series).as_matrix()
 
@@ -25,6 +23,52 @@ def result_to_series(result):
     if not frame:
         return None
     return pd.DataFrame(frame, columns=frame[0].keys())
+
+
+def compute_iou(box, boxes, box_area, boxes_area):
+    """Calculates IoU of the given box with the array of the given boxes.
+    box: 1D vector [y1, x1, y2, x2]
+    boxes: [boxes_count, (y1, x1, y2, x2)]
+    box_area: float. the area of 'box'
+    boxes_area: array of length boxes_count.
+    Note: the areas are passed in rather than calculated here for
+          efficency. Calculate once in the caller to avoid duplicate work.
+    
+    *Coppied from maskrcnn.utils
+    """
+    
+
+    # Calculate intersection areas
+    y1 = np.maximum(box[0], boxes[:, 0])
+    y2 = np.minimum(box[2], boxes[:, 2])
+    x1 = np.maximum(box[1], boxes[:, 1])
+    x2 = np.minimum(box[3], boxes[:, 3])
+    intersection = np.maximum(x2 - x1, 0) * np.maximum(y2 - y1, 0)
+    union = box_area + boxes_area[:] - intersection[:]
+    iou = intersection / union
+    return iou
+
+
+def compute_overlaps(boxes1, boxes2):
+    """Computes IoU overlaps between two sets of boxes.
+    boxes1, boxes2: [N, (y1, x1, y2, x2)].
+    For better performance, pass the largest set first and the smaller second.
+    
+    *Coppied from maskrcnn.utils
+    """
+
+    # Areas of anchors and GT boxes
+    area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])
+    area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])
+
+    # Compute overlaps to generate matrix [boxes1 count, boxes2 count]
+    # Each cell contains the IoU value.
+    overlaps = np.zeros((boxes1.shape[0], boxes2.shape[0]))
+    for i in range(overlaps.shape[1]):
+        box2 = boxes2[i]
+        overlaps[:, i] = compute_iou(box2, boxes1, area2[i], area1)
+    return overlaps
+
 
 def calculate_tfpn(predicted, object_gts, matching='one-to-one', iou_thresh=0.5):#, score_thresh=None):
     '''Calculate True Positive, False Positive and False Negatives given two objects of the same class
