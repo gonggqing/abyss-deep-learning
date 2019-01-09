@@ -22,13 +22,13 @@ examples:
 
 
 def main(args):
-    json_string = ""
+    stdin_string = ""
     if not sys.stdin.isatty():
         for line in sys.stdin:
-            json_string += line.strip()
+            stdin_string += line.strip()
 
-    if json_string:
-        args.json_file.append(json_string)
+    if stdin_string:
+        args.json_file.append(stdin_string)
 
     new_data_set = {
         'images': [],

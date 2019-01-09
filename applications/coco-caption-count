@@ -14,15 +14,16 @@ def main():
         'total_images': 0
     }
 
-    json_string = ""
+    stdin_string = ""
     if not sys.stdin.isatty():
         for line in sys.stdin:
-            json_string += line.strip()
+            stdin_string += line.strip()
 
-    if json_string:
-        args.json_files.append(json_string)
+    if stdin_string:
+        args.json_files.append(stdin_string)
 
     for json_file_path_or_buffer in args.json_files:
+        say("loading dataset")
         in_ds = load_dataset(json_file_path_or_buffer)
         say("counting captions")
         caption_count = extract_data(in_ds, caption_count)

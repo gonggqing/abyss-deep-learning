@@ -24,6 +24,7 @@ def main():
         args.json_files.append(stdin_string)
 
     for json_file_path_or_buffer in args.json_files:
+        say("loading dataset")
         old_ds = load_dataset(json_file_path_or_buffer)
         new_ds = filter_captions(new_ds, old_ds)
 

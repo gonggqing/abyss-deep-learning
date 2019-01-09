@@ -79,6 +79,7 @@ def main():
 
     if args.format == 'swc':
         for json_file_path_or_buffer in args.json_files:
+            say("loading dataset")
             in_dataset = load_dataset(json_file_path_or_buffer)
 
             info = BASE_INFO
