@@ -19,6 +19,7 @@ setup(
         # 'abyss_deep_learning': ["third-party"]
     },
     scripts=[
+        "applications/coco-calc",
         "applications/coco-calc-masks",
         "applications/coco-caption-count",
         "applications/coco-check-data-pollution",
