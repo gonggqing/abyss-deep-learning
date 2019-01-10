@@ -22,11 +22,13 @@ def get_args():
     )
     parser.add_argument("coco", help="Path to the coco database")
     parser.add_argument("output_dir", help="The output directory")
-    parser.add_argument("--foreground_labels", help="A string of the target label e.g. (\"pipe\"), or a list of target labels in str format - for example \"[\"pipe\",\"flange\"]\"")
+    parser.add_argument("--image_dir", help="The relative directory to read the images from.", default=None)
+    parser.add_argument("--target_labels", help="A string of the target label e.g. (\"pipe\"), or a list of target labels in str format - for example \"[\"pipe\",\"flange\"]\"")
     parser.add_argument("--transparency", type=float, default="1.0", help="The brightness of the background - 1.0=normal, 0.0=black")
     parser.add_argument("--dilation", type=int, default="0", help="Used to expand the mask - this is the size of the kernel")
-    parser.add_argument("--output_format", type=str, default=".jpg", help="The output format of the images")
-    parser.add_argument("--save_unannotated", type=bool, default=False, help="Save the images that haven't been annotated")
+    parser.add_argument("--output_format", type=str, default="jpg", help="The output format of the images")
+    parser.add_argument("--save_unannotated", action="store_true", help="Save the images that haven't been annotated")
+    parser.add_argument("--verbose", action="store_true",  help="Output filenames to stderr")
     return parser.parse_args()
 
 
@@ -81,43 +83,38 @@ def main(args):
     for iid in imgIds:
         # Load the image
         img = coco.loadImgs(ids=[iid])[0]
-        image = cv2.imread(img['file_name'])
+        image_path = os.path.join(args.image_dir, img['file_name']) if args.image_dir else img['file_name']
+        image = cv2.imread(image_path)
         # Get the annotations for this image
         annIds = coco.getAnnIds(imgIds=[iid])
         # Load the annotation
         anns = coco.loadAnns(annIds)
         # Cycle through each annotation
-        mimage = image
-        for ann in anns:
-            # Test if targetCategory IDs were specified, and if they were, test if the targetCategoryIDs is present for this annotation
-            if not targetCatIds or ann['category_id'] in targetCatIds:
-                # Retrieve the mask
-                mask = pcm.decode(ann['segmentation'])
-                # If dilation kernel is greater than 0, dilate the image
-                if args.dilation > 0:
-                    kernel = np.ones((args.dilation, args.dilation), np.uint8)
-                    mask = cv2.dilate(mask,kernel,iterations = 1)
-                # If background_brightness is less than 1.0
-                if args.background_brightness < 1.0:
-                    # Make the foreground
-                    fg = cv2.bitwise_and(mimage, mimage, mask=mask)
-                    # Make the background mask
-                    bgmask = cv2.bitwise_not(255*mask)
-                    # Make the background, while adjusting the brightness (making it darker)
-                    bg = cv2.bitwise_and(mimage, mimage, mask=bgmask)*args.background_brightness
-                    bg = bg.astype(np.uint8)
-                    # Add the foreground and background together
-                    cv2.add(fg, bg, mimage)
-                else:
-                    mimage = cv2.bitwise_and(mimage, mimage, mask=mask)
-
-        if args.save_unannotated or len(anns) > 0:
+        if anns:
+            mask = np.logical_or.reduce(
+                [pcm.decode(ann['segmentation']) > 0 
+                    for ann in anns 
+                    if not targetCatIds or ann['category_id'] in targetCatIds])
+        else:
+            mask = np.zeros(image.shape, dtype=np.bool)
+        if args.dilation > 0:
+            kernel = np.ones((args.dilation, args.dilation), np.uint8)
+            mask = cv2.dilate(mask, kernel, iterations = 1)
+        # If transparency is less than 1.0
+        masked_image = np.ones(image.shape, dtype=image.dtype) * args.transparency
+        masked_image[mask] = image[mask]
+        masked_image[~mask] *= image[~mask]
+        if args.save_unannotated or anns:
+            if args.verbose:
+                print("Saving:", img['file_name'])
             # Get the filepath
-            output_filepath = os.path.join(args.output_dir, os.path.basename(img['file_name']).split('.')[0] + args.output_format)
+            output_filepath = os.path.join(
+                args.output_dir,
+                os.path.splitext(os.path.basename(img['file_name']))[0] + "." +  args.output_format)
             if args.output_format == "jpg":
-                cv2.imwrite(output_filepath, mimage, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                cv2.imwrite(output_filepath, masked_image, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
             else: # TODO for PNG
-                cv2.imwrite(output_filepath, mimage)
+                cv2.imwrite(output_filepath, masked_image)
 
 if __name__ == "__main__":
     main(get_args())
