@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import sys
+
+from pycocotools.coco import COCO
+
+IMG_DIR = os.path.join(os.getcwd(), 'images')
+
+SCRIPT_NAME = os.path.basename(__file__)
+
+DESCRIPTION = \
+    """
+Read COCO json file piped in from stdin or a list of COCO json files and apply image manipulation and 
+processing. Output new COCO json file with relevant changes to the data 
+
+actions:
+    resize 
+
+examples:
+    cat coco.json | coco-calc tile --tiles 4,5 [--apply-to-images] | sponge coco.json
+    --dim,--image-size
+
+"""
+
+
+def resize(coco: COCO) -> COCO:
+    args = get_args()
+    scale = args.scale
+    dims = args.image_size
+
+    for img_data in coco.loadImgs(coco.getImgIds()):
+        if scale is not None:
+            img_data['height'] = int(img_data['height'] * scale)
+            img_data['width'] = int(img_data['width'] * scale)
+        elif dims is not None:
+            img_data['height'] = dims[0]
+            img_data['width'] = dims[1]
+
+        if args.apply_to_images:
+            import cv2
+            path = None
+            if os.path.exists(img_data['path']):
+                path = img_data['path']
+            elif os.path.exists(os.path.abspath(img_data['path'])):
+                path = img_data['path']
+
+            if path is not None:
+                img = cv2.imread(img_data['path'])
+                resized_img = cv2.resize(img, (img_data['height'], img_data['width']))
+                cv2.imwrite(os.path.join(IMG_DIR, os.path.basename(img_data['path'])), resized_img)
+
+    return coco
+
+
+ACTIONS = {
+    'resize': resize
+}
+
+
+def main():
+    args = get_args()
+    if args.apply_to_images:
+        os.makedirs(IMG_DIR, exist_ok=True)
+
+    stdin_string = ""
+    if not sys.stdin.isatty():
+        for line in sys.stdin:
+            stdin_string += line.strip()
+
+    say("creating coco object")
+    coco = load_coco(stdin_string)
+    coco = ACTIONS[args.action[0]](coco)
+    json.dump(coco.dataset, sys.stdout, indent=4)
+
+    say("done")
+    sys.exit()
+
+
+def load_coco(json_file_path_or_buffer: str) -> COCO:
+    coco = COCO()
+    coco.dataset = json.loads(json_file_path_or_buffer)
+    coco.createIndex()
+    return coco
+
+
+def say(*args, **kwargs):
+    print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
+
+
+def get_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
+    resize = parser.add_mutually_exclusive_group(required=True)
+    parser.add_argument('action', nargs=1, type=str, help="Action to apply to images")
+    resize.add_argument('-s', '--scale', type=float, help="Scale images by a percentage")
+    resize.add_argument('-d', '-dims', '--image-size', nargs=2, type=int, help="H x W values to resize images to")
+    parser.add_argument('-i', '--apply-to-images', action='store_true', help="Apply action to images and output in "
+                                                                             "current working directory [image] "
+                                                                             "folder that contains new images")
+    return parser.parse_args()
+
+
+if __name__ == '__main__':
+    main()
