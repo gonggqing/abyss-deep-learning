@@ -4,6 +4,7 @@ import json
 import os
 import sys
 
+from contextlib import redirect_stdout
 from pycocotools.coco import COCO
 
 IMG_DIR = os.path.join(os.getcwd(), 'images')
@@ -20,23 +21,34 @@ actions:
 
 examples:
     cat coco.json | coco-calc tile --tiles 4,5 [--apply-to-images] | sponge coco.json
-    --dim,--image-size
 
+todo:
+    - fix! silly pycoco dumps debug messages to stdout
+    - rescale bbox
+    - rescale segmentation
+    - redirect to stderr?
+    - coco-grep: redirect to stderr?
+    
 """
 
+args = None
+
+class say_verbose:
+    def write( line ):
+        if not args.verbose: return
+        line = line.strip()
+        if line: say( line )
 
 def resize(coco: COCO) -> COCO:
-    args = get_args()
     scale = args.scale
-    dims = args.image_size
-
     for img_data in coco.loadImgs(coco.getImgIds()):
         if scale is not None:
             img_data['height'] = int(img_data['height'] * scale)
             img_data['width'] = int(img_data['width'] * scale)
-        elif dims is not None:
-            img_data['height'] = dims[0]
-            img_data['width'] = dims[1]
+        elif args.image_size is not None:
+            dims = args.image_size.split(',')
+            img_data['height'] = int(dims[1])
+            img_data['width'] = int(dims[0])
 
         if args.apply_to_images:
             import cv2
@@ -53,51 +65,50 @@ def resize(coco: COCO) -> COCO:
 
     return coco
 
+def todo(coco: COCO) -> COCO:
+    raise Exception( 'todo' )
 
 ACTIONS = {
     'resize': resize
 }
 
-
 def main():
+    global args
     args = get_args()
     if args.apply_to_images:
         os.makedirs(IMG_DIR, exist_ok=True)
 
-    stdin_string = ""
-    if not sys.stdin.isatty():
-        for line in sys.stdin:
-            stdin_string += line.strip()
-
     say("creating coco object")
-    coco = load_coco(stdin_string)
+    coco = load_coco(sys.stdin.read())
     coco = ACTIONS[args.action[0]](coco)
     json.dump(coco.dataset, sys.stdout, indent=4)
 
     say("done")
-    sys.exit()
+    sys.exit(0)
 
 
 def load_coco(json_file_path_or_buffer: str) -> COCO:
-    coco = COCO()
-    coco.dataset = json.loads(json_file_path_or_buffer)
-    coco.createIndex()
+    with redirect_stdout(say_verbose): 
+        coco = COCO()
+        coco.dataset = json.loads(json_file_path_or_buffer)
+        coco.createIndex()
     return coco
 
 
 def say(*args, **kwargs):
     print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
-
-
+    
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     resize = parser.add_mutually_exclusive_group(required=True)
     parser.add_argument('action', nargs=1, type=str, help="Action to apply to images")
     resize.add_argument('-s', '--scale', type=float, help="Scale images by a percentage")
-    resize.add_argument('-d', '-dims', '--image-size', nargs=2, type=int, help="H x W values to resize images to")
+    resize.add_argument('-d', '-dims', '--image-size', type=str, help="<width>,<height> to resize images to")
+    
     parser.add_argument('-i', '--apply-to-images', action='store_true', help="Apply action to images and output in "
                                                                              "current working directory [image] "
                                                                              "folder that contains new images")
+    parser.add_argument('-v', '--verbose', action='store_true', help="more output to stderr")
     return parser.parse_args()
 
 
