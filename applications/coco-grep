@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 import argparse
-import itertools
 import json
 import os
 import sys
+from contextlib import redirect_stdout
 from operator import itemgetter
 
 from pycocotools.coco import COCO
@@ -12,16 +12,38 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 DESCRIPTION = \
 """
-Read JSON file(s) defined on command line or a list of JSON files on stdin and apply a search for images given a 
-boolean expression of captions to search for. 
+Read COCO json file piped in from stdin or a list of COCO json files and grep for images and all associated 
+annotations using a given expression. 
+
+Possible expressions that can be used are:
+    img_id/image_id
+    cat_id/category_id
+    cat/category
+    supcat/supercategory
+    multiple cats/categories
+    multiple supcats/supercategories
 
 examples:
-    coco-grep coco.json --expression "JD and F"
-    coco-merge coco_a.json coco_b.json | coco-grep --expression "RI and F"
+    coco-grep coco.json -e "img_id == 10"
+    coco-grep coco.json --expression "image_id == 5"
+    
+    coco-grep coco.json -e "cat_id == 2"
+    coco-grep coco.json --expression "category_id == 3"
+    
+    coco-grep coco.json -e "cat == 'JD'"
+    coco-grep coco.json -expression "category == 'RI'"
+    
+    coco-grep coco.json -e "'JD' in cats and 'RI' in cats"
+    coco-grep coco.json --expression "'JD' in categories or 'F' in categories"
+    
+    coco-grep coco.json -e "not 'C' in supcats and 'ED' in supcats"
+    coco-grep coco.json --expression "not 'JD' in categories or 'F' in categories"
 """
 
 
-def main(args):
+def main():
+    args = get_args()
+
     stdin_string = ""
     if not sys.stdin.isatty():
         for line in sys.stdin:
@@ -30,26 +52,119 @@ def main(args):
     if stdin_string:
         args.json_file.append(stdin_string)
 
-    new_data_set = {
-        'images': [],
-        'annotations': [],
-    }
-
-    for json_file_path_or_buffer in args.json_files:
+    for idx, json_file_path_or_buffer in enumerate(args.json_files):
         say("creating coco object")
         coco = load_coco(json_file_path_or_buffer)
 
+        img_id = image_id = None
+        cat_id = category_id = None
+        cat = category = None
+        supcat = supercategory = None
+
+        all_cats = {cat['name'].replace('-', '_'): False for cat in coco.loadCats(coco.getCatIds()) if cat['name']}
+        globals().update(all_cats)
+
+        all_supcats = {cat['supercategory'].replace('-', '_'): False for cat in coco.loadCats(coco.getCatIds()) if cat['supercategory']}
+        globals().update(all_supcats)
+
+        # Load all annotations
+        anns = coco.loadAnns(coco.getAnnIds())
+
+        # Sort all annotations by their image id, then the annotation id as an image can have multiple annotations
+        anns.sort(key=itemgetter('image_id', 'id'))
+
+        # Temporary list to store associated category ids for one image
+        cat_ids = category_ids = []
+
+        # Temporary list to store associated categories for one image
+        cats = categories = []
+
+        # Temporary list to store associated supercategories for one image
+        supcats = supercategories = []
+
+        # Image ids to carry over from COCO dataset
+        to_add_img_ids = set()
+
+        # Annotation ids to carry over from COCO dataset
+        to_add_ann_ids = set()
+
+        for curr_img_id in coco.getImgIds():
+            # Reinitialize image id expression check
+            img_id = image_id = None
+
+            # Reinitialize category id expression check
+            cat_ids = category_ids = []
+            cat_id = category_id = None
+
+            # Reinitialize category expression check
+            globals().update(all_cats)
+            cats = categories = []
+            cat = category = None
+
+            # Reinitialize super category expression check
+            globals().update(all_supcats)
+            supcats = supercategories = []
+            supcat = supercategory = None
+
+            # Check expression for image id i.e. image_id == 1
+            img_id = image_id = curr_img_id
+            if eval(args.expression):
+                to_add_img_ids.add(curr_img_id)
+
+            # Check expression for category_id ie. category_id == 2
+            cat_ids = category_ids = set([ann['category_id'] for ann in coco.loadAnns(coco.getAnnIds(imgIds=curr_img_id))])
+            if eval(args.expression):
+                to_add_img_ids.add(curr_img_id)
+
+            for tmp in cat_ids:
+                cat_id = category_id = tmp
+                if eval(args.expression):
+                    to_add_img_ids.add(curr_img_id)
+
+            # Check expression for category/ies i.e. 'JD' and 'RI' OR 'JD' in categories and 'RI' in categories
+            globals().update({cat['name'].replace('-', '_'): True for cat in coco.loadCats(cat_ids) if cat['name']})
+            cats = categories = [cat['name'] for cat in coco.loadCats(cat_ids) if cat['name']]
+            if eval(args.expression):
+                to_add_img_ids.add(curr_img_id)
+
+            # Check for single category i.e. category == 'JD'
+            for tmp in categories:
+                cat = category = tmp
+                if eval(args.expression):
+                    to_add_img_ids.add(curr_img_id)
+
+            # Check expression for supercategory/ies
+            globals().update({cat['supercategory'].replace('-', '_'): True for cat in coco.loadCats(cat_ids) if cat['supercategory']})
+            supcats = supercategories = [cat['supercategory'] for cat in coco.loadCats(cat_ids) if cat['supercategory']]
+            if eval(args.expression):
+                to_add_img_ids.add(curr_img_id)
+
+            for tmp in supercategories:
+                supcat = supercategories = tmp
+                if eval(args.expression):
+                    to_add_img_ids.add(curr_img_id)
+
+        to_add_ann_ids = coco.getAnnIds(imgIds=to_add_img_ids)
+
+        coco.dataset['images'] = coco.loadImgs(to_add_img_ids)
+        coco.dataset['annotations'] = coco.loadAnns(to_add_ann_ids)
+
+        json.dump(coco.dataset, sys.stdout, indent=4)
+        say("finished file {}".format(idx + 1))
+
+        # TODO: Look into caption compatibility with other COCO json format
+        """
         # Pre-parse the data set for all available keys
         unique_captions = {value['caption']: False for key, value in coco.anns.items()}
 
         # Raise exception when grepped caption can not be found in the data set
         globals().update(unique_captions)
         try:
-            eval(args.expression)
+            eval(args.captions)
         except NameError as err:
             raise RuntimeError("Caption [{}] could not be found in the given data set".format(str(err).split("'")[1]))
 
-        # Find the minimum set combination satisfies the expression so as to find images that have the minimum
+        # Find the minimum set combination satisfies the captions so as to find images that have the minimum
         # required captions
 
         # TODO: Refactor code, not very efficient, could be implemented better
@@ -60,7 +175,7 @@ def main(args):
                 for comb in combs:
                     for caption in comb:
                         globals()[caption] = True
-                    if eval(args.expression):
+                    if eval(args.captions):
                         min_expr = set(comb)
                         break
                     for caption in comb:
@@ -89,7 +204,7 @@ def main(args):
                 for caption in captions:
                     globals()[caption] = True
 
-                if eval(args.expression):
+                if eval(args.captions):
                     # Add the image annotations and image to the new COCO file
                     # Choose to either add all associated annotations, or only annotations in grep
                     start_id = idx - len(captions)
@@ -119,14 +234,16 @@ def main(args):
 
                 new_data_set['images'].append(img)
 
-    json.dump(new_data_set, sys.stdout, indent=4)
+        json.dump(new_data_set, sys.stdout, indent=4)
+        """
     say("done")
     sys.exit()
 
 
 def load_coco(json_file_path_or_buffer):
     if os.path.exists(json_file_path_or_buffer):
-        coco = COCO(json_file_path_or_buffer)
+        with redirect_stdout(None):
+            coco = COCO(json_file_path_or_buffer)
     else:
         coco = COCO()
         coco.dataset = json.loads(json_file_path_or_buffer)
@@ -138,15 +255,16 @@ def say(*args, **kwargs):
     print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
 
 
-def get_args():
+def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('json_files', nargs='*', type=str, help="JSON files to grep from")
-    parser.add_argument('-e', '--expression', type=str, help="Boolean expression to search for image captions in an "
-                                                             "image")
-    parser.add_argument('-x', '--exact-match', action='store_true',
-                        help="Include only images with exact match to the given label (ie not roots & joint, just roots")
+    parser.add_argument('-e', '--expression', type=str, help="General expression to search for images")
+    parser.add_argument('-c', '--captions', type=str, help="Boolean expression to search for image captions in an "
+                                                           "image")
+    # parser.add_argument('-x', '--exact-match', action='store_true',
+    #                    help="Include only images with exact match to the given label (ie not roots & joint, just roots")
     return parser.parse_args()
 
 
 if __name__ == '__main__':
-    main(get_args())
+    main()
