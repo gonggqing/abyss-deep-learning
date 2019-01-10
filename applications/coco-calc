@@ -28,6 +28,12 @@ todo:
     - rescale segmentation
     - coco-grep: redirect to stderr?
     - send email to everyone that coco-grep and coco-calc resize are available
+    ? something like (with better option name): coco-grep coco.json -e "category == 'RI'" | coco-grep "category==RI or category==F" --output-only-matching-annotations
+    - coco-merge: fix to work on standard coco
+    ? coco-from-video: fix to work on standard coco (maybe not, since it's not standard coco anyway)
+    - coco-sample: fix to work on standard coco
+    - coco-caption-count: fix to work on standard coco
+    - coco-caption-count -> rename to coco-stats count --what "categories" (fix usage occurences)
     
 """
 
