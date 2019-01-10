@@ -26,8 +26,8 @@ todo:
     - fix! silly pycoco dumps debug messages to stdout
     - rescale bbox
     - rescale segmentation
-    - redirect to stderr?
     - coco-grep: redirect to stderr?
+    - send email to everyone that coco-grep and coco-calc resize are available
     
 """
 
