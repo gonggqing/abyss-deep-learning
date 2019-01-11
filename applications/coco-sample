@@ -4,6 +4,7 @@ import json
 import os
 import random
 import sys
+from contextlib import redirect_stdout
 
 from pycocotools.coco import COCO
 
@@ -22,19 +23,13 @@ examples:
 """
 
 
-def main(args):
-    stdin_string = ""
+def main():
+    args = get_args()
+
     if not sys.stdin.isatty():
-        for line in sys.stdin:
-            stdin_string += line.strip()
-
-    if stdin_string:
-        args.json_file.append(stdin_string)
-
-    data_set = {
-        'images': [],
-        'annotations': [],
-    }
+        stdin_string = sys.stdin.read()
+        if stdin_string:
+            args.json_file.append(stdin_string)
 
     for json_file_path_or_buffer in args.json_file:
         say("creating coco object")
@@ -46,39 +41,46 @@ def main(args):
             raise RuntimeError("Number of images to be sampled [{}] is greater than number of images in the data set "
                                "[{}] ".format(args.num_imgs, len(coco.imgs)))
 
-        data_set['images'] += [img for img in coco.loadImgs(sample)]
-        img_ids = [img['id'] for img in data_set['images']]
+        coco.dataset['images'] = coco.loadImgs(sample)
+        coco.dataset['annotations'] = coco.loadAnns(coco.getAnnIds(imgIds=sample))
+        json.dump(coco.dataset, sys.stdout, indent=4)
 
-        ann_ids = coco.getAnnIds(imgIds=img_ids)
-        data_set['annotations'] += coco.loadAnns(ids=ann_ids)
-
-    json.dump(data_set, sys.stdout, indent=4)
     say("done")
     sys.exit(0)
 
 
 def load_coco(json_file_path_or_buffer):
-    if os.path.exists(json_file_path_or_buffer):
-        coco = COCO(json_file_path_or_buffer)
-    else:
-        coco = COCO()
-        coco.dataset = json.loads(json_file_path_or_buffer)
-        coco.createIndex()
+    with redirect_stdout(Verbose):
+        if os.path.exists(json_file_path_or_buffer):
+            coco = COCO(json_file_path_or_buffer)
+        else:
+            coco = COCO()
+            coco.dataset = json.loads(json_file_path_or_buffer)
+            coco.createIndex()
     return coco
 
 
 def say(*args, **kwargs):
-    print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
+    if ARGS.verbose:
+        print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
+
+
+class Verbose:
+    @staticmethod
+    def write(line):
+        line = line.strip()
+        if line:
+            say(line)
 
 
 def get_args():
-    parser = argparse.ArgumentParser(
-        description="Split a COCO JSON database into multiple."
-    )
+    parser = argparse.ArgumentParser(description=DESCRIPTION)
     parser.add_argument('json_file', nargs='*', type=str, help='JSON file to sample from')
     parser.add_argument('num_imgs', type=int, help="Number of images to randomly sample")
     return parser.parse_args()
 
 
+ARGS = get_args()
+
 if __name__ == '__main__':
-    main(get_args())
+    main()
