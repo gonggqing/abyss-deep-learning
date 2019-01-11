@@ -68,6 +68,8 @@ class Viewport(QtGui.QWidget):
         elif event.key() == QtCore.Qt.Key_A or event.key() == QtCore.Qt.Key_Left:
             print("Rewind")
             self.image_pos -= 1
+
+        self.setWindowTitle('coco-viewer - ' + image_container[self.image_pos].image_path)
         self.view_image.setPixmap(draw_image(self.image_pos))
         event.accept()
 
@@ -106,10 +108,19 @@ def draw_image(image_id,layer_ids=[]):
     image_data = image_container[image_id]
     prefix = "/home/j/src/coco_data/"
     overlayed_image = QtGui.QPixmap(prefix+image_data.image_path)
-    
+    pixmap_painter = QtGui.QPainter(overlayed_image)
+    pixmap_painter.setPen(QtGui.QPen(QtCore.Qt.red))
+
+
+
     for layer in image_data.layers:
-        pass
+        for bbox in layer.bbox:
+            pixmap_painter.drawRect(bbox[1][0],bbox[1][1],bbox[1][2],bbox[1][3])
     
+        for segment in layer.segmentation:
+            print(segment)
+
+
     return overlayed_image
 
 def main(args):
