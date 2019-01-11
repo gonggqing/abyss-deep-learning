@@ -2,7 +2,7 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-def iou_matrix( a, b ):
+def bbox_iou_matrix( a, b ):
     ''' Calculate MxN matrix of IOU for two sets of bounding boxes, e.g: iou( predictions, ground_truth )
     
     parameters
@@ -20,7 +20,7 @@ def iou_matrix( a, b ):
     ----
     refactor, if too slow
     '''
-ac = np.repeat( [ a ], len( b ), axis = 0 )
+    ac = np.repeat( [ a ], len( b ), axis = 0 )
     ac = np.transpose( ac, axes = ( 2, 1, 0 ) )
     bc = np.repeat( [ b ], len( a ), axis = 0 )
     bc = np.transpose( bc, axes = ( 2, 0, 1 ) )
@@ -36,15 +36,15 @@ ac = np.repeat( [ a ], len( b ), axis = 0 )
     b_areas = np.repeat( [ ba ], len( a ), axis = 0 )
     return intersections / ( a_areas + b_areas - intersections )
 
-def one_to_one( a, b, iou_threshold = 0. ):
+def one_to_one( a, b, iou_threshold = None, iou_matrix = bbox_iou_matrix ):
     ''' Match two sets of boxes one to one by IOU on given treshold
     
     parameters
     ----------
     a: numpy.array
-       first Mx4 array of box begin/end coordinates as y1,x1,y2,x2
+       for bounding boxes, first Mx4 array of box begin/end coordinates as y1,x1,y2,x2
     b: numpy.array
-       second Mx4 array of box begin/end coordinates as y1,x1,y2,x2
+       for bounding boxes, second Mx4 array of box begin/end coordinates as y1,x1,y2,x2
     
     returns
     -------
@@ -55,11 +55,38 @@ def one_to_one( a, b, iou_threshold = 0. ):
     refactor, if too slow
     '''
     ious = iou_matrix( a, b )
-    ious *= ( ious >= iou_threshold )
+    ious *= ( ious >= ( 0. if iou_threshold is None else iou_threshold ) )
     rows, cols = linear_sum_assignment( 1 - ious )
     result = np.zeros( ious.shape )
     result[rows, cols] = ious[rows, cols] * ( ious[rows, cols] > 0 );
     return result
+
+def tfpn( predictions, truth, threshold = None, match = one_to_one ):
+    ''' Return TP, FP, TN, FN
+    
+    parameters
+    ----------
+    a: numpy.array
+       for bounding boxes, first Mx4 array of box begin/end coordinates as y1,x1,y2,x2
+    b: numpy.array
+       for bounding boxes, second Mx4 array of box begin/end coordinates as y1,x1,y2,x2
+    
+    returns
+    -------
+    numpy.array of size M, indices of TP in a
+    numpy.array of size M, indices of FP in a
+    numpy.array of variable size, indices of TN, empty for bounding boxes, since it does not make sense
+    numpy.array of size N, indices of FN in b
+    
+    todo
+    ----
+    refactor, if too slow
+    '''
+    m = ( match( predictions, truth, threshold ) > 0 ) * 1
+    sr = np.sum( m, axis = 1 )
+    return np.nonzero( sr ), np.nonzero( 1 - sr ), np.nonzero( np.sum( m, axis = 0 ) )
+    
+    
 
 #def one_to_one( a, b, iou_threshold = 0. ):
     #''' Match two sets of boxes one to one by IOU on given treshold
@@ -96,7 +123,7 @@ def one_to_one( a, b, iou_threshold = 0. ):
             #bv[cols[i]] = True
     #return ai, av, bi, bv
     
-
+    
 #def _flat_np(df):
     #return df.apply(pd.Series).as_matrix()
 
