@@ -77,6 +77,7 @@ def get_args():
     parser = argparse.ArgumentParser(description=DESCRIPTION)
     parser.add_argument('json_file', nargs='*', type=str, help='JSON file to sample from')
     parser.add_argument('num_imgs', type=int, help="Number of images to randomly sample")
+    parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     return parser.parse_args()
 
 

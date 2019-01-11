@@ -42,17 +42,12 @@ examples:
 
 
 def main():
-    args = get_args()
-
-    stdin_string = ""
     if not sys.stdin.isatty():
-        for line in sys.stdin:
-            stdin_string += line.strip()
+        stdin_string = sys.stdin.read()
+        if stdin_string:
+            ARGS.json_file.append(stdin_string)
 
-    if stdin_string:
-        args.json_file.append(stdin_string)
-
-    for idx, json_file_path_or_buffer in enumerate(args.json_files):
+    for idx, json_file_path_or_buffer in enumerate(ARGS.json_files):
         say("creating coco object")
         coco = load_coco(json_file_path_or_buffer)
 
@@ -109,47 +104,47 @@ def main():
 
             # Check expression for image id i.e. image_id == 1
             img_id = image_id = curr_img_id
-            if eval(args.expression):
+            if eval(ARGS.expression):
                 to_add_img_ids.add(curr_img_id)
 
             # Check expression for category_id ie. category_id == 2
             cat_ids = category_ids = set(
                 [ann['category_id'] for ann in coco.loadAnns(coco.getAnnIds(imgIds=curr_img_id))])
-            if eval(args.expression):
+            if eval(ARGS.expression):
                 to_add_img_ids.add(curr_img_id)
 
             for tmp in cat_ids:
                 cat_id = category_id = tmp
-                if eval(args.expression):
+                if eval(ARGS.expression):
                     to_add_img_ids.add(curr_img_id)
 
             # Check expression for category/ies i.e. 'JD' and 'RI' OR 'JD' in categories and 'RI' in categories
             globals().update({cat['name'].replace('-', '_'): True for cat in coco.loadCats(cat_ids) if cat['name']})
             cats = categories = [cat['name'] for cat in coco.loadCats(cat_ids) if cat['name']]
-            if eval(args.expression):
+            if eval(ARGS.expression):
                 to_add_img_ids.add(curr_img_id)
 
             # Check for single category i.e. category == 'JD'
             for tmp in categories:
                 cat = category = tmp
-                if eval(args.expression):
+                if eval(ARGS.expression):
                     to_add_img_ids.add(curr_img_id)
 
             # Check expression for supercategory/ies
             globals().update({cat['supercategory'].replace('-', '_'): True for cat in coco.loadCats(cat_ids) if
                               cat['supercategory']})
             supcats = supercategories = [cat['supercategory'] for cat in coco.loadCats(cat_ids) if cat['supercategory']]
-            if eval(args.expression):
+            if eval(ARGS.expression):
                 to_add_img_ids.add(curr_img_id)
 
             for tmp in supercategories:
                 supcat = supercategories = tmp
-                if eval(args.expression):
+                if eval(ARGS.expression):
                     to_add_img_ids.add(curr_img_id)
 
         to_add_ann_ids = coco.getAnnIds(imgIds=to_add_img_ids)
 
-        keep_cats = args.keep_cats.split(',')
+        keep_cats = ARGS.keep_cats.split(',')
         if keep_cats is not None:
             tmp = to_add_ann_ids.copy()
             to_add_ann_ids.clear()
@@ -173,7 +168,7 @@ def main():
         # Raise exception when grepped caption can not be found in the data set
         globals().update(unique_captions)
         try:
-            eval(args.captions)
+            eval(ARGS.captions)
         except NameError as err:
             raise RuntimeError("Caption [{}] could not be found in the given data set".format(str(err).split("'")[1]))
 
@@ -181,14 +176,14 @@ def main():
         # required captions
 
         # TODO: Refactor code, not very efficient, could be implemented better
-        if args.exact_match:
+        if ARGS.exact_match:
             min_expr = None
             for i in range(len(unique_captions) + 1):
                 combs = list(itertools.combinations(unique_captions.keys(), i))
                 for comb in combs:
                     for caption in comb:
                         globals()[caption] = True
-                    if eval(args.captions):
+                    if eval(ARGS.captions):
                         min_expr = set(comb)
                         break
                     for caption in comb:
@@ -208,7 +203,7 @@ def main():
         for idx, ann in enumerate(anns):
             # Captions have been merged for current image
             if curr_img_id != ann['image_id']:
-                if args.exact_match:
+                if ARGS.exact_match:
                     if set(captions) != min_expr:
                         curr_img_id = ann['image_id']
                         captions.clear()
@@ -217,7 +212,7 @@ def main():
                 for caption in captions:
                     globals()[caption] = True
 
-                if eval(args.captions):
+                if eval(ARGS.captions):
                     # Add the image annotations and image to the new COCO file
                     # Choose to either add all associated annotations, or only annotations in grep
                     start_id = idx - len(captions)
@@ -254,18 +249,27 @@ def main():
 
 
 def load_coco(json_file_path_or_buffer):
-    if os.path.exists(json_file_path_or_buffer):
-        with redirect_stdout(None):
+    with redirect_stdout(Verbose):
+        if os.path.exists(json_file_path_or_buffer):
             coco = COCO(json_file_path_or_buffer)
-    else:
-        coco = COCO()
-        coco.dataset = json.loads(json_file_path_or_buffer)
-        coco.createIndex()
+        else:
+            coco = COCO()
+            coco.dataset = json.loads(json_file_path_or_buffer)
+            coco.createIndex()
     return coco
 
 
+class Verbose:
+    @staticmethod
+    def write(line):
+        line = line.strip()
+        if line:
+            say(line)
+
+
 def say(*args, **kwargs):
-    print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
+    if ARGS.verbose:
+        print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
 
 
 def get_args() -> argparse.Namespace:
@@ -274,7 +278,11 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('-e', '--expression', type=str, help="General expression to search for images")
     parser.add_argument('-c', '--keep-cats', type=str, help="Specify specific categories or category ids (comma "
                                                             "separated) to keep for each image")
+    parser.add_argument('-v', '--verbose', action='store_true', help="More output")
     return parser.parse_args()
+
+
+ARGS = get_args()
 
 
 if __name__ == '__main__':
