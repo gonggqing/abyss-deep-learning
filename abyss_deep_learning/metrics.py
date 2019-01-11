@@ -14,11 +14,11 @@ def iou_matrix( a, b ):
     
     returns
     -------
-    numpy.array, MxN
+    numpy.array, MxN matrix of IOU values
     
     todo
     ----
-    - refactor, if too slow
+    refactor, if too slow
     '''
 ac = np.repeat( [ a ], len( b ), axis = 0 )
     ac = np.transpose( ac, axes = ( 2, 1, 0 ) )
@@ -48,28 +48,53 @@ def one_to_one( a, b, iou_threshold = 0. ):
     
     returns
     -------
-    numpy.array of size M, dtype=int, for each box in a index of matching box in b
-    numpy.array of size M, dtype=bool, for each box in a True if the match is valid
-    numpy.array of size N, dtype=int, for each box in b index of matching box in a
-    numpy.array of size N, dtype=bool, for each box in b True if the match is valid
+    numpy.array, MxN matrix of IOU values
     
     todo
     ----
-    - refactor, if too slow
+    refactor, if too slow
     '''
     ious = iou_matrix( a, b )
     rows, cols = linear_sum_assignment( 1 - ious * ( ious >= iou_threshold ) )
-    ai = np.zeros( len( a ), dtype = int )
-    av = np.zeros( len( a ), dtype = bool )
-    bi = np.zeros( len( b ), dtype = int )
-    bv = np.zeros( len( b ), dtype = bool )
+    result = np.zeros( ious.shape )
     for i in range( len( rows ) ):
-        if ious[rows[i]][cols[i]] >= iou_threshold:
-            ai[rows[i]] = cols[i]
-            av[rows[i]] = True
-            bi[cols[i]] = rows[i]
-            bv[cols[i]] = True
-    return ai, av, bi, bv
+        if ious[rows[i]][cols[i]] >= iou_threshold: result[rows[i]][cols[i]] = ious[rows[i]][cols[i]]
+    return result
+
+#def one_to_one( a, b, iou_threshold = 0. ):
+    #''' Match two sets of boxes one to one by IOU on given treshold
+    
+    #parameters
+    #----------
+    #a: numpy.array
+       #first Mx4 array of box begin/end coordinates as y1,x1,y2,x2
+    #b: numpy.array
+       #second Mx4 array of box begin/end coordinates as y1,x1,y2,x2
+    
+    #returns
+    #-------
+    #numpy.array of size M, dtype=int, for each box in a index of matching box in b
+    #numpy.array of size M, dtype=bool, for each box in a True if the match is valid
+    #numpy.array of size N, dtype=int, for each box in b index of matching box in a
+    #numpy.array of size N, dtype=bool, for each box in b True if the match is valid
+    
+    #todo
+    #----
+    #- refactor, if too slow
+    #'''
+    #ious = iou_matrix( a, b )
+    #rows, cols = linear_sum_assignment( 1 - ious * ( ious >= iou_threshold ) )
+    #ai = np.zeros( len( a ), dtype = int )
+    #av = np.zeros( len( a ), dtype = bool )
+    #bi = np.zeros( len( b ), dtype = int )
+    #bv = np.zeros( len( b ), dtype = bool )
+    #for i in range( len( rows ) ):
+        #if ious[rows[i]][cols[i]] >= iou_threshold:
+            #ai[rows[i]] = cols[i]
+            #av[rows[i]] = True
+            #bi[cols[i]] = rows[i]
+            #bv[cols[i]] = True
+    #return ai, av, bi, bv
     
 
 #def _flat_np(df):
