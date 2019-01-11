@@ -19,6 +19,7 @@ processing. Output new COCO json file with relevant changes to the data and if o
 output an image directory in the current working directory with all modified images.
 
 RLE not currently supported for segmentation resizing
+tile action is currently dummy action for demonstration purposes
 
 examples:
     cat coco.json | coco-calc --apply-to-images tile --tiles 4,5
@@ -113,7 +114,8 @@ def load_coco(json_file_path_or_buffer: str) -> COCO:
 
 
 def say(*args, **kwargs):
-    print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
+    if ARGS.verbose:
+        print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
 
 
 def grouper(iterable, n, fillvalue=None):
@@ -151,10 +153,9 @@ def get_args() -> argparse.Namespace:
 class Verbose:
     @staticmethod
     def write(line):
-        if ARGS.verbose:
-            line = line.strip()
-            if line:
-                say(line)
+        line = line.strip()
+        if line:
+            say(line)
 
 
 ARGS = get_args()
