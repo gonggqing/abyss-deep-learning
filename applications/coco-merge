@@ -3,13 +3,16 @@ import argparse
 import json
 import os
 import sys
+from collections import defaultdict
 from operator import itemgetter
 from pathlib import Path
 
 import cv2
 
+SCRIPT_NAME = os.path.basename(__file__)
+
 DESCRIPTION = \
-"""
+    """
 Read coco.json file(s) defined on command line or piped in from another coco utility.
 
 Output merged coco json contents in stdout.
@@ -21,68 +24,53 @@ examples:
 
 
 def main():
-    args = get_args()
-
-    stdin_string = ""
     if not sys.stdin.isatty():
-        for line in sys.stdin:
-            stdin_string += line.strip()
-
-    if stdin_string:
-        args.json_files.append(stdin_string)
+        stdin_string = sys.stdin.read()
+        if stdin_string:
+            ARGS.json_files.append(stdin_string)
 
     images = []  # Merged images
     annotations = []  # Merged annotations
-    img_count = {}  # Count occurrences of an image across all json files to be merged
+    licenses = []  # Merged licenses
+    img_count = defaultdict(int)  # Count occurrences of an image across all json files to be merged
     old_id_2_path = {}  # Mapping of old image id to the unique image path, many to one relationship
     path_2_new_id = {}  # Mapping of unique image path to new id, one to one relationship
 
-    for json_file_path_or_buffer in args.json_files:
+    for json_file_path_or_buffer in ARGS.json_files:
         say("loading dataset")
         old_ds = load_dataset(json_file_path_or_buffer)
-
-        # Retrieve sub-directories if they exist between root video directory and video file path
-        path = Path(os.path.join(os.getcwd(), json_file_path_or_buffer))
-        rel_dir = path.relative_to(os.getcwd())
-        sub_dir, file_basename = os.path.split(rel_dir)
 
         say("merging dataset")
         for image in old_ds['images']:
             if 'path' not in image:
                 continue
 
-            img_path = os.path.join(os.getcwd(), sub_dir, image['path'])
-            if img_path in img_count:
-                img_count[img_path] += 1
-            else:
-                img_count[img_path] = 1
+            img_path, img_ext = os.path.splitext(os.path.basename(image['path']))
+            img_count[img_path] += 1
+
+            if 'id' in image:
+                old_id = image['id']
+                old_id_2_path[old_id] = img_path
 
             if img_count[img_path] == 1:
                 new_id = len(images)
-                if not ('height' in image or 'weight' in image):
-                    img = cv2.imread(img_path)
-
-                images.append({
-                    'id': new_id,
-                    'height': image['height'] if 'height' in image else img.shape[0],
-                    'width': image['width'] if 'width' in image else img.shape[1],
-                    'original_uri': image['original_uri'] if 'original_uri' in image else None,
-                    'path': img_path,
-                })
+                if 'id' in image:
+                    image['id'] = new_id
+                images.append(image)
                 path_2_new_id[img_path] = new_id
 
-            # Keep note of any image ids even duplicates to map the annotations to the correct new id
-            old_id = image['id']
-            old_id_2_path[old_id] = img_path
-
         for ann in old_ds['annotations']:
-            old_id = ann['image_id']
-            img_path = old_id_2_path[old_id]
-            new_id = path_2_new_id[img_path]
-            annotations.append({
-                'image_id': new_id,
-                'caption': ann['caption']
-            })
+            if 'image_id' in ann:
+                old_id = ann['image_id']
+                img_path = old_id_2_path[old_id]
+                new_id = path_2_new_id[img_path]
+                ann['image_id'] = new_id
+            if 'id' in ann:
+                del ann['id']
+            annotations.append(ann)
+
+        for license in old_ds['licenses']:
+            licenses.append(license)
 
     # Remove duplicate annotations
     annotations = [dict(item) for item in set(tuple(ann.items()) for ann in annotations)]
@@ -95,16 +83,18 @@ def main():
     annotations.clear()
 
     for idx, ann in enumerate(tmp_annotations):
-        ann = {
-            'id': idx,
-            'image_id': ann['image_id'],
-            'caption': ann['caption'],
-        }
+        ann['id'] = idx + 1
         annotations.append(ann)
 
+    if ARGS.file_name is None:
+        ARGS.file_name = ARGS.json_files[0]
+
+    dataset = load_dataset(ARGS.file_name)
     merged_data_set = {
+        'info': dataset['info'] if 'info' in dataset else None,
         'images': images,
         'annotations': annotations,
+        'licenses': licenses,
     }
 
     json.dump(merged_data_set, sys.stdout, indent=4)
@@ -113,7 +103,8 @@ def main():
 
 
 def say(*arg, **kwargs):
-    print("{}:".format(os.path.basename(__file__)), *arg, file=sys.stderr, **kwargs)
+    if ARGS.verbose:
+        print("{}:".format(SCRIPT_NAME), *arg, file=sys.stderr, **kwargs)
 
 
 def load_dataset(json_file_path_or_buffer):
@@ -129,8 +120,13 @@ def get_args():
     """Get args from the command line args"""
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('json_files', nargs='*', type=str, help="JSON files to merge together into one json")
+    parser.add_argument('-f', '--file_name', nargs=1, type=str, help="COCO json file to copy info to new dataset, "
+                                                                     "default is the first json file")
+    parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     return parser.parse_args()
 
+
+ARGS = get_args()
 
 if __name__ == '__main__':
     main()
