@@ -55,10 +55,10 @@ def one_to_one( a, b, iou_threshold = 0. ):
     refactor, if too slow
     '''
     ious = iou_matrix( a, b )
-    rows, cols = linear_sum_assignment( 1 - ious * ( ious >= iou_threshold ) )
+    ious *= ( ious >= iou_threshold )
+    rows, cols = linear_sum_assignment( 1 - ious )
     result = np.zeros( ious.shape )
-    for i in range( len( rows ) ):
-        if ious[rows[i]][cols[i]] >= iou_threshold: result[rows[i]][cols[i]] = ious[rows[i]][cols[i]]
+    result[rows, cols] = ious[rows, cols] * ( ious[rows, cols] > 0 );
     return result
 
 #def one_to_one( a, b, iou_threshold = 0. ):
