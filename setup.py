@@ -21,7 +21,7 @@ setup(
     scripts=[
         "applications/coco-calc",
         "applications/coco-calc-masks",
-        "applications/coco-caption-count",
+        "applications/coco-stats",
         "applications/coco-check-data-pollution",
         "applications/coco-extract-masks",
         "applications/coco-filter",
