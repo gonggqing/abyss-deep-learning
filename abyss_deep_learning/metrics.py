@@ -73,14 +73,11 @@ def tfpn( predictions, truth, threshold = None, match = one_to_one ):
     
     returns
     -------
-    numpy.array of size M, indices of TP in a
-    numpy.array of size M, indices of FP in a
-    numpy.array of variable size, indices of TN, empty for bounding boxes, since it does not make sense
-    numpy.array of size N, indices of FN in b
-    
-    todo
-    ----
-    refactor, if too slow
+    TP, FP, TN, FN
+    TP: numpy.array of size M, indices of TP in a
+    FP: numpy.array of size M, indices of FP in a
+    TN: numpy.array of variable size, indices of TN, empty for bounding boxes, since it does not make sense
+    FN: numpy.array of size N, indices of FN in b
     '''
     m = ( match( predictions, truth, threshold ) > 0 ) * 1
     sr = np.sum( m, axis = 1 )

@@ -14,7 +14,6 @@ setup(
         'abyss_deep_learning.keras',
         'abyss_deep_learning.datasets',
         'abyss_deep_learning.datasets.mrcnn',
-        'abyss_deep_learning.metrics',
     ],
     package_data={
         # 'abyss_deep_learning': ["third-party"]
