@@ -5,14 +5,9 @@ import os
 import sys
 from collections import defaultdict
 from operator import itemgetter
-from pathlib import Path
-
-import cv2
-
-SCRIPT_NAME = os.path.basename(__file__)
 
 DESCRIPTION = \
-    """
+"""
 Read coco.json file(s) defined on command line or piped in from another coco utility.
 
 Output merged coco json contents in stdout.
@@ -24,6 +19,9 @@ examples:
 
 
 def main():
+    global ARGS
+    ARGS = get_args()
+
     if not sys.stdin.isatty():
         stdin_string = sys.stdin.read()
         if stdin_string:
@@ -104,7 +102,7 @@ def main():
 
 def say(*arg, **kwargs):
     if ARGS.verbose:
-        print("{}:".format(SCRIPT_NAME), *arg, file=sys.stderr, **kwargs)
+        print("{}:".format(os.path.basename(__file__)), *arg, file=sys.stderr, **kwargs)
 
 
 def load_dataset(json_file_path_or_buffer):
@@ -125,8 +123,6 @@ def get_args():
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     return parser.parse_args()
 
-
-ARGS = get_args()
 
 if __name__ == '__main__':
     main()

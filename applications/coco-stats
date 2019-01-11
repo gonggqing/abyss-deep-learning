@@ -6,10 +6,11 @@ from argparse import ArgumentParser
 from collections import defaultdict
 from operator import itemgetter
 
-SCRIPT_NAME = os.path.basename(__file__)
-
 
 def main():
+    global ARGS
+    ARGS = get_args()
+
     category_count = defaultdict(int)
 
     if not sys.stdin.isatty():
@@ -80,10 +81,8 @@ def load_dataset(json_file_path_or_buffer):
 
 def say(*args, **kwargs):
     if ARGS.verbose:
-        print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
+        print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
 
-
-ARGS = get_args()
 
 if __name__ == '__main__':
     main()

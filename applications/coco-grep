@@ -8,8 +8,6 @@ from operator import itemgetter
 
 from pycocotools.coco import COCO
 
-SCRIPT_NAME = os.path.basename(__file__)
-
 DESCRIPTION = \
 """
 Read COCO json file piped in from stdin or a list of COCO json files and grep for images and all associated 
@@ -42,10 +40,13 @@ examples:
 
 
 def main():
+    global ARGS
+    ARGS = get_args()
+
     if not sys.stdin.isatty():
         stdin_string = sys.stdin.read()
         if stdin_string:
-            ARGS.json_file.append(stdin_string)
+            ARGS.json_files.append(stdin_string)
 
     for idx, json_file_path_or_buffer in enumerate(ARGS.json_files):
         say("creating coco object")
@@ -130,8 +131,8 @@ def main():
 
         to_add_ann_ids = coco.getAnnIds(imgIds=to_add_img_ids)
 
-        keep_cats = ARGS.keep_cats.split(',')
-        if keep_cats is not None:
+        if ARGS.keep_cats is not None:
+            keep_cats = ARGS.keep_cats.split(',')
             tmp = to_add_ann_ids.copy()
             to_add_ann_ids.clear()
             cat_id_2_cat = {cat['id']: cat['name'] for cat in coco.loadCats(coco.getCatIds())}
@@ -247,7 +248,7 @@ def load_coco(json_file_path_or_buffer):
 
 class Verbose:
     @staticmethod
-    def write(line):
+    def write(line: str):
         line = line.strip()
         if line:
             say(line)
@@ -255,7 +256,7 @@ class Verbose:
 
 def say(*args, **kwargs):
     if ARGS.verbose:
-        print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
+        print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
 
 
 def get_args() -> argparse.Namespace:
@@ -266,9 +267,6 @@ def get_args() -> argparse.Namespace:
                                                             "separated) to keep for each image")
     parser.add_argument('-v', '--verbose', action='store_true', help="More output")
     return parser.parse_args()
-
-
-ARGS = get_args()
 
 
 if __name__ == '__main__':
