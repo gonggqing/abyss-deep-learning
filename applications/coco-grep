@@ -11,7 +11,7 @@ from pycocotools.coco import COCO
 SCRIPT_NAME = os.path.basename(__file__)
 
 DESCRIPTION = \
-    """
+"""
 Read COCO json file piped in from stdin or a list of COCO json files and grep for images and all associated 
 annotations using a given expression. 
 
@@ -20,8 +20,8 @@ Possible expressions that can be used are:
     cat_id/category_id
     cat/category
     supcat/supercategory
-    multiple cats/categories
-    multiple supcats/supercategories
+    multiple cats/categories i.e. 'JD' in cats/categories and 'F' in cats/categories
+    multiple supcats/supercategories i.e. 'JD' in supcats/supercategories or 'F' in supcats/supercategories
 
 examples:
     coco-grep coco.json -e "img_id == 10"
@@ -51,11 +51,6 @@ def main():
         say("creating coco object")
         coco = load_coco(json_file_path_or_buffer)
 
-        img_id = image_id = None
-        cat_id = category_id = None
-        cat = category = None
-        supcat = supercategory = None
-
         all_cats = {cat['name'].replace('-', '_'): False for cat in coco.loadCats(coco.getCatIds()) if cat['name']}
         globals().update(all_cats)
 
@@ -69,15 +64,6 @@ def main():
         # Sort all annotations by their image id, then the annotation id as an image can have multiple annotations
         anns.sort(key=itemgetter('image_id', 'id'))
 
-        # Temporary list to store associated category ids for one image
-        cat_ids = category_ids = []
-
-        # Temporary list to store associated categories for one image
-        cats = categories = []
-
-        # Temporary list to store associated supercategories for one image
-        supcats = supercategories = []
-
         # Image ids to carry over from COCO dataset
         to_add_img_ids = set()
 
@@ -85,19 +71,19 @@ def main():
         to_add_ann_ids = set()
 
         for curr_img_id in coco.getImgIds():
-            # Reinitialize image id expression check
+            # Reinitialize image id for expression check
             img_id = image_id = None
 
-            # Reinitialize category id expression check
+            # Reinitialize category id for expression check
             cat_ids = category_ids = []
             cat_id = category_id = None
 
-            # Reinitialize category expression check
+            # Reinitialize category for expression check
             globals().update(all_cats)
             cats = categories = []
             cat = category = None
 
-            # Reinitialize super category expression check
+            # Reinitialize super category for expression check
             globals().update(all_supcats)
             supcats = supercategories = []
             supcat = supercategory = None
