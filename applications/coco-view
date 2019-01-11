@@ -106,7 +106,7 @@ def load_inputs(files):
 
 def draw_image(image_id,layer_ids=[]):
     image_data = image_container[image_id]
-    prefix = "/home/j/src/coco_data/"
+    prefix = ""
     overlayed_image = QtGui.QPixmap(prefix+image_data.image_path)
     pixmap_painter = QtGui.QPainter(overlayed_image)
     pixmap_painter.setPen(QtGui.QPen(QtCore.Qt.red))
