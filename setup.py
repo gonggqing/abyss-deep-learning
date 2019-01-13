@@ -24,7 +24,6 @@ setup(
         "applications/coco-stats",
         "applications/coco-check-data-pollution",
         "applications/coco-extract-masks",
-        "applications/coco-filter",
         "applications/coco-from-video",
         "applications/coco-from-csv",
         "applications/coco-grep",
