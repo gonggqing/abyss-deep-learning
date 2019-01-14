@@ -24,7 +24,7 @@ def main():
     global ARGS
     ARGS = get_args()
 
-    if not sys.stdin.isatty() and ARGS.csv is None:
+    if ARGS.csv is None:
         csv = StringIO(sys.stdin.read())
     else:
         csv = ARGS.csv
