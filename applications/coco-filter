@@ -1,64 +1,80 @@
-#!/usr/bin/python3.6
-import json
+#!/usr/bin/env python3
 import os
+import json
 import sys
 from argparse import ArgumentParser
 
 
+SCRIPT_NAME = os.path.basename(__file__)
+
+
 def main():
     args = get_args()
-    json_strings = []
-    captions = args.captions.split(',')
-    dataset = {
+    new_ds = {
         'images': [],
-        'annotations': []
+        'annotations': [],
     }
 
+    stdin_string = ""
     if not sys.stdin.isatty():
         for line in sys.stdin:
-            stripped_line = line.strip()
-            if os.path.exists(stripped_line):
-                args.json_files.append(stripped_line)
-            else:
-                json_strings.append(stripped_line)
+            stdin_string += line.strip()
 
-    stdin_data = json.loads("".join(json_strings)) if json_strings else None
+    if stdin_string:
+        args.json_files.append(stdin_string)
 
-    for json_file in args.json_files:
-        if not os.path.exists(json_file):
-            continue
+    for json_file_path_or_buffer in args.json_files:
+        say("loading dataset")
+        old_ds = load_dataset(json_file_path_or_buffer)
+        new_ds = filter_captions(new_ds, old_ds)
 
-        with open(json_file, 'r') as in_file:
-            json_data = json.load(in_file)
-
-        dataset = filter_captions(captions, dataset, json_data)
-
-    dataset = filter_captions(captions, dataset, stdin_data)
-
-    with sys.stdout as out_file:
-        json.dump(dataset, out_file, indent=4)
+    json.dump(new_ds, sys.stdout, indent=4)
+    say("done")
+    sys.exit()
 
 
-def filter_captions(captions, dataset, json_data):
-    if json_data is None:
-        return dataset
+def filter_captions(new_ds: dict, old_ds: dict) -> dict:
+    """
+    Merges new output data set and multiple json file data sets
 
+    Args:
+        new_ds: output data set
+        old_ds: to be merged data set
+
+    Returns: new_ds, the output data set
+
+    """
+    captions = get_args().captions.split(',')
     img_ids = set()
-    for ann in json_data['annotations']:
+    for ann in old_ds['annotations']:
         if ann['caption'] in captions:
-            dataset['annotations'].append(ann)
+            new_ds['annotations'].append(ann)
             img_ids.add(ann['image_id'])
-    for img in json_data['images']:
+    for img in old_ds['images']:
         if img['id'] in img_ids:
-            dataset['images'].append(img)
-    return dataset
+            new_ds['images'].append(img)
+    return new_ds
+
+
+def load_dataset(json_file_path_or_buffer):
+    if os.path.exists(json_file_path_or_buffer):
+        with open(json_file_path_or_buffer, 'r') as file_handle:
+            in_dataset = json.load(file_handle)
+    else:
+        in_dataset = json.loads(json_file_path_or_buffer)
+    return in_dataset
+
+
+def say(*args, **kwargs):
+    print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
+
 
 def get_args():
-    parser = ArgumentParser(
-        description="Count all unique caption instances in given coco files"
-    )
-    parser.add_argument('json_files', nargs='*', type=str, help='JSON files to caption count')
-    parser.add_argument('-c', '--captions', type=str, help='Captions to keep for each image annotations')
+    parser = ArgumentParser(description="Filter out extraneous captions associated with images in a given json file")
+    parser.add_argument('json_files', nargs='*', type=str, help="JSON files to caption count")
+    parser.add_argument('-c', '--captions', type=str, help="Captions to keep for each image annotations. Can be a "
+                                                           "single caption or multiple captions that are comma "
+                                                           "separated")
     return parser.parse_args()
 
 

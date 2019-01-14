@@ -13,17 +13,19 @@ setup(
         'abyss_deep_learning.base',
         'abyss_deep_learning.keras',
         'abyss_deep_learning.datasets',
+        'abyss_deep_learning.datasets.mrcnn',
     ],
     package_data={
         # 'abyss_deep_learning': ["third-party"]
     },
     scripts=[
+        "applications/coco-calc",
         "applications/coco-calc-masks",
-        "applications/coco-caption-count",
+        "applications/coco-stats",
         "applications/coco-check-data-pollution",
         "applications/coco-extract-masks",
-        "applications/coco-filter",
         "applications/coco-from-video",
+        "applications/coco-from-csv",
         "applications/coco-grep",
         "applications/coco-merge",
         "applications/coco-overlay-masks",

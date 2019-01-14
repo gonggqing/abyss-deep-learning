@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import sys
+from collections import defaultdict
+from operator import itemgetter
+from pathlib import Path
+
+description = """
+
+calculate metrics on predictions vs labels
+
+run coco-metrics <operation> --help for operation option    
+"""
+
+tfpn_description = """
+
+take predictions.json, truth.json, output to stdout coco annotations labeled as TP, FP, TN
+
+usage: cat predictions.json | coco-metrics --truth truth.json > tfpn.json
+
+categories in predictions.json and truth.json should be the same, no checks performed
+"""
+
+def tfpn(args):
+    predictions = json.loads(sys.stdin.read())
+    f = open(args.truth)
+    truth = json.loads(f.read())
+    
+    # todo: for each image get predictions and truth annotations
+    
+    if args.bounding_boxes:
+        # todo: for each image get predictions and truth annotations
+        # todo:     for each category
+        # todo:         get predictions above score threshold
+        # todo:         get truth annotations
+        # todo:         populate prediction and truth arrays
+        # todo:         get one-to-one matrix
+        # todo:         mark TP
+        # todo:         mark FP
+        # todo:         append FN
+        1 == 1
+    predictions['categories'] = []
+    if args.flat_categories:
+        predictions['categories'] += [ { 'name': 'TP', 'supercategory': '', 'id': 0 }
+                                     , { 'name': 'FP', 'supercategory': '', 'id': 1 }
+                                     , { 'name': 'TN', 'supercategory': '', 'id': 2 }
+                                     , { 'name': 'FN', 'supercategory': '', 'id': 3 } ]
+    else:
+        i = 0
+        for c in truth['categories']:
+            predictions['categories'] += [ { 'name': 'TP', 'supercategory': c['name'], 'id': i }
+                                         , { 'name': 'FP', 'supercategory': c['name'], 'id': i + 1 }
+                                         , { 'name': 'TN', 'supercategory': c['name'], 'id': i + 2 }
+                                         , { 'name': 'FN', 'supercategory': c['name'], 'id': i + 3 } ]
+            i += 4
+    json.dump(predictions, sys.stdout, indent=4)
+
+def get_args():
+    parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
+    subparsers = parser.add_subparsers(title="operations", help="available operations")
+    tfpn_parser = subparsers.add_parser('tfpn', description=tfpn_description, help="take predictions.json, truth.json, output to stdout coco annotations labeled as TP, FP, TN", formatter_class=argparse.RawDescriptionHelpFormatter)
+    tfpn_parser.set_defaults( func=tfpn )
+    tfpn_parser.add_argument( '--bounding-boxes', '--bbox', '-b', action='store_true', help="match bounding boxes" )
+    tfpn_parser.add_argument( '--flat-categories', '--flat', action='store_true', help="output just four categories: TP, FP, TN, and FN" )
+    tfpn_parser.add_argument( '--iou-threshold', default=0.5, type=float, help="iou threshold" )
+    tfpn_parser.add_argument( '--match', default='one-to-one', type=str, help="how to match" )
+    tfpn_parser.add_argument( '--score-threshold', default=0.5, type=float, help="score threshold" )
+    tfpn_parser.add_argument( '--truth', '-t', type=str, help="ground truth coco.json file" )
+    return parser.parse_args()
+
+def main():
+    args = get_args()
+    args.func(args)
+    
+if __name__ == '__main__':
+    main()

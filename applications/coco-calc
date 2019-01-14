@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import sys
+import itertools
+
+from contextlib import redirect_stdout
+from pycocotools.coco import COCO
+
+DESCRIPTION = \
+"""
+Read COCO json file piped in from stdin or a list of COCO json files and apply image manipulation and 
+processing. Output new COCO json file with relevant changes to the data and if output images is specified, 
+output an image directory in the current working directory with all modified images.
+
+RLE not currently supported for segmentation resizing
+tile action is currently dummy action for demonstration purposes
+
+examples:
+    cat coco.json | coco-calc --apply-to-images tile --tiles 4,5
+    cat coco.json | coco-calc resize --factor 0.3
+    cat coco.json | coco-calc --verbose resize --size 480,640
+"""
+
+
+def main():
+    global ARGS
+    ARGS = get_args()
+
+    if ARGS.apply_to_images:
+        os.makedirs(os.path.join(os.getcwd(), 'images'), exist_ok=True)
+
+    say("creating coco object")
+    coco = ARGS.func(load_coco(sys.stdin.read()))
+    json.dump(coco.dataset, sys.stdout, indent=4)
+    say("done")
+    sys.exit()
+
+
+def resize(coco: COCO) -> COCO:
+    say("resizing images")
+    for img_data in coco.loadImgs(coco.getImgIds()):
+        if ARGS.factor is not None:
+            h_scale = v_scale = ARGS.factor
+        else:
+            dims = ARGS.size.split(',')
+            h_scale = int(dims[0]) / img_data['width']
+            v_scale = int(dims[1]) / img_data['height']
+        img_data['height'] = int(img_data['height'] * v_scale)
+        img_data['width'] = int(img_data['width'] * h_scale)
+
+        if ARGS.apply_to_images:
+            import cv2
+            path = None
+            if os.path.isfile(img_data['path']):
+                path = img_data['path']
+            elif os.path.isfile(os.path.abspath(img_data['path'])):
+                path = img_data['path']
+            else:
+                say("cannot find path to image [{}]".format(img_data['path']))
+
+            if path is not None:
+                img = cv2.imread(img_data['path'])
+                new_path = os.path.join(os.getcwd(), 'images', os.path.basename(img_data['path']))
+                img_data['path'] = new_path
+                img_size = (img_data['width'], img_data['height'])
+                resized_img = cv2.resize(img, img_size)
+                say("writing image to {}".format(new_path))
+                cv2.imwrite(new_path, resized_img)
+
+        anns = coco.loadAnns(coco.getAnnIds(img_data['id']))
+        # Rescaling bbox and segmentation values
+        # format is [x, y, width, height]
+        # Rescaled area value i.e. new_width * new_height
+        for ann in anns:
+            x = int(ann['bbox'][0] * h_scale)
+            y = int(ann['bbox'][1] * v_scale)
+            width = int(ann['bbox'][2] * h_scale)
+            height = int(ann['bbox'][3] * v_scale)
+            ann['bbox'] = [x, y, width, height]
+            ann['area'] = width * height
+
+            tmp = ann['segmentation']
+            if type(tmp) is list:
+                segmentation = []
+                for segment in tmp:
+                    new_segment = [(int(x * h_scale), int(y * v_scale)) for x, y in grouper(segment, 2)]
+                    # Flatten the list of tuples
+                    new_segment = list(itertools.chain(*new_segment))
+                    segmentation.append(new_segment)
+                ann['segmentation'] = segmentation
+            elif type(tmp) is dict:
+                say("rle is not yet supported")
+            else:
+                say("unknown data type [{}]".format(type(tmp)))
+    return coco
+
+
+# Placeholder for demonstration purposes
+def tile(coco: COCO) -> COCO:
+    say("tiling images")
+    return coco
+
+
+def load_coco(json_buffer: str) -> COCO:
+    with redirect_stdout(Verbose):
+        coco = COCO()
+        coco.dataset = json.loads(json_buffer)
+        coco.createIndex()
+    return coco
+
+
+def say(*args, **kwargs):
+    if ARGS.verbose:
+        print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
+
+
+def grouper(iterable, n: int, fillvalue=None):
+    args = [iter(iterable)] * n
+    return itertools.zip_longest(*args, fillvalue=fillvalue)
+
+
+def get_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
+    subparsers = parser.add_subparsers(title="Actions", description="Actions apply to all images in the dataset. "
+                                                                    "Append -h for further information on each "
+                                                                    "individual action",
+                                       help="Available actions")
+
+    parser_resize = subparsers.add_parser('resize', help="Resize all images and their respective annotations by a "
+                                                         "scaling factor or to specified width and height")
+    parser_resize.set_defaults(func=resize)
+    resize_args = parser_resize.add_mutually_exclusive_group(required=True)
+    resize_args.add_argument('-f', '--factor', type=float, help="Scale images by a percentage")
+    resize_args.add_argument('-s', '--size', type=str, help="[width],[height] to resize images to")
+
+    parser_tile = subparsers.add_parser('tile', help="For testing purposes, no functionality currently")
+    parser_tile.set_defaults(func=tile)
+    tile_args = parser_tile.add_mutually_exclusive_group(required=True)
+    tile_args.add_argument('-n', '--num-tiles', type=int, help="Number of tiles to generate from image")
+    tile_args.add_argument('-dum', '--dummy', help="dummy option")
+
+    parser.add_argument('-o', '--output-images', action='store_true', help="Apply action to images and output in "
+                                                                           "current working directory [image] "
+                                                                           "folder that contains new images")
+    parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
+    return parser.parse_args()
+
+
+class Verbose:
+    @staticmethod
+    def write(line):
+        line = line.strip()
+        if line:
+            say(line)
+
+
+if __name__ == '__main__':
+    main()

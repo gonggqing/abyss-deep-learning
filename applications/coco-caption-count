@@ -1,49 +1,44 @@
-#!/usr/bin/python3.6
-
+#!/usr/bin/env python3
 import json
 import os
 import sys
 from argparse import ArgumentParser
 from operator import itemgetter
 
+SCRIPT_NAME = os.path.basename(__file__)
+
 
 def main():
     args = get_args()
-    caption_count = {}
-    json_strings = []
+    caption_count = {
+        'total_images': 0
+    }
 
+    stdin_string = ""
     if not sys.stdin.isatty():
         for line in sys.stdin:
-            stripped_line = line.strip()
-            if os.path.exists(stripped_line):
-                args.json_files.append(stripped_line)
-            else:
-                json_strings.append(stripped_line)
+            stdin_string += line.strip()
 
-    stdin_data = json.loads("".join(json_strings)) if json_strings else None
+    if stdin_string:
+        args.json_files.append(stdin_string)
 
-    for json_file in args.json_files:
-        if not os.path.exists(json_file):
-            continue
-
-        with open(json_file, 'r') as in_file:
-            json_data = json.load(in_file)
-
-        caption_count = extract_data(json_data, caption_count)
-
-    caption_count = extract_data(stdin_data, caption_count)
-
-    total_count = sum(caption_count.values())
+    for json_file_path_or_buffer in args.json_files:
+        say("loading dataset")
+        in_ds = load_dataset(json_file_path_or_buffer)
+        say("counting captions")
+        caption_count = extract_data(in_ds, caption_count)
 
     if args.percent:
+        total_count = sum(caption_count.values())
         for caption, count in caption_count.items():
             caption_count[caption] = {
                 'count': count,
                 'percentage': count / total_count * 100,
             }
 
-    with sys.stdout as out_file:
-        json.dump(caption_count, out_file, sort_keys=True, indent=4)
+    json.dump(caption_count, sys.stdout, indent=4)
+    say("done")
+    sys.exit()
 
 
 def get_args():
@@ -56,44 +51,25 @@ def get_args():
     return parser.parse_args()
 
 
-def extract_data(data, caption_count):
+def extract_data(data_set, caption_count):
     args = get_args()
 
-    if not data or 'annotations' not in data:
-        return caption_count
-
-    anns = data['annotations']
-
-    if not anns:
-        return caption_count
-
+    anns = data_set['annotations']
     anns.sort(key=itemgetter('image_id', 'id'))
 
-    curr_img = None
-    caption = None
-
+    curr_img_id = None
     for ann in anns:
-        if not ('image_id' and 'caption' in ann):
-            continue
-
         if args.multi_label:
-            if caption is None and curr_img is None:
-                first_ann = anns[0]
-                if 'image_id' in first_ann:
-                    curr_img = first_ann['image_id']
-                if 'caption' in first_ann:
-                    caption = first_ann['caption']
-                continue
-
-            if curr_img != ann['image_id']:
-                curr_img = ann['image_id']
-                add_caption_to_count(caption, caption_count)
-                caption = ann['caption']
-            else:
-                caption = ','.join((caption, ann['caption']))
+            captions = []
+            if curr_img_id != ann['image_id']:
+                add_caption_to_count(captions, caption_count)
+                curr_img_id = ann['image_id']
+                captions.clear()
+            captions.append(ann['caption'])
         else:
-            caption = ann['caption']
-            add_caption_to_count(caption, caption_count)
+            add_caption_to_count(ann['caption'], caption_count)
+
+    caption_count['total_images'] += len(data_set['images'])
 
     return caption_count
 
@@ -102,6 +78,19 @@ def add_caption_to_count(caption, caption_count):
     if caption not in caption_count:
         caption_count[caption] = 0
     caption_count[caption] += 1
+
+
+def load_dataset(json_file_path_or_buffer):
+    if os.path.exists(json_file_path_or_buffer):
+        with open(json_file_path_or_buffer, 'r') as file_handle:
+            in_dataset = json.load(file_handle)
+    else:
+        in_dataset = json.loads(json_file_path_or_buffer)
+    return in_dataset
+
+
+def say(*args, **kwargs):
+    print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
 
 
 if __name__ == '__main__':

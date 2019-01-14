@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+import argparse
+import sys
+
+from pycocotools import mask as COCOmask
+from pycocotools.coco import COCO
+from contextlib import redirect_stdout
+from operator import itemgetter
+import numpy as np
+from PyQt4 import QtGui, QtCore
+
+
+help_string_verbose = '''
+COCO Layer Viewer
+-
+This viewer is designed to allow for easy comparison of various
+coco files by being able to toggle on and off individual sets
+of categories from each file. The tool will also allow for advancing
+and stepping back between images
+
+TODO: decide how to customiser layer colours, fill and borders
+TODO: decide to put text below each bbox/seg
+
+'''
+
+image_container = {}
+
+class LayerData:
+
+    def __init__(self):
+        self.layer_name = ""
+        self.category_data = {}
+        self.bbox = []
+        self.segmentation = []
+
+class ViewerImage:
+    def __init__(self, image_id,image_path=None, dims=(0,0)):
+        self.image_id = image_id
+        self.image_path = image_path
+        self.dims = dims
+        self.layers = []
+    def add_layer(self):
+        layer = LayerData()
+        self.layers.append(layer)
+        return layer
+
+
+class Viewport(QtGui.QWidget):
+
+    def __init__(self):
+        super(Viewport, self).__init__()
+        self.initialise_ui()
+        self.image_pos = 1
+
+    def initialise_ui(self):      
+        self.setGeometry(300, 300, 250, 150)
+        self.setWindowTitle('coco-viewer')
+        self.view_image  =  QtGui.QLabel()
+        vbox = QtGui.QVBoxLayout()
+        vbox.addWidget(self.view_image)
+        self.setLayout(vbox)
+        self.show()
+
+    def keyPressEvent(self, event):
+        if event.key() == QtCore.Qt.Key_D or event.key() == QtCore.Qt.Key_Right:
+            print("Advance")
+            self.image_pos += 1
+        elif event.key() == QtCore.Qt.Key_A or event.key() == QtCore.Qt.Key_Left:
+            print("Rewind")
+            self.image_pos -= 1
+
+        self.setWindowTitle('coco-viewer - ' + image_container[self.image_pos].image_path)
+        self.view_image.setPixmap(draw_image(self.image_pos))
+        event.accept()
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description='COCO Viewer - View Masks and Bounding Boxes overlayed on a series of images.'
+    )
+    parser.add_argument('input_files', metavar='json', nargs='+')
+    parser.add_argument('--prefix')
+    return parser.parse_args()
+
+
+def load_inputs(files):
+    for file in files:
+        with redirect_stdout(sys.stderr):
+            coco_db = COCO(file)
+            # Populate Images
+            for _,v in coco_db.imgs.items():
+                if v['id'] not in image_container.keys():
+                    image_container[v['id']] = ViewerImage(
+                        v['id'],v['file_name'],(v['width'],v['height']))
+
+                layer = image_container[v['id']].add_layer()
+                # Populate Bounding Box and Segmentation Data
+                for annotation in coco_db.getAnnIds(v['id']):
+                    annotation = coco_db.anns[annotation]
+                    layer.bbox.append((annotation['category_id'],annotation['bbox']))
+                    layer.segmentation.append((annotation['category_id'],annotation['segmentation']))
+                # Populate Category data for each layer
+                for _,cat in coco_db.cats.items():
+                    layer.category_data[cat['id']] = (cat['id'],cat['name'])
+
+
+def draw_image(image_id,layer_ids=[]):
+    image_data = image_container[image_id]
+    prefix = ""
+    overlayed_image = QtGui.QPixmap(prefix+image_data.image_path)
+    pixmap_painter = QtGui.QPainter(overlayed_image)
+    pixmap_painter.setPen(QtGui.QPen(QtCore.Qt.red))
+
+
+
+    for layer in image_data.layers:
+        for bbox in layer.bbox:
+            pixmap_painter.drawRect(bbox[1][0],bbox[1][1],bbox[1][2],bbox[1][3])
+    
+        for segment in layer.segmentation:
+            print(segment)
+
+
+    return overlayed_image
+
+def main(args):
+    load_inputs(args.input_files)
+
+    
+    app = QtGui.QApplication(sys.argv)
+    viewport = Viewport()
+    sys.exit(app.exec_())
+    
+
+if __name__ == "__main__":
+    main(parse_arguments())
