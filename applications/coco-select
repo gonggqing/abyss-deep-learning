@@ -9,9 +9,8 @@ from operator import itemgetter
 from pycocotools.coco import COCO
 
 DESCRIPTION = \
-    """
-Read COCO json file piped in from stdin or a list of COCO json files and grep for images and all associated 
-annotations using a given expression. 
+"""
+Read COCO json file piped in from stdin and select images and all associated  annotations that satisfy a given expression. 
 
 Possible expressions that can be used are:
     img_id/image_id
@@ -22,20 +21,22 @@ Possible expressions that can be used are:
     multiple supcats/supercategories i.e. 'JD' in supcats/supercategories or 'F' in supcats/supercategories
 
 examples:
-    coco-grep coco.json -e "img_id == 10"
-    coco-grep coco.json --expression "image_id == 5"
+    cat coco.json | coco-select "img_id == 10"
+    cat coco.json | coco-select "image_id == 5"
     
-    coco-grep coco.json -e "cat_id == 2"
-    coco-grep coco.json --expression "category_id == 3"
+    cat coco.json | coco-select "cat_id == 2"
+    cat coco.json | coco-select "category_id == 3"
     
-    coco-grep coco.json -e "cat == 'JD'"
-    coco-grep coco.json -expression "category == 'RI'"
+    cat coco.json | coco-select "cat == 'JD'"
+    cat coco.json | coco-select "category == 'RI'"
     
-    coco-grep coco.json -e "'JD' in cats and 'RI' in cats"
-    coco-grep coco.json --expression "'JD' in categories or 'F' in categories"
+    cat coco.json | coco-select "'JD' in cats and 'RI' in cats"
+    cat coco.json | coco-select "'JD' in categories or 'F' in categories"
     
-    coco-grep coco.json -e "not 'C' in supcats and 'ED' in supcats"
-    coco-grep coco.json --expression "not 'JD' in categories or 'F' in categories"
+    cat coco.json | coco-select "not 'C' in supcats and 'ED' in supcats"
+    cat coco.json | coco-select "not 'JD' in categories or 'F' in categories"
+    
+    cat coco.json | coco-select "img_id in img_ids"
 """
 
 
@@ -49,8 +50,8 @@ def main():
 
     try:
         all_cats = {cat['name'].replace('-', '_'): False for cat in coco.loadCats(coco.getCatIds()) if cat['name']}
-    except KeyError:
-        say("expected key [categories] in coco file")
+    except KeyError as e:
+        say("expected key [{}] in coco file".format(str(e)))
         all_cats = {}
 
     globals().update(all_cats)
@@ -58,16 +59,16 @@ def main():
     try:
         all_supcats = {cat['supercategory'].replace('-', '_'): False for cat in coco.loadCats(coco.getCatIds()) if
                        cat['supercategory']}
-    except KeyError:
-        say("expected key [categories] in coco file")
+    except KeyError as e:
+        say("expected key [{}] in coco file".format(str(e)))
         all_supcats = {}
 
     globals().update(all_supcats)
 
     try:
         all_captions = {item['caption']: False for item in coco.anns.values()}
-    except KeyError:
-        say("expected key [caption] in coco file")
+    except KeyError as e:
+        say("expected key [{}] in coco file".format(str(e)))
         all_captions = {}
 
     globals().update(all_captions)
@@ -82,6 +83,7 @@ def main():
     to_add_img_ids = set()
 
     global img_id, image_id
+    global img_ids, image_ids
     global cat_ids, category_ids
     global cat_id, category_id
     global cats, categories
@@ -91,6 +93,7 @@ def main():
     global caps, captions
     global cap, caption
 
+    img_ids = image_ids = set(coco.getImgIds())
     for curr_img_id in coco.getImgIds():
         # Reinitialize image id for expression check
         img_id = image_id = None
@@ -123,8 +126,8 @@ def main():
         try:
             cat_ids = category_ids = set(
                 [ann['category_id'] for ann in coco.loadAnns(coco.getAnnIds(imgIds=curr_img_id))])
-        except KeyError:
-            say("expected key [category_id] in coco file")
+        except KeyError as e:
+            say("expected key [{}] in coco file".format(str(e)))
 
         to_add_img_ids.add(eval_expression(curr_img_id))
 
@@ -163,8 +166,8 @@ def main():
             for caption in captions:
                 cap = caption
                 to_add_img_ids.add(eval_expression(curr_img_id))
-        except KeyError:
-            say("expected key [caption] in dataset")
+        except KeyError as e:
+            say("expected key [{}] in coco file".format(str(e)))
 
     to_add_ann_ids = coco.getAnnIds(imgIds=to_add_img_ids)
 
@@ -184,7 +187,10 @@ def main():
             if ann['caption'] in keep_captions:
                 to_add_ann_ids.append(ann['id'])
 
-    to_add_img_ids.remove(None)
+    try:
+        to_add_img_ids.remove(None)
+    except KeyError as e:
+        say("expected key [{}] in coco file".format(str(e)))
     imgs = coco.loadImgs(to_add_img_ids)
 
     coco.dataset['images'] = [] if imgs is None else imgs
@@ -227,7 +233,9 @@ def say(*args, **kwargs):
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('expression', type=str, help="General expression to search for images")
+    parser.add_argument('expression', type=str, help="General expression to search for images. If no expression give, "
+                                                     "defaults to search for all images", default="image_id in "
+                                                                                                  "image_ids", nargs='?')
     parser.add_argument('-cats', '--keep-cats', type=str, help="Specify specific categories or category ids (comma "
                                                                "separated) to keep for each image")
     parser.add_argument('-caps', '--keep-captions', type=str, help="Specify specific captions (comma separated to "
