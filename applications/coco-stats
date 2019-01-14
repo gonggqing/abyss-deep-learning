@@ -2,7 +2,7 @@
 import json
 import os
 import sys
-from argparse import ArgumentParser
+import argparse
 from collections import defaultdict
 from operator import itemgetter
 
@@ -11,7 +11,7 @@ def main():
     global ARGS
     ARGS = get_args()
 
-    category_count = defaultdict(int)
+    category_or_caption_count = defaultdict(int)
 
     if not sys.stdin.isatty():
         stdin_string = sys.stdin.read()
@@ -20,49 +20,56 @@ def main():
 
     for json_file_path_or_buffer in ARGS.json_files:
         say("loading dataset")
-        in_ds = load_dataset(json_file_path_or_buffer)
-        say("counting categories")
-        category_count = count_categories(in_ds, category_count)
+        data_set = load_dataset(json_file_path_or_buffer)
+        if ARGS.format == 'default':
+            say("counting categories")
+            category_or_caption_count = count_categories(data_set, category_or_caption_count)
+        elif ARGS.format == 'new':
+            say("counting captions")
+            category_or_caption_count = count_captions(data_set, category_or_caption_count)
 
         if ARGS.percent:
-            total_count = sum(category_count.values())
-            for caption, count in category_count.items():
-                category_count[caption] = {
-                    'count': count,
-                    'percentage': count / total_count * 100,
-                }
+            total_count = sum(category_or_caption_count.values()) - len(data_set['images'])
+            for category_or_caption, count in category_or_caption_count.items():
+                if category_or_caption != 'total_images':
+                    category_or_caption_count[category_or_caption] = {
+                        'count': count,
+                        'percentage': count / total_count * 100,
+                    }
 
-        json.dump(category_count, sys.stdout, indent=4)
+        json.dump(category_or_caption_count, sys.stdout, indent=4)
     say("done")
     sys.exit()
 
 
-def get_args():
-    parser = ArgumentParser(
+def get_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
         description="Count all unique category instances in given coco files"
     )
-    parser.add_argument('json_files', nargs='*', type=str, help='JSON files to caption count')
-    parser.add_argument('-m', '--multi-label', action='store_true', help='Option to treat multi-labels as unique')
-    parser.add_argument('-p', '--percent', action='store_true', help='Option to output percentage of entire data set')
+    parser.add_argument('json_files', nargs=1, type=str, help='JSON files to caption count')
+    parser.add_argument('format', type=str, help="Available arguments are [new], [default]. default is "
+                                                 "default", default="default")
+    parser.add_argument('-m', '--multi-label', action='store_true', help='Treat multi-labels as unique')
+    parser.add_argument('-p', '--percent', action='store_true', help='Output percentages of entire data set')
     parser.add_argument('-v', '--verbose', action='store_true', help='More output to stderr')
     return parser.parse_args()
 
 
-def count_categories(data_set, category_count):
-    args = get_args()
-
+def count_categories(data_set: dict, category_count: dict) -> dict:
     anns = data_set['annotations']
     anns.sort(key=itemgetter('image_id', 'id'))
     cat_id_2_cat = {cat['id']: cat['name'] for cat in data_set['categories']}
-    curr_img_id = None
+    curr_img_id = anns[0]['id']
+    categories = []
     for ann in anns:
-        if args.multi_label:
-            categories = []
+        if ARGS.multi_label:
             if curr_img_id != ann['image_id']:
-                category_count[categories] += 1
+                category_count[",".join(categories)] += 1
                 curr_img_id = ann['image_id']
-                categories.clear()
+                categories = []
             categories.append(cat_id_2_cat[ann['category_id']])
+            if ann == anns[-1]:
+                category_count[",".join(categories)] += 1
         else:
             category_count[cat_id_2_cat[ann['category_id']]] += 1
     category_count['total_images'] += len(data_set['images'])
@@ -70,7 +77,27 @@ def count_categories(data_set, category_count):
     return category_count
 
 
-def load_dataset(json_file_path_or_buffer):
+def count_captions(data_set: dict, caption_count: dict) -> dict:
+    anns = data_set['annotations']
+    anns.sort(key=itemgetter('image_id', 'id'))
+    curr_img_id = anns[0]['id']
+    captions = []
+    for ann in anns:
+        if ARGS.multi_label:
+            if curr_img_id != ann['image_id']:
+                caption_count[",".join(captions)] += 1
+                curr_img_id = ann['image_id']
+                captions = []
+            captions.append(ann['caption'])
+            if ann == anns[-1]:
+                caption_count[",".join(captions)] += 1
+        else:
+            caption_count[ann['caption']] += 1
+    caption_count['total_images'] += len(data_set['images'])
+    return caption_count
+
+
+def load_dataset(json_file_path_or_buffer: str) -> dict:
     if os.path.exists(json_file_path_or_buffer):
         with open(json_file_path_or_buffer, 'r') as file_handle:
             in_dataset = json.load(file_handle)
