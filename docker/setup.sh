@@ -43,9 +43,8 @@ function install_prerequisites(){
     su_docker "pip3 install --user -r /tmp/install-pip"
 
     su_docker 'mkdir /home/docker/python /home/docker/bin'
-    echo 'export PYTHONPATH=/home/docker/python:$PYTHONPATH' >> /home/docker/.bashrc
-    echo 'export PATH=/home/docker/bin:/home/docker/.local/bin:$PATH' >> /home/docker/.bashrc
-    source /home/docker/.bashrc
+    
+    source /home/docker/.containerrc
 
     # Set up X11 forwarding
     sed -i -r 's/^PermitRootLogin (\w+)/PermitRootLogin yes/' /etc/ssh/sshd_config
@@ -58,6 +57,8 @@ function install_prerequisites(){
 
     # Some X11 bugfix
     echo "export QT_X11_NO_MITSHM=1" >> /home/docker/.profile
+    echo "source /home/docker/.containerrc" >> /home/docker/.bashrc
+    echo "source /home/docker/.containerrc" >> /home/docker/.profile
     info Install system packages finished
     exit 0
 }
