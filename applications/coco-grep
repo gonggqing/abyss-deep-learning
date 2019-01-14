@@ -42,7 +42,7 @@ examples:
 def main():
     global ARGS
     ARGS = get_args()
-    ARGS.expression.replace('-', '_')
+    ARGS.expression = ARGS.expression.replace('-', '_')
 
     say("creating coco object")
     coco = load_coco(sys.stdin.read())
@@ -64,7 +64,12 @@ def main():
 
     globals().update(all_supcats)
 
-    all_captions = {item['caption']: False for item in coco.anns.values()}
+    try:
+        all_captions = {item['caption']: False for item in coco.anns.values()}
+    except KeyError:
+        say("expected key [caption] in coco file")
+        all_captions = {}
+
     globals().update(all_captions)
 
     # Load all annotations
@@ -76,8 +81,15 @@ def main():
     # Image ids to carry over from COCO dataset
     to_add_img_ids = set()
 
-    # Annotation ids to carry over from COCO dataset
-    to_add_ann_ids = set()
+    global img_id, image_id
+    global cat_ids, category_ids
+    global cat_id, category_id
+    global cats, categories
+    global cat, category
+    global supcats, supercategories
+    global supcat, supercategory
+    global caps, captions
+    global cap, caption
 
     for curr_img_id in coco.getImgIds():
         # Reinitialize image id for expression check
@@ -143,14 +155,16 @@ def main():
             to_add_img_ids.add(eval_expression(curr_img_id))
 
         # Check expression for captions
-        caps = captions = [item['caption'] for item in coco.anns.values() if
-                           item['image_id'] == curr_img_id and item['caption']]
-        globals().update(dict.fromkeys(caps, True))
-        to_add_img_ids.add(eval_expression(curr_img_id))
-
-        for caption in captions:
-            cap = caption
+        try:
+            caps = captions = [item['caption'] for item in coco.anns.values() if item['image_id'] == curr_img_id and item['caption']]
+            globals().update(dict.fromkeys(caps, True))
             to_add_img_ids.add(eval_expression(curr_img_id))
+
+            for caption in captions:
+                cap = caption
+                to_add_img_ids.add(eval_expression(curr_img_id))
+        except KeyError:
+            say("expected key [caption] in dataset")
 
     to_add_ann_ids = coco.getAnnIds(imgIds=to_add_img_ids)
 
@@ -170,7 +184,9 @@ def main():
             if ann['caption'] in keep_captions:
                 to_add_ann_ids.append(ann['id'])
 
-    imgs = coco.loadImgs(to_add_img_ids.remove(None))
+    to_add_img_ids.remove(None)
+    imgs = coco.loadImgs(to_add_img_ids)
+
     coco.dataset['images'] = [] if imgs is None else imgs
     coco.dataset['annotations'] = coco.loadAnns(to_add_ann_ids)
 
@@ -184,6 +200,7 @@ def eval_expression(img_id):
         if eval(ARGS.expression):
             return img_id
     except NameError as e:
+        say(ARGS.expression)
         say("[{}] is not defined in the dataset".format(str(e).split("'")[1]))
 
 
