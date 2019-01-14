@@ -11,6 +11,7 @@ import os
 import sys
 
 from pycocotools import mask as coco_mask
+from pycocotools.coco import COCO
 import bidict
 import numpy as np
 
@@ -144,6 +145,10 @@ class CocoDataset(object):
         }
         if name is not None:
             self.info['name'] = name
+            coco = COCO(name)
+            self.images = coco.dataset['images']
+            self.annotations = coco.dataset['annotations']
+            self.categories = coco.dataset['categories']
         self.licenses = [
             {
                 "id": 1,
