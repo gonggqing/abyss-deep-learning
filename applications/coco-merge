@@ -43,28 +43,24 @@ def main():
             if 'path' not in image:
                 continue
 
-            img_path, img_ext = os.path.splitext(os.path.basename(image['path']))
-            img_count[img_path] += 1
+            img_file_name, img_ext = os.path.splitext(os.path.basename(image['path']))
+            img_count[img_file_name] += 1
 
-            if 'id' in image:
-                old_id = image['id']
-                old_id_2_path[old_id] = img_path
+            old_id = image['id']
+            old_id_2_path[old_id] = img_file_name
 
-            if img_count[img_path] == 1:
+            if img_count[img_file_name] == 1:
                 new_id = len(images)
-                if 'id' in image:
-                    image['id'] = new_id
+                image['id'] = new_id
                 images.append(image)
-                path_2_new_id[img_path] = new_id
+                path_2_new_id[img_file_name] = new_id
 
         for ann in old_ds['annotations']:
-            if 'image_id' in ann:
-                old_id = ann['image_id']
-                img_path = old_id_2_path[old_id]
-                new_id = path_2_new_id[img_path]
-                ann['image_id'] = new_id
-            if 'id' in ann:
-                del ann['id']
+            old_id = ann['image_id']
+            img_file_name = old_id_2_path[old_id]
+            new_id = path_2_new_id[img_file_name]
+            ann['image_id'] = new_id
+            del ann['id']
             annotations.append(ann)
 
         for license in old_ds['licenses']:
@@ -84,12 +80,12 @@ def main():
         ann['id'] = idx + 1
         annotations.append(ann)
 
-    if ARGS.file_name is None:
+    if not ARGS.file_name:
         ARGS.file_name = ARGS.json_files[0]
 
     dataset = load_dataset(ARGS.file_name)
     merged_data_set = {
-        'info': dataset['info'] if 'info' in dataset else None,
+        'info': dataset['info'],
         'images': images,
         'annotations': annotations,
         'licenses': licenses,
@@ -106,7 +102,7 @@ def say(*arg, **kwargs):
 
 
 def load_dataset(json_file_path_or_buffer):
-    if os.path.exists(json_file_path_or_buffer):
+    if os.path.isfile(json_file_path_or_buffer):
         with open(json_file_path_or_buffer, 'r') as file_handle:
             in_dataset = json.load(file_handle)
     else:
