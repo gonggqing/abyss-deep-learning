@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+
+"""
+Initiated on 2019-01-10
+
+
+"""
+
+import argparse
+import os
+import sys
+import time
+import numpy as np
+
+import keras
+import tensorflow as tf
+
+
+# Allow relative imports when being executed as script.
+if __name__ == "__main__" and __package__ is None:
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+    import keras_retinanet.bin  # noqa: F401
+    __package__ = "keras_retinanet.bin"
+
+# Change these to absolute imports if you copy this script outside the keras_retinanet package.
+from keras_retinanet import models
+from keras_retinanet.preprocessing.csv_generator import CSVGenerator
+from keras_retinanet.preprocessing.pascal_voc import PascalVocGenerator
+from keras_retinanet.utils.config import read_config_file, parse_anchor_parameters
+from keras_retinanet.utils.eval import evaluate
+from keras_retinanet.utils.keras_version import check_keras_version
+from keras_retinanet.utils.image import read_image_bgr, preprocess_image, resize_image
+
+import keras.models
+from keras_retinanet import layers
+from keras_retinanet.models import assert_training_model
+from keras_retinanet.models.retinanet import __build_anchors, retinanet
+from keras_retinanet.utils.anchors import AnchorParameters
+from keras_retinanet.utils.visualization import draw_box, draw_caption
+
+
+
+
+def get_session():
+    """ Construct a modified tf session.
+    """
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    return tf.Session(config=config)
+
+
+def retinanet_bbox(
+    model                 = None,
+    nms                   = True,
+    class_specific_filter = True,
+    nms_threshold         = 0.5, 
+    name                  = 'retinanet-bbox',
+    anchor_params         = None,
+    **kwargs
+):
+    """ Construct a RetinaNet model on top of a backbone and adds convenience functions to output boxes directly.
+
+    This model uses the minimum retinanet model and appends a few layers to compute boxes within the graph.
+    These layers include applying the regression values to the anchors and performing NMS.
+
+    Args
+        model                 : RetinaNet model to append bbox layers to. If None, it will create a RetinaNet model using **kwargs.
+        nms                   : Whether to use non-maximum suppression for the filtering step.
+        class_specific_filter : Whether to use class specific filtering or filter for the best scoring class only.
+        name                  : Name of the model.
+        anchor_params         : Struct containing anchor parameters. If None, default values are used.
+        *kwargs               : Additional kwargs to pass to the minimal retinanet model.
+
+    Returns
+        A keras.models.Model which takes an image as input and outputs the detections on the image.
+
+        The order is defined as follows:
+        ```
+        [
+            boxes, scores, labels, other[0], other[1], ...
+        ]
+        ```
+
+    NOTE
+    This function was pulled from keras_retinanet.models.retinanet.retinante_bbox
+    Edited here to allow passthrough of nms_threshold
+    """
+
+    # if no anchor parameters are passed, use default values
+    if anchor_params is None:
+        anchor_params = AnchorParameters.default
+
+    # create RetinaNet model
+    if model is None:
+        model = retinanet(num_anchors=anchor_params.num_anchors(), **kwargs)
+    else:
+        assert_training_model(model)
+
+    # compute the anchors
+    features = [model.get_layer(p_name).output for p_name in ['P3', 'P4', 'P5', 'P6', 'P7']]
+    anchors  = __build_anchors(anchor_params, features)
+
+    # we expect the anchors, regression and classification values as first output
+    regression     = model.outputs[0]
+    classification = model.outputs[1]
+
+    # "other" can be any additional output from custom submodels, by default this will be []
+    other = model.outputs[2:]
+
+    # apply predicted regression to anchors
+    boxes = layers.RegressBoxes(name='boxes')([anchors, regression])
+    boxes = layers.ClipBoxes(name='clipped_boxes')([model.inputs[0], boxes])
+
+    # filter detections (apply NMS / score threshold / select top-k)
+    detections = layers.FilterDetections(
+        nms                   = nms,
+        nms_threshold         = nms_threshold, 
+        class_specific_filter = class_specific_filter,
+        name                  = 'filtered_detections'
+    )([boxes, classification] + other)
+
+    # construct the model
+    return keras.models.Model(inputs=model.inputs, outputs=detections, name=name)
+
+def parse_args(args):
+    """ Parse the arguments.
+    """
+    parser     = argparse.ArgumentParser(description='Evaluation script for a RetinaNet network.')
+    # subparsers = parser.add_subparsers(help='Arguments for specific dataset types.', dest='dataset_type')
+    # subparsers.required = True
+
+    parser.add_argument('model',              help='Path to RetinaNet model.')
+    parser.add_argument('--convert-model',    help='Convert the model to an inference model (ie. the input is a training model).', action='store_true')
+    parser.add_argument('--backbone',         help='The backbone of the model.', default='resnet50')
+    parser.add_argument('--gpu',              help='Id of the GPU to use (as reported by nvidia-smi).')
+    parser.add_argument('--score-threshold',  help='Threshold on score to filter detections with (defaults to 0.05).', default=0.05, type=float)
+    parser.add_argument('--iou-threshold',    help='IoU Threshold to count for a positive detection (defaults to 0.5).', default=0.5, type=float)
+    parser.add_argument('--nms-threshold',    help='IoU threshold for non-maximum supression for outputs (defaults to 0.1).', default=0.1, type=float)
+    parser.add_argument('--max-detections',   help='Max Detections per image (defaults to 100).', default=100, type=int)
+    parser.add_argument('--save-path',        help='Path for saving images with detections (doesn\'t work for COCO).')
+    parser.add_argument('--show',             help='Show per-image examples in matplotlib', action='store_true')
+    parser.add_argument('--image-min-side',   help='Rescale the image so the smallest side is min_side.', type=int, default=800)
+    parser.add_argument('--image-max-side',   help='Rescale the image if the largest side is larger than max_side.', type=int, default=1333)
+    parser.add_argument('--config',           help='Path to a configuration parameters .ini file (only used with --convert-model).')
+
+    # EXAMPLE USAGE to be added to --help output
+    # cat ~/data/anadarko/object-recognition/val_annotations.csv | sed 's/images/\/home\/users\/sba\/data\/anadarko\/object-recognition\/images/g' | cut -d, -f1 | sort | uniq | ~/src/abyss/deep-learning/applications/retinanet-predict --score-threshold=0.5 --image-min-side=1000 --image-max-side=1000 ~/scratch/anadarko/object-recognition/snapshots/resnet50_csv_100.h5 --convert-model > ~/data/anadarko/object-recognition/val_predictions.csv
+    
+    return parser.parse_args(args)
+
+
+
+
+
+    
+def draw_result(boxes, scores, labels, image, annotations=None):
+
+    import webcolors
+    import cv2
+    import matplotlib.pyplot as plt
+
+    color_strings = ['green', 'blue', 'yellow', 'red']
+    color_rgb_list = []
+    for color_string in color_strings:
+        color_rgb_list.append(tuple(webcolors.name_to_rgb(color_string)))
+
+
+    labels_to_names = {0: 'PF-G', 1: 'PF-L', 2: 'PF-M', 3: 'PF-H'}
+    names_to_labels = {}
+    for k,v in labels_to_names.items():
+        names_to_labels[v] = k
+
+    # visualize detections
+    for box, score, label in zip(boxes[0], scores[0], labels[0]):
+        # scores are sorted so we can break
+        if score < 0.5:
+            break
+
+#         color = label_color(label)
+        b = box.astype(int)
+        draw_box(image, b, color=color_rgb_list[label])
+
+        caption = "{} {:.3f}".format(labels_to_names[label], score)
+        draw_caption(image, b, caption)
+    
+    fig, ax = plt.subplots(1,1,figsize=(15,15))
+    
+    ax.imshow(image)
+    ax.axis('off')
+    plt.show()
+
+
+
+def main(args=None):
+    # parse arguments
+    if args is None:
+        args = sys.argv[1:]
+    args = parse_args(args)
+
+    # make sure keras is the minimum required version
+    check_keras_version()
+
+    # optionally choose specific GPU
+    if args.gpu:
+        os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
+    keras.backend.tensorflow_backend.set_session(get_session())
+
+    # make save path if it doesn't exist
+    if args.save_path is not None and not os.path.exists(args.save_path):
+        os.makedirs(args.save_path)
+
+    # optionally load config parameters
+    if args.config:
+        args.config = read_config_file(args.config)
+
+    # # create the generator
+    # generator = create_generator(args)
+
+    # optionally load anchor parameters
+    anchor_params = None
+    if args.config and 'anchor_parameters' in args.config:
+        anchor_params = parse_anchor_parameters(args.config)
+
+    # load the model
+    print('Loading model, this may take a second...', file=sys.stderr)
+    model = models.load_model(args.model, backbone_name=args.backbone)
+
+    # optionally convert the model
+    if args.convert_model:
+        nms_threshold = 0.1
+        model = retinanet_bbox(model=model, nms=True, nms_threshold=nms_threshold, anchor_params=anchor_params)
+        
+
+    # start evaluation
+    line_counter = 0
+    for line in sys.stdin:
+        
+        image_path = line.strip()
+        print('Processing image ' + str(line_counter) + 'at ' + image_path, file=sys.stderr)
+
+        image = read_image_bgr(image_path)
+        if args.show:
+            import cv2
+            draw = cv2.cvtColor(image.copy(), cv2.COLOR_BGR2RGB)
+
+        # preprocess image for network
+        image = preprocess_image(image)
+        image, scale = resize_image(image, min_side=args.image_min_side, max_side=args.image_max_side)
+
+        # process image
+        start = time.time()
+        boxes, scores, labels = model.predict_on_batch(np.expand_dims(image, axis=0))
+        bsr_output = np.concatenate((boxes[0,:], scores.T, labels.T),axis=1)
+        print("processing time: ", time.time() - start, file=sys.stderr)
+        print(boxes.shape, scores.shape, labels.shape, bsr_output.shape, file=sys.stderr)
+
+
+
+        # correct for image scale
+        boxes /= scale
+
+        # visualize detections
+        if args.show:
+            draw_result(boxes, scores, labels, draw)
+
+
+        line_counter += 1
+
+        for box_idx in range(bsr_output.shape[0]):
+            # if bsr_output[box_idx,4] < 0
+
+            sys.stdout.write('{},{},'.format(image_path, box_idx))
+            np.savetxt(sys.stdout, bsr_output[box_idx,:][None,:], delimiter=',', fmt='%.4f')
+            # print(boxes.shape, scores.shape, labels.shape, bsr_output.shape)
+
+
+if __name__ == '__main__':
+    main()
