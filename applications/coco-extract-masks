@@ -46,6 +46,9 @@ def rgb_mask(image, mask, label=1, color=0):
 
 
 def save_mask_as_image(coco_dataset, image, annotations, args):
+    if not os.path.exists(args.destination_dir):
+        os.makedirs(args.destination_dir)
+
     annotation_img = np.zeros(
         (image['height'], image['width']), dtype=np.uint8)
     for annotation in annotations:
@@ -58,17 +61,35 @@ def save_mask_as_image(coco_dataset, image, annotations, args):
                            ] = annotation['category_id']
     if args.as_rgb:
         annotation_img = encode_rgb_label(annotation_img)
-    image_path = os.path.join(args.destination_dir, image['file_name'])
+
+    if args.prefix:
+        image_path = os.path.join(args.prefix, ['file_name'])
+    else:
+        image_path = os.path.join(image['file_name'])
+    print("Reading from: %s" %image_path)
+
     if args.overlay:
         rgb = imread(image['path'])[..., 0:3]
         annotation_img = rgb_mask(
-            rgb, annotation_img, label=1, color=(255, 0, 255))
+            rgb, annotation_img, label=1, color=(255, 255, 255))
     if args.show:
         plt.figure()
         plt.imshow(annotation_img)
         plt.show()
     else:
-        imsave(image_path, annotation_img)
+        if args.use_basename:
+            save_path = os.path.join(args.destination_dir, os.path.basename(image['file_name']))
+        else:
+            save_path = os.path.join(args.destination_dir, image['file_name'])  # TODO this doesn't work - replacing with below
+            save_path = os.path.join(args.destination_dir, os.path.basename(image['file_name']))
+        if not save_path.endswith(args.image_format):
+            if args.image_format == 'png':
+                save_path = save_path.replace('.jpg', '.png')
+            elif args.image_format == 'jpg':
+                save_path = save_path.replace('.png', '.jpg')
+
+        print("Saving to: %s" %save_path)
+        imsave(save_path, annotation_img)
 
 
 def main(args):
@@ -82,7 +103,7 @@ def main(args):
 def get_args():
     '''Get args from the command line args'''
     parser = argparse.ArgumentParser(
-        description="Extract labels from COCO JSON and dump them in to annotation images")
+        description="Extract mask segmentation from coco json and write to image.")
     parser.add_argument("coco_path", help="The coco JSON to parse.")
     parser.add_argument("destination_dir",
                         help="The destination to dump the label images.")
@@ -94,6 +115,10 @@ def get_args():
         "--overlay", help="Overlay onto RGB images", action='store_true')
     parser.add_argument(
         "--show", help="Show instead of saving", action='store_true')
+    parser.add_argument("--image_format", default="png", help="The output format - choice of {png, jpg}")
+    parser.add_argument(
+        "--prefix", help="The prefix for the filepath - makes prefix/file_name as the total path", action='store_true')
+    parser.add_argument("--use_basename", action='store_true', help="Extract the basename from the image path")
     args = parser.parse_args()
     return args
 

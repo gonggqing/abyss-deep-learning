@@ -27,6 +27,10 @@ echo using SCRATCH_DIR: $SCRATCH_DIR
 echo using DATA_DIR $DATA_DIR
 echo using HOSTNAME $HOSTNAME
 
+mkdir -p $DATA_DIR
+mkdir -p $SCRATCH_DIR
+# mkdir -p $SRC_DIR
+
 echo "Creating alias:"
 ALIAS="alias abyss-dl='nvidia-docker run --user docker -it --rm -v $SCRATCH_DIR:/scratch -v $DATA_DIR:/data -e DISPLAY=:0 -v /tmp/.X11-unix:/tmp/.X11-unix $PORTS --hostname $HOSTNAME abyss/dl'"
 echo $ALIAS

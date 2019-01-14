@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+import os
+import json
+import sys
+from argparse import ArgumentParser
+
+
+SCRIPT_NAME = os.path.basename(__file__)
+
+
+def main():
+    args = get_args()
+    new_ds = {
+        'images': [],
+        'annotations': [],
+    }
+
+    stdin_string = ""
+    if not sys.stdin.isatty():
+        for line in sys.stdin:
+            stdin_string += line.strip()
+
+    if stdin_string:
+        args.json_files.append(stdin_string)
+
+    for json_file_path_or_buffer in args.json_files:
+        say("loading dataset")
+        old_ds = load_dataset(json_file_path_or_buffer)
+        new_ds = filter_captions(new_ds, old_ds)
+
+    json.dump(new_ds, sys.stdout, indent=4)
+    say("done")
+    sys.exit()
+
+
+def filter_captions(new_ds: dict, old_ds: dict) -> dict:
+    """
+    Merges new output data set and multiple json file data sets
+
+    Args:
+        new_ds: output data set
+        old_ds: to be merged data set
+
+    Returns: new_ds, the output data set
+
+    """
+    captions = get_args().captions.split(',')
+    img_ids = set()
+    for ann in old_ds['annotations']:
+        if ann['caption'] in captions:
+            new_ds['annotations'].append(ann)
+            img_ids.add(ann['image_id'])
+    for img in old_ds['images']:
+        if img['id'] in img_ids:
+            new_ds['images'].append(img)
+    return new_ds
+
+
+def load_dataset(json_file_path_or_buffer):
+    if os.path.exists(json_file_path_or_buffer):
+        with open(json_file_path_or_buffer, 'r') as file_handle:
+            in_dataset = json.load(file_handle)
+    else:
+        in_dataset = json.loads(json_file_path_or_buffer)
+    return in_dataset
+
+
+def say(*args, **kwargs):
+    print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
+
+
+def get_args():
+    parser = ArgumentParser(description="Filter out extraneous captions associated with images in a given json file")
+    parser.add_argument('json_files', nargs='*', type=str, help="JSON files to caption count")
+    parser.add_argument('-c', '--captions', type=str, help="Captions to keep for each image annotations. Can be a "
+                                                           "single caption or multiple captions that are comma "
+                                                           "separated")
+    return parser.parse_args()
+
+
+if __name__ == '__main__':
+    main()

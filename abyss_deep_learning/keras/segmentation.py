@@ -9,7 +9,7 @@ Masks may be either categorical or binary.
 import numpy as np
 from skimage.morphology import remove_small_holes
 
-from abyss_deep_learning.visualize import label2rgb
+from skimage.color import label2rgb
 from abyss_deep_learning.utils import instance_to_categorical
 
 ####### Methods ######

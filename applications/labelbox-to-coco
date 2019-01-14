@@ -1,51 +1,234 @@
 #!/usr/bin/env python3
 from __future__ import print_function
 from math import floor
+from urllib.parse import unquote, urlparse
 from sys import stderr, stdout
-import os
 import json
+import os
 import urllib.request
-from urllib.parse import urlparse, unquote
-from contextlib import redirect_stdout
 
-def download_coco_images(coco, destination='./images'):
+from bedrock.utils import JsonNumpyEncoder
+from PIL import Image
+import numpy as np
+import pycocotools.mask as pcm
+
+VERBOSE = 0
+
+def print_v(*args, **kwargs):
+    # global VERBOSE
+    if VERBOSE >= kwargs['level']:
+        print(*args, file=stderr)
+
+
+def geometry_to_coco_bbox(point_list):
+    """
+    Converts a list of point dictionaries from LabelBox to a COCO bbox
+
+    Args:
+        point_list: list of point dictionaries with x,y as keys.
+
+    Returns: [x,y,width,height]
+
+    """
+    x_points = [p['x'] for p in point_list]
+    y_points = [p['y'] for p in point_list]
+    min_x = min(x_points)
+    min_y = min(y_points)
+    max_x = max(x_points)
+    max_y = max(y_points)
+    bbox = [min_x, min_y, max_x - min_x, max_y - min_y]
+    return bbox
+
+
+
+
+def download_images(uris, destination='./images'):
     if destination != '.':
         os.makedirs(destination, exist_ok=True)
-    for image in coco['images']:
-        filename = os.path.basename(urlparse(unquote(image['coco_url'])).path)
+    for uri in uris:
+        filename = os.path.basename(urlparse(unquote(uri)).path)
         file_dest = os.path.join(destination, filename)
         if not os.path.exists(file_dest): # Don't re-download
-            print("Downloading: {:s}".format(filename), file=stderr)
-            urllib.request.urlretrieve(image['coco_url'], file_dest)
+            print_v("Downloading: {:s}".format(filename), level=1)
+            urllib.request.urlretrieve(uri, file_dest)
 
 
-def demangle_coco(coco, prefix=None):
-    """Note: This mutates the coco parameter"""
-    def fixed_filename(file_name, prefix=None):
-        basename = os.path.basename(urlparse(unquote(file_name)).path)
-        return os.path.join(prefix, basename) if prefix else basename
-    
-    image_id_map = {image['id']: 1 + new_id for new_id, image in enumerate(coco['images'])}
-    annotation_id_map = {annotation['id']: 1 + new_id for new_id, annotation in enumerate(coco['annotations'])}
-    for i, _ in enumerate(image_id_map):
-        coco['images'][i]['id'] = image_id_map[coco['images'][i]['id']]
-        coco['images'][i]['file_name'] = fixed_filename(coco['images'][i]['file_name'], prefix=prefix)
-        del coco['images'][i]['flickr_url']
-        del coco['images'][i]['coco_url']
-    for i, _ in enumerate(annotation_id_map):
-        coco['annotations'][i]['id'] = annotation_id_map[coco['annotations'][i]['id']]
-        coco['annotations'][i]['image_id'] = image_id_map[coco['annotations'][i]['image_id']]
+def main_coco(dataset, args):
+    def demangle_coco(coco, prefix=None):
+        """Note: This mutates the coco parameter"""
+        def fixed_filename(file_name, prefix=None):
+            basename = os.path.basename(urlparse(unquote(file_name)).path)
+            return os.path.join(prefix, basename) if prefix else basename
+        
+        image_id_map = {image['id']: 1 + new_id for new_id, image in enumerate(coco['images'])}
+        annotation_id_map = {annotation['id']: 1 + new_id for new_id, annotation in enumerate(coco['annotations'])}
+        for i, _ in enumerate(image_id_map):
+            coco['images'][i]['id'] = image_id_map[coco['images'][i]['id']]
+            coco['images'][i]['file_name'] = fixed_filename(coco['images'][i]['file_name'], prefix=prefix)
+            del coco['images'][i]['flickr_url']
+            del coco['images'][i]['coco_url']
+        for i, _ in enumerate(annotation_id_map):
+            coco['annotations'][i]['id'] = annotation_id_map[coco['annotations'][i]['id']]
+            coco['annotations'][i]['image_id'] = image_id_map[coco['annotations'][i]['image_id']]
+        return coco
+
+    if args.download:
+        download_images(
+            [image['coco_url'] for image in dataset['images']],
+            args.download)
+    return demangle_coco(dict(dataset), prefix=args.prefix)
+
+def demangle_json(labelbox, args):
+    def geometry_to_coco_mask(point_list):
+        points = []
+        for p in point_list:
+            points.append([p['x'], p['y']])
+        raise NotImplementedError("TODO") # TODO - make this work
+
+    def download_mask(mask_uri):
+        req = urllib.request.urlopen(mask_uri)
+        mask = np.array(Image.open(req), order='F')[..., -1] > 0
+        rle = pcm.encode(mask.astype(np.uint8))
+        rle['counts'] = str(rle['counts'], encoding='utf-8')
+        return rle
+
+    def maybe_add_category(class_name):
+        if class_name not in categories:
+            categories[class_name] = {
+                'id': len(categories) + 1,
+                'name': class_name,
+                'supercategory': '',
+            }
+
+    images = []
+    annotations = []
+    categories = {}
+
+    print_v("Downloading {:d} images".format(len(labelbox)), level=1)
+
+    for image_id, record in enumerate(labelbox):
+        parts = urlparse(record['Labeled Data'])
+        file_name = unquote(parts.path)[1:]
+        print_v("Downloading masks: {:s}".format(file_name), level=1)
+
+        parts = os.path.splitext(file_name)
+        file_parts = {
+            "filename": parts[0],
+            "extension": parts[1],
+            "basename": os.path.basename(file_name),
+            "dirname": os.path.dirname(file_name)
+        }
+        file_name = args.output_format.format(**file_parts)
+
+        # if os.path.exists(file_name):
+        #     im = Image.open(file_name)
+        # else:
+        #     # Try JPG
+        #     if file_name.endswith('png'):
+        #         im = Image.open(file_name.replace('png', 'jpg'))
+        #     elif file_name.endswith('jpg'):
+        #         im = Image.open(file_name.replace('jpg', 'png'))
+        #     else:
+        #         raise ValueError("File could not be found")
+
+        width, height = Image.open(file_name).size
+        images.append({
+            'id': image_id + 1,
+            'file_name': file_name,
+            'path': file_name,
+            "width": width,
+            "height": height,
+            "license": 0,
+            "date_captured": record['Created At'],
+        })
+        if record['Label'] == 'Skip':
+            continue
+        if 'segmentationMasksByName' in record['Label']:
+            for category_name, category in record['Label']['segmentationMasksByName'].items():
+                if category_name == 'Background':
+                    continue
+                maybe_add_category(category_name)
+                mask = download_mask(category)
+                annotations.append({
+                    'id': len(annotations) + 1,
+                    'image_id': image_id + 1,
+                    'category_id': categories[category_name]['id'],
+                    'segmentation': mask,
+                    'area': int(pcm.area(mask)),
+                    'bbox': pcm.toBbox(mask),
+                    'iscrowd': 0
+                })
+        else:
+            # Vector annotations - its a list of categories
+            for category_name, category in record['Label'].items():
+                maybe_add_category(category_name)
+                for instance in category:
+                    #TODO: Support for multiple polygons, if needed
+                    poly = [
+                        i for pt in instance['geometry']
+                        for i in (pt['x'], pt['y'])]
+                    bbox = geometry_to_coco_bbox(instance['geometry'])
+                    annotations.append({
+                        'id': len(annotations) + 1,
+                        'image_id': image_id + 1,
+                        'category_id': categories[category_name]['id'],
+                        'segmentation': [poly], # COCO requires multi-poly support, hack for now
+                        'area': bbox[2]*bbox[3],
+                        'bbox': bbox,
+                        'iscrowd': 0
+                    })
+
+    info = {
+        "contributor": "Abyss Solutions",
+        "date_created": "2018-11-27 12:24:43.456821",
+        "description": "This is a dataset configured by Abyss Solutions.",
+        "total_time": "02h24m00s",
+        "url": "http://www.abysssolutions.com.au/",
+        "version": "1.0",
+        "year": 2018
+    }  # TODO make this meaningful - it is a placeholder atm
+
+    licenses = [
+        {
+            "id": 1,
+            "name": "Attribution-NonCommercial-ShareAlike License",
+            "url": "http://creativecommons.org/licenses/by-nc-sa/2.0/"
+        }
+    ]
+
+    coco = {
+        'images': images,
+        'annotations': annotations,
+        'categories': list(categories.values()),
+        'info': info,
+        'licenses': licenses
+    }
     return coco
 
+def main_json(dataset, args):
+    if args.download:
+        download_images(
+            [image['Labeled Data'] for image in dataset],
+            args.download)
+    return demangle_json(dataset, args)
+    
 def main(args):
-    with open(args.coco_path, "r") as file_in:
-        coco = json.load(file_in)
-    if args.download is not None:
-            download_coco_images(coco, args.download)
-    stdout.write(json.dumps(demangle_coco(coco, prefix=args.prefix)))
+    with open(args.input_path, "r") as file_in:
+        dataset = json.load(file_in)
+
+    if args.format == 'coco':
+        # Convert Labelbox COCO to Abyss COCO
+        coco = main_coco(dataset, args)
+    elif args.format == 'json':
+        # Convert Labelbox JSON to Abyss COCO (pixelwise only)
+        coco = main_json(dataset, args)
+    else:
+        raise ValueError("Unknown dataset format '{:s}'".format(args.format))
+    stdout.write(json.dumps(coco, cls=JsonNumpyEncoder))
     
 
 def get_args():
+    global VERBOSE
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -59,20 +242,31 @@ The following changes are made:
     * Remove image flickr URL and COCO URL
 Additionally, with options:
     --prefix: Add this prefix to the image file_name (change relative path or make absolute)
+
     --download: Download the dataset into given dir, before continuing."""
     )
     parser.add_argument(
-        'coco_path', type=str,
+        'input_path', type=str,
         help="Path to the coco JSON.")
+    parser.add_argument(
+        'format', type=str,
+        help="The type of labelbox format, one of {coco, json}")
     parser.add_argument(
         '--output-dir',
         default="./annotations", type=str,
         help="Path to output the annotations (default ./annotations)")
     parser.add_argument(
-        '--prefix',
+        '--output-format',
         default=None, type=str,
-        help="If present, set the path attribute for each image to '<prefix>/<file_name>'."
+        help="A format string (python str.format style) to apply to the image file_name." \
+            + "Available fields: basename, dirname, filename, extension."
+            + " Default: '{dirname:}/{filename:}.{extension:}'"
     )
+    # parser.add_argument(
+    #     '--prefix',
+    #     default=None, type=str,
+    #     help="If present, set the path attribute for each image to '<prefix>/<file_name>'."
+    # )
     parser.add_argument(
         '--download',
         default=None, type=str,
@@ -80,6 +274,7 @@ Additionally, with options:
     parser.add_argument(
         '--verbose', action='store_true', help="verbose output to stderr")
     args = parser.parse_args()
+    VERBOSE = int(args.verbose)
     return args
 
 
