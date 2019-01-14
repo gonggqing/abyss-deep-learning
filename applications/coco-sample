@@ -24,37 +24,28 @@ def main():
     global ARGS
     ARGS = get_args()
 
-    if not sys.stdin.isatty():
-        stdin_string = sys.stdin.read()
-        if stdin_string:
-            ARGS.json_file.append(stdin_string)
+    say("creating coco object")
+    coco = load_coco(sys.stdin.read())
 
-    for json_file_path_or_buffer in ARGS.json_file:
-        say("creating coco object")
-        coco = load_coco(json_file_path_or_buffer)
+    if ARGS.num_imgs <= len(coco.imgs):
+        sample = random.sample(list(coco.imgs), ARGS.num_imgs)
+    else:
+        raise RuntimeError("Number of images to be sampled [{}] is greater than number of images in the data set "
+                           "[{}] ".format(ARGS.num_imgs, len(coco.imgs)))
 
-        if ARGS.num_imgs <= len(coco.imgs):
-            sample = random.sample(list(coco.imgs), ARGS.num_imgs)
-        else:
-            raise RuntimeError("Number of images to be sampled [{}] is greater than number of images in the data set "
-                               "[{}] ".format(ARGS.num_imgs, len(coco.imgs)))
-
-        coco.dataset['images'] = coco.loadImgs(sample)
-        coco.dataset['annotations'] = coco.loadAnns(coco.getAnnIds(imgIds=sample))
-        json.dump(coco.dataset, sys.stdout, indent=4)
+    coco.dataset['images'] = coco.loadImgs(sample)
+    coco.dataset['annotations'] = coco.loadAnns(coco.getAnnIds(imgIds=sample))
+    json.dump(coco.dataset, sys.stdout, indent=4)
 
     say("done")
     sys.exit()
 
 
-def load_coco(json_file_path_or_buffer):
+def load_coco(json_buffer):
     with redirect_stdout(Verbose):
-        if os.path.exists(json_file_path_or_buffer):
-            coco = COCO(json_file_path_or_buffer)
-        else:
-            coco = COCO()
-            coco.dataset = json.loads(json_file_path_or_buffer)
-            coco.createIndex()
+        coco = COCO()
+        coco.dataset = json.loads(json_buffer)
+        coco.createIndex()
     return coco
 
 

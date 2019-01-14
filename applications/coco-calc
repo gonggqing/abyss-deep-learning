@@ -8,10 +8,6 @@ import itertools
 from contextlib import redirect_stdout
 from pycocotools.coco import COCO
 
-IMG_DIR = os.path.join(os.getcwd(), 'images')
-
-SCRIPT_NAME = os.path.basename(__file__)
-
 DESCRIPTION = \
 """
 Read COCO json file piped in from stdin or a list of COCO json files and apply image manipulation and 
@@ -23,8 +19,8 @@ tile action is currently dummy action for demonstration purposes
 
 examples:
     cat coco.json | coco-calc --apply-to-images tile --tiles 4,5
-    cat coco.json | coco-calc resize --scale 0.3
-    cat coco.json | coco-calc --verbose resize --image-size 480,640
+    cat coco.json | coco-calc resize --factor 0.3
+    cat coco.json | coco-calc --verbose resize --size 480,640
 """
 
 
@@ -33,7 +29,7 @@ def main():
     ARGS = get_args()
 
     if ARGS.apply_to_images:
-        os.makedirs(IMG_DIR, exist_ok=True)
+        os.makedirs(os.path.join(os.getcwd(), 'images'), exist_ok=True)
 
     say("creating coco object")
     coco = ARGS.func(load_coco(sys.stdin.read()))
@@ -45,10 +41,10 @@ def main():
 def resize(coco: COCO) -> COCO:
     say("resizing images")
     for img_data in coco.loadImgs(coco.getImgIds()):
-        if ARGS.scale is not None:
-            h_scale = v_scale = ARGS.scale
+        if ARGS.factor is not None:
+            h_scale = v_scale = ARGS.factor
         else:
-            dims = ARGS.image_size.split(',')
+            dims = ARGS.size.split(',')
             h_scale = int(dims[0]) / img_data['width']
             v_scale = int(dims[1]) / img_data['height']
         img_data['height'] = int(img_data['height'] * v_scale)
@@ -57,16 +53,16 @@ def resize(coco: COCO) -> COCO:
         if ARGS.apply_to_images:
             import cv2
             path = None
-            if os.path.exists(img_data['path']):
+            if os.path.isfile(img_data['path']):
                 path = img_data['path']
-            elif os.path.exists(os.path.abspath(img_data['path'])):
+            elif os.path.isfile(os.path.abspath(img_data['path'])):
                 path = img_data['path']
             else:
                 say("cannot find path to image [{}]".format(img_data['path']))
 
             if path is not None:
                 img = cv2.imread(img_data['path'])
-                new_path = os.path.join(IMG_DIR, os.path.basename(img_data['path']))
+                new_path = os.path.join(os.getcwd(), 'images', os.path.basename(img_data['path']))
                 img_data['path'] = new_path
                 img_size = (img_data['width'], img_data['height'])
                 resized_img = cv2.resize(img, img_size)
@@ -117,7 +113,7 @@ def load_coco(json_buffer: str) -> COCO:
 
 def say(*args, **kwargs):
     if ARGS.verbose:
-        print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
+        print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
 
 
 def grouper(iterable, n: int, fillvalue=None):
@@ -136,8 +132,8 @@ def get_args() -> argparse.Namespace:
                                                          "scaling factor or to specified width and height")
     parser_resize.set_defaults(func=resize)
     resize_args = parser_resize.add_mutually_exclusive_group(required=True)
-    resize_args.add_argument('-s', '--scale', type=float, help="Scale images by a percentage")
-    resize_args.add_argument('-d', '--image-size', type=str, help="[width],[height] to resize images to")
+    resize_args.add_argument('-f', '--factor', type=float, help="Scale images by a percentage")
+    resize_args.add_argument('-s', '--size', type=str, help="[width],[height] to resize images to")
 
     parser_tile = subparsers.add_parser('tile', help="For testing purposes, no functionality currently")
     parser_tile.set_defaults(func=tile)

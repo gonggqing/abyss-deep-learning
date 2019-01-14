@@ -22,10 +22,9 @@ def main():
     global ARGS
     ARGS = get_args()
 
-    if not sys.stdin.isatty():
-        stdin_string = sys.stdin.read()
-        if stdin_string:
-            ARGS.json_files.append(stdin_string)
+    if not ARGS.json_files:
+        ARGS.json_files = (sys.stdin.read().split("\n"))
+        del ARGS.json_files[-1]
 
     images = []  # Merged images
     annotations = []  # Merged annotations
@@ -37,6 +36,8 @@ def main():
     for json_file_path_or_buffer in ARGS.json_files:
         say("loading dataset")
         old_ds = load_dataset(json_file_path_or_buffer)
+        if not old_ds:
+            continue
 
         say("merging dataset")
         for image in old_ds['images']:
@@ -63,8 +64,11 @@ def main():
             del ann['id']
             annotations.append(ann)
 
-        for license in old_ds['licenses']:
-            licenses.append(license)
+        try:
+            for license in old_ds['licenses']:
+                licenses.append(license)
+        except KeyError:
+            pass
 
     # Remove duplicate annotations
     annotations = [dict(item) for item in set(tuple(ann.items()) for ann in annotations)]
@@ -85,7 +89,7 @@ def main():
 
     dataset = load_dataset(ARGS.file_name)
     merged_data_set = {
-        'info': dataset['info'],
+        'info': dataset['info'] if dataset and 'info' in dataset else None,
         'images': images,
         'annotations': annotations,
         'licenses': licenses,
@@ -101,13 +105,13 @@ def say(*arg, **kwargs):
         print("{}:".format(os.path.basename(__file__)), *arg, file=sys.stderr, **kwargs)
 
 
-def load_dataset(json_file_path_or_buffer):
-    if os.path.isfile(json_file_path_or_buffer):
-        with open(json_file_path_or_buffer, 'r') as file_handle:
+def load_dataset(json_file_path):
+    try:
+        with open(json_file_path, 'r') as file_handle:
             in_dataset = json.load(file_handle)
-    else:
-        in_dataset = json.loads(json_file_path_or_buffer)
-    return in_dataset
+        return in_dataset
+    except IOError:
+        pass
 
 
 def get_args():

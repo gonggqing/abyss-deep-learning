@@ -44,164 +44,154 @@ def main():
     ARGS = get_args()
     ARGS.expression.replace('-', '_')
 
-    if not sys.stdin.isatty():
-        stdin_string = sys.stdin.read()
-        if stdin_string:
-            ARGS.json_files.append(stdin_string)
+    say("creating coco object")
+    coco = load_coco(sys.stdin.read())
 
-    for idx, json_file_path_or_buffer in enumerate(ARGS.json_files):
-        say("creating coco object")
-        coco = load_coco(json_file_path_or_buffer)
+    try:
+        all_cats = {cat['name'].replace('-', '_'): False for cat in coco.loadCats(coco.getCatIds()) if cat['name']}
+    except KeyError:
+        say("expected key [categories] in coco file")
+        all_cats = {}
 
-        try:
-            all_cats = {cat['name'].replace('-', '_'): False for cat in coco.loadCats(coco.getCatIds()) if cat['name']}
-        except KeyError:
-            say("expected key [categories] in coco file")
-            all_cats = {}
+    globals().update(all_cats)
 
+    try:
+        all_supcats = {cat['supercategory'].replace('-', '_'): False for cat in coco.loadCats(coco.getCatIds()) if
+                       cat['supercategory']}
+    except KeyError:
+        say("expected key [categories] in coco file")
+        all_supcats = {}
+
+    globals().update(all_supcats)
+
+    all_captions = {item['caption']: False for item in coco.anns.values()}
+    globals().update(all_captions)
+
+    # Load all annotations
+    anns = coco.loadAnns(coco.getAnnIds())
+
+    # Sort all annotations by their image id, then the annotation id as an image can have multiple annotations
+    anns.sort(key=itemgetter('image_id', 'id'))
+
+    # Image ids to carry over from COCO dataset
+    to_add_img_ids = set()
+
+    # Annotation ids to carry over from COCO dataset
+    to_add_ann_ids = set()
+
+    for curr_img_id in coco.getImgIds():
+        # Reinitialize image id for expression check
+        img_id = image_id = None
+
+        # Reinitialize category id for expression check
+        cat_ids = category_ids = []
+        cat_id = category_id = None
+
+        # Reinitialize category for expression check
         globals().update(all_cats)
+        cats = categories = []
+        cat = category = None
 
-        try:
-            all_supcats = {cat['supercategory'].replace('-', '_'): False for cat in coco.loadCats(coco.getCatIds()) if
-                           cat['supercategory']}
-        except KeyError:
-            say("expected key [categories] in coco file")
-            all_supcats = {}
-
+        # Reinitialize super category for expression check
         globals().update(all_supcats)
+        supcats = supercategories = []
+        supcat = supercategory = None
 
-        all_captions = {item['caption']: False for item in coco.anns.values()}
+        # Reinitialize captions for expression check
         globals().update(all_captions)
+        caps = captions = []
+        cap = caption = None
 
-        # Load all annotations
-        anns = coco.loadAnns(coco.getAnnIds())
+        # Check expression for image id i.e. image_id == 1
+        img_id = image_id = curr_img_id
 
-        # Sort all annotations by their image id, then the annotation id as an image can have multiple annotations
-        anns.sort(key=itemgetter('image_id', 'id'))
+        to_add_img_ids.add(eval_expression(curr_img_id))
 
-        # Image ids to carry over from COCO dataset
-        to_add_img_ids = set()
+        # Check expression for category_ids i.e. 2 in category_ids and 3 in category_ids
+        try:
+            cat_ids = category_ids = set(
+                [ann['category_id'] for ann in coco.loadAnns(coco.getAnnIds(imgIds=curr_img_id))])
+        except KeyError:
+            say("expected key [category_id] in coco file")
 
-        # Annotation ids to carry over from COCO dataset
-        to_add_ann_ids = set()
+        to_add_img_ids.add(eval_expression(curr_img_id))
 
-        for curr_img_id in coco.getImgIds():
-            # Reinitialize image id for expression check
-            img_id = image_id = None
+        # Check expression for category_id ie. category_id == 2
+        for category_id in cat_ids:
+            cat_id = category_id
+            to_add_img_ids.add(eval_expression(curr_img_id))
 
-            # Reinitialize category id for expression check
-            cat_ids = category_ids = []
-            cat_id = category_id = None
+        # Check expression for categories i.e. 'JD' and 'RI' OR 'JD' in categories and 'RI' in categories
+        cats = categories = [cat['name'].replace('-', '_') for cat in coco.loadCats(cat_ids) if cat['name']]
+        globals().update(dict.fromkeys(cats, True))
+        to_add_img_ids.add(eval_expression(curr_img_id))
 
-            # Reinitialize category for expression check
-            globals().update(all_cats)
-            cats = categories = []
-            cat = category = None
+        # Check for single category i.e. category == 'JD'
+        for category in categories:
+            cat = category
+            to_add_img_ids.add(eval_expression(curr_img_id))
 
-            # Reinitialize super category for expression check
-            globals().update(all_supcats)
-            supcats = supercategories = []
-            supcat = supercategory = None
+        # Check expression for supercategories
+        supcats = supercategories = [cat['supercategory'].replace('-', '_') for cat in coco.loadCats(cat_ids) if
+                                     cat['supercategory']]
+        globals().update(dict.fromkeys(supcats, True))
+        to_add_img_ids.add(eval_expression(curr_img_id))
 
-            # Reinitialize captions for expression check
-            globals().update(all_captions)
-            caps = captions = []
-            cap = caption = None
+        # Check for single supercategory
+        for supercategory in supercategories:
+            supcat = supercategory
+            to_add_img_ids.add(eval_expression(curr_img_id))
 
-            # Check expression for image id i.e. image_id == 1
-            img_id = image_id = curr_img_id
-            if eval(ARGS.expression):
-                to_add_img_ids.add(curr_img_id)
+        # Check expression for captions
+        caps = captions = [item['caption'] for item in coco.anns.values() if
+                           item['image_id'] == curr_img_id and item['caption']]
+        globals().update(dict.fromkeys(caps, True))
+        to_add_img_ids.add(eval_expression(curr_img_id))
 
-            # Check expression for category_ids i.e. 2 in category_ids and 3 in category_ids
-            try:
-                cat_ids = category_ids = set(
-                    [ann['category_id'] for ann in coco.loadAnns(coco.getAnnIds(imgIds=curr_img_id))])
-            except KeyError:
-                say("expected key [category_id] in coco file")
+        for caption in captions:
+            cap = caption
+            to_add_img_ids.add(eval_expression(curr_img_id))
 
-            if eval(ARGS.expression):
-                to_add_img_ids.add(curr_img_id)
+    to_add_ann_ids = coco.getAnnIds(imgIds=to_add_img_ids)
 
-            # Check expression for category_id ie. category_id == 2
-            for category_id in cat_ids:
-                cat_id = category_id
-                if eval(ARGS.expression):
-                    to_add_img_ids.add(curr_img_id)
+    if ARGS.keep_cats:
+        keep_cats = ARGS.keep_cats.split(',')
+        tmp, to_add_ann_ids = to_add_ann_ids, []
+        cat_id_2_cat = {cat['id']: cat['name'] for cat in coco.loadCats(coco.getCatIds())}
+        for ann in coco.loadAnns(tmp):
+            cat_id = ann['category_id']
+            if cat_id_2_cat[cat_id] in keep_cats or str(cat_id) in keep_cats:
+                to_add_ann_ids.append(ann['id'])
 
-            # Check expression for categories i.e. 'JD' and 'RI' OR 'JD' in categories and 'RI' in categories
-            cats = categories = [cat['name'].replace('-', '_') for cat in coco.loadCats(cat_ids) if cat['name']]
-            globals().update(dict.fromkeys(cats, True))
-            if eval(ARGS.expression):
-                to_add_img_ids.add(curr_img_id)
+    if ARGS.keep_captions:
+        keep_captions = ARGS.keep_captions.split(',')
+        tmp, to_add_ann_ids = to_add_ann_ids, []
+        for ann in coco.loadAnns(tmp):
+            if ann['caption'] in keep_captions:
+                to_add_ann_ids.append(ann['id'])
 
-            # Check for single category i.e. category == 'JD'
-            for category in categories:
-                cat = category
-                if eval(ARGS.expression):
-                    to_add_img_ids.add(curr_img_id)
+    imgs = coco.loadImgs(to_add_img_ids.remove(None))
+    coco.dataset['images'] = [] if imgs is None else imgs
+    coco.dataset['annotations'] = coco.loadAnns(to_add_ann_ids)
 
-            # Check expression for supercategories
-            supcats = supercategories = [cat['supercategory'].replace('-', '_') for cat in coco.loadCats(cat_ids) if
-                                         cat['supercategory']]
-            globals().update(dict.fromkeys(supcats, True))
-            if eval(ARGS.expression):
-                to_add_img_ids.add(curr_img_id)
-
-            # Check for single supercategory
-            for supercategory in supercategories:
-                supcat = supercategory
-                if eval(ARGS.expression):
-                    to_add_img_ids.add(curr_img_id)
-
-            # Check expression for captions
-            caps = captions = [item['caption'] for item in coco.anns.values() if
-                               item['image_id'] == curr_img_id and item['caption']]
-            globals().update(dict.fromkeys(caps, True))
-            if eval(ARGS.expression):
-                to_add_img_ids.add(curr_img_id)
-
-            for caption in captions:
-                cap = caption
-                if eval(ARGS.expression):
-                    to_add_img_ids.add(curr_img_id)
-
-        to_add_ann_ids = coco.getAnnIds(imgIds=to_add_img_ids)
-
-        if ARGS.keep_cats:
-            keep_cats = ARGS.keep_cats.split(',')
-            tmp, to_add_ann_ids = to_add_ann_ids, []
-            cat_id_2_cat = {cat['id']: cat['name'] for cat in coco.loadCats(coco.getCatIds())}
-            for ann in coco.loadAnns(tmp):
-                cat_id = ann['category_id']
-                if cat_id_2_cat[cat_id] in keep_cats or str(cat_id) in keep_cats:
-                    to_add_ann_ids.append(ann['id'])
-
-        if ARGS.keep_captions:
-            keep_captions = ARGS.keep_captions.split(',')
-            tmp, to_add_ann_ids = to_add_ann_ids, []
-            for ann in coco.loadAnns(tmp):
-                if ann['caption'] in keep_captions:
-                    to_add_ann_ids.append(ann['id'])
-
-        coco.dataset['images'] = coco.loadImgs(to_add_img_ids)
-        coco.dataset['annotations'] = coco.loadAnns(to_add_ann_ids)
-
-        json.dump(coco.dataset, sys.stdout, indent=4)
-        say("finished file {}".format(idx + 1))
-
+    json.dump(coco.dataset, sys.stdout, indent=4)
     say("done")
     sys.exit()
 
 
-def load_coco(json_file_path_or_buffer: str) -> COCO:
+def eval_expression(img_id):
+    try:
+        if eval(ARGS.expression):
+            return img_id
+    except NameError as e:
+        say("[{}] is not defined in the dataset".format(str(e).split("'")[1]))
+
+
+def load_coco(json_buffer: str) -> COCO:
     with redirect_stdout(Verbose):
-        if os.path.exists(json_file_path_or_buffer):
-            coco = COCO(json_file_path_or_buffer)
-        else:
-            coco = COCO()
-            coco.dataset = json.loads(json_file_path_or_buffer)
-            coco.createIndex()
+        coco = COCO()
+        coco.dataset = json.loads(json_buffer)
+        coco.createIndex()
     return coco
 
 
@@ -220,8 +210,7 @@ def say(*args, **kwargs):
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('json_files', nargs='*', type=str, help="JSON files to grep from")
-    parser.add_argument('-e', '--expression', type=str, help="General expression to search for images")
+    parser.add_argument('expression', type=str, help="General expression to search for images")
     parser.add_argument('-cats', '--keep-cats', type=str, help="Specify specific categories or category ids (comma "
                                                                "separated) to keep for each image")
     parser.add_argument('-caps', '--keep-captions', type=str, help="Specify specific captions (comma separated to "
