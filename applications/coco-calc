@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 import argparse
+import itertools
 import json
 import os
 import sys
-import itertools
-
 from contextlib import redirect_stdout
+
 from pycocotools.coco import COCO
 
 DESCRIPTION = \
@@ -124,8 +124,8 @@ def grouper(iterable, n: int, fillvalue=None):
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     subparsers = parser.add_subparsers(title="Actions", description="Actions apply to all images in the dataset. "
-                                                                    "Append -h for further information on each "
-                                                                    "individual action",
+                                                                    "For more information on each "
+                                                                    "individual action, append -h",
                                        help="Available actions")
 
     parser_resize = subparsers.add_parser('resize', help="Resize all images and their respective annotations by a "
