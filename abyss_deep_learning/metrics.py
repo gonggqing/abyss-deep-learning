@@ -36,48 +36,40 @@ def bbox_iou_matrix( a, b ):
     b_areas = np.repeat( [ ba ], len( a ), axis = 0 )
     return intersections / ( a_areas + b_areas - intersections )
 
-def one_to_one( a, b, iou_threshold = None, iou_matrix = bbox_iou_matrix ):
+def one_to_one( ious, iou_threshold = None, iou_matrix = bbox_iou_matrix ):
     ''' Match two sets of boxes one to one by IOU on given treshold
     
     parameters
     ----------
-    a: numpy.array
-       for bounding boxes, first Mx4 array of box begin/end coordinates as y1,x1,y2,x2
-    b: numpy.array
-       for bounding boxes, second Mx4 array of box begin/end coordinates as y1,x1,y2,x2
+    ious: numpy.array, iou matrix as returned by e.g. by bbox_iou_matrix( a, b )
     
     returns
     -------
     numpy.array, MxN matrix of IOU values
     '''
-    ious = iou_matrix( a, b )
     ious *= ( ious >= ( 0. if iou_threshold is None else iou_threshold ) )
     rows, cols = linear_sum_assignment( 1 - ious )
     result = np.zeros( ious.shape )
-    result[rows, cols] = ious[rows, cols] * ( ious[rows, cols] > 0 );
+    result[rows, cols] = ious[rows, cols] * ( ious[rows, cols] > 0 )
     return result
 
-def one_to_many( a, b, iou_threshold = None, iou_matrix = bbox_iou_matrix ):
+def one_to_many( ious, iou_threshold = None ):
     ''' Match two sets of boxes one to many on max IOU by IOU on given treshold
     
     parameters
     ----------
-    a: numpy.array
-       for bounding boxes, first Mx4 array of box begin/end coordinates as y1,x1,y2,x2
-    b: numpy.array
-       for bounding boxes, second Mx4 array of box begin/end coordinates as y1,x1,y2,x2
+    ious: numpy.array, iou matrix as returned by e.g. by bbox_iou_matrix( a, b )
     
     returns
     -------
     numpy.array, MxN matrix of IOU values
     '''
-    ious = iou_matrix( a, b )
     ious *= ( ious >= ( 0. if iou_threshold is None else iou_threshold ) )
     flags = np.zeros( ious.shape )
     flags[ np.argmax( ious, axis = 0 ), [*range( ious.shape[1] )] ] = 1
     return ious * flags
 
-def tp_fp_tn_fn( predictions, truth, threshold = None, match = one_to_one ):
+def tp_fp_tn_fn( predictions, truth, threshold = None, match = one_to_one, iou_matrix = bbox_iou_matrix ):
     ''' Return TP, FP, TN, FN
     
     parameters
@@ -90,15 +82,20 @@ def tp_fp_tn_fn( predictions, truth, threshold = None, match = one_to_one ):
     returns
     -------
     TP, FP, TN, FN
-    TP: numpy.array of size M, indices of TP in a
-    FP: numpy.array of size M, indices of FP in a
-    TN: numpy.array of variable size, indices of TN, empty for bounding boxes, since it does not make sense
-    FN: numpy.array of size N, indices of FN in b
+    TP: numpy.array, 2d; indices of TP in predictions matched with indices in truth
+    FP: numpy.array, 1d; indices of FP in a
+    TN: numpy.array, 1d; indices of TN, empty for bounding boxes, since it does not make sense
+    FN: numpy.array, 1d; indices of FN in b
     '''
-    if len( predictions ) == 0: return [], [], [], truth
-    m = ( match( predictions, truth, threshold ) > 0 ) * 1
-    sr = np.sum( m, axis = 1 )
-    return np.nonzero( sr ), np.nonzero( 1 - sr ), [], np.nonzero( np.sum( m, axis = 0 ) )
+    if len( predictions ) == 0: return [], [], [], [ *range( len( *truth ) ) ]
+    ious = iou_matrix( predictions, truth )
+    matched = ( match( ious, threshold ) > 0 ) * 1
+    thresholded = ( ( ious > ( 0. if threshold is None else threshold ) ) > 0 ) * 1
+    tpi = np.nonzero( matched )
+    fpi = np.nonzero( np.max( thresholded, axis = 1 ) == 0 )[0]
+    tni = []
+    fni = np.nonzero( np.max( thresholded, axis = 0 ) == 0 )[0]
+    return tpi, fpi, tni, fni
 
 
 
