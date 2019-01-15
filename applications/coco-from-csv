@@ -11,12 +11,12 @@ from PIL import Image
 
 DESCRIPTION = \
     """
-Generate COCO JSON file from CSV file.
-
-Required CSV file fields are:
-    video frame classification: file_name,begin_frame,end_frame,caption
-    bounding boxes: file_name,x1,y1,x2,y2,score,category_id
-"""
+	Generate COCO JSON file from CSV file.
+	
+	Required CSV file fields are:
+		video frame classification: file_name,begin_frame,end_frame,caption
+		bounding boxes: file_name,x1,y1,x2,y2,score,category_id
+	"""
 
 
 # todo
@@ -26,17 +26,20 @@ def main():
     global ARGS
     ARGS = get_args()
     csv = StringIO(sys.stdin.read())
-    if ARGS.fields:
-        df = pd.read_csv(csv, names=ARGS.fields.split(','), header=0)
-    else:
-        df = pd.read_csv(csv)
 
+    try:
+        if ARGS.fields:
+            df = pd.read_csv(csv, names=ARGS.fields.split(','), header=0)
+        else:
+            df = pd.read_csv(csv)
+    except pd.errors.ParserError as e:
+        die(e, "mismatch in expected and received fields in csv")
     # todo: check whether df is valid, otherwise an obscure error down the line
 
     coco_json = {}
-    if all(field in df for field in ['x1', 'y1', 'x2', 'y2']):
+    if all(field in df for field in ['file_name', 'x1', 'y1', 'x2', 'y2', 'score', 'category_id']):
         coco_json = generate_from_bounding_boxes(df)
-    elif all(field in df for field in ['begin_frame', 'end_frame']):
+    elif all(field in df for field in ['file_name', 'begin_frame', 'end_frame', 'caption']):
         coco_json = generate_from_video_frames(df)
     else:
         die("could not find required fields")
@@ -154,13 +157,13 @@ def get_args():
     return parser.parse_args()
 
 
-def say(*args, **kwargs):
-    if ARGS.verbose:
+def say(*args, verbose=False, **kwargs):
+    if verbose or ARGS.verbose:
         print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
 
 
 def die(*args, **kwargs):
-    say(args, kwargs)
+    say(*args, verbose=True, **kwargs)
     sys.exit(1)
 
 
