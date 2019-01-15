@@ -10,7 +10,7 @@ from pycocotools.coco import COCO
 
 DESCRIPTION = \
 """
-Read COCO json file piped in from stdin and select images and all associated  annotations that satisfy a given expression. 
+Read COCO json file piped in from stdin and select images and ALL associated annotations that satisfy a given expression. 
 
 Possible expressions that can be used are:
     img_id/image_id
@@ -21,22 +21,25 @@ Possible expressions that can be used are:
     multiple supcats/supercategories i.e. 'JD' in supcats/supercategories or 'F' in supcats/supercategories
 
 examples:
-    cat coco.json | coco-select "img_id == 10"
-    cat coco.json | coco-select "image_id == 5"
+    cat coco.json | coco-select "img_id == 10".                                             Select all images where image_id is 10 (img_id is an alias for image_id)
+    cat coco.json | coco-select "image_id == 5".                                            Select all images where image_id is 5
     
-    cat coco.json | coco-select "cat_id == 2"
-    cat coco.json | coco-select "category_id == 3"
+    cat coco.json | coco-select "cat_id == 2"                                               Select all images that have category_id 2 (cat_id is an alias for category_id)
+    cat coco.json | coco-select "category_id == 3"                                          Select all images that have category_id 3
     
-    cat coco.json | coco-select "cat == 'JD'"
-    cat coco.json | coco-select "category == 'RI'"
+    cat coco.json | coco-select "cat == 'JD'"                                               Select all images that have category JD i.e. joint displacement (cat is an alias for category)
+    cat coco.json | coco-select "category == 'RI'"                                          Select all images that have category RI i.e. root intrusion
     
-    cat coco.json | coco-select "'JD' in cats and 'RI' in cats"
-    cat coco.json | coco-select "'JD' in categories or 'F' in categories"
+    cat coco.json | coco-select "'JD' in cats and 'RI' in cats"                             Select all images that have joint displacement AND root intrusion as annotations
+    cat coco.json | coco-select "'JD' in categories or 'F' in categories"                   Select all images that have either joint displacement OR root intrusion as annotations
     
-    cat coco.json | coco-select "not 'C' in supcats and 'ED' in supcats"
-    cat coco.json | coco-select "not 'JD' in categories or 'F' in categories"
+    cat coco.json | coco-select "not 'C' in supcats and 'ED' in supcats"                    Select all images that do not have C i.e. cracks as a supercategory and have ED as a supercategory
+    cat coco.json | coco-select "not 'JD' in supercategories or 'F' in supercategories"     Select all images that do not have joint displacement or have F i.e. fault as a supercategory
     
-    cat coco.json | coco-select "img_id in img_ids"
+    cat coco.json | coco-select "img_id in img_ids"                                         Select all images
+    
+    cat coco.json | coco-select "cat == 'JD'" --keep-cats JD                                Select all images that have JD as an annotation and keep ONLY annotations with JD as a category
+    cat coco.json | coco-select --keep-cats JD,RI,C                                         Select all images and keep only annotations that have JD, RI, or C as a category   
 """
 
 
@@ -44,6 +47,7 @@ def main():
     global ARGS
     ARGS = get_args()
     ARGS.expression = ARGS.expression.replace('-', '_')
+    say("search expressions is [{}]".format(ARGS.expression))
 
     say("creating coco object")
     coco = load_coco(sys.stdin.read())
@@ -93,7 +97,7 @@ def main():
     global caps, captions
     global cap, caption
 
-    img_ids = image_ids = set(coco.getImgIds())
+    img_ids = image_ids = coco.getImgIds()
     for curr_img_id in coco.getImgIds():
         # Reinitialize image id for expression check
         img_id = image_id = None
@@ -126,8 +130,8 @@ def main():
         try:
             cat_ids = category_ids = set(
                 [ann['category_id'] for ann in coco.loadAnns(coco.getAnnIds(imgIds=curr_img_id))])
-        except KeyError as e:
-            say("expected key [{}] in coco file".format(str(e)))
+        except KeyError:
+            pass
 
         to_add_img_ids.add(eval_expression(curr_img_id))
 
@@ -159,18 +163,19 @@ def main():
 
         # Check expression for captions
         try:
-            caps = captions = [item['caption'] for item in coco.anns.values() if item['image_id'] == curr_img_id and item['caption']]
+            caps = captions = [item['caption'] for item in coco.anns.values() if
+                               item['image_id'] == curr_img_id and item['caption']]
             globals().update(dict.fromkeys(caps, True))
             to_add_img_ids.add(eval_expression(curr_img_id))
 
             for caption in captions:
                 cap = caption
                 to_add_img_ids.add(eval_expression(curr_img_id))
-        except KeyError as e:
-            say("expected key [{}] in coco file".format(str(e)))
+        except KeyError:
+            pass
 
     to_add_ann_ids = coco.getAnnIds(imgIds=to_add_img_ids)
-
+    to_add_img_ids = set()
     if ARGS.keep_cats:
         keep_cats = ARGS.keep_cats.split(',')
         tmp, to_add_ann_ids = to_add_ann_ids, []
@@ -179,13 +184,14 @@ def main():
             cat_id = ann['category_id']
             if cat_id_2_cat[cat_id] in keep_cats or str(cat_id) in keep_cats:
                 to_add_ann_ids.append(ann['id'])
-
-    if ARGS.keep_captions:
+                to_add_img_ids.add(ann['image_id'])
+    elif ARGS.keep_captions:
         keep_captions = ARGS.keep_captions.split(',')
         tmp, to_add_ann_ids = to_add_ann_ids, []
         for ann in coco.loadAnns(tmp):
             if ann['caption'] in keep_captions:
                 to_add_ann_ids.append(ann['id'])
+                to_add_img_ids.add(ann['image_id'])
 
     try:
         to_add_img_ids.remove(None)
@@ -205,9 +211,8 @@ def eval_expression(curr_img_id):
     try:
         if eval(ARGS.expression):
             return curr_img_id
-    except NameError as e:
-        say(ARGS.expression)
-        say("[{}] is not defined in the dataset".format(str(e).split("'")[1]))
+    except NameError:
+        pass
 
 
 def load_coco(json_buffer: str) -> COCO:
@@ -226,21 +231,32 @@ class Verbose:
             say(line)
 
 
-def say(*args, **kwargs):
-    if ARGS.verbose:
+def say(*args, verbose=False, **kwargs):
+    if ARGS.verbose or verbose:
         print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
+
+
+def die(*args, **kwargs):
+    say(*args, verbose=True, **kwargs)
+    sys.exit(1)
 
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('expression', type=str, help="General expression to search for images. If no expression give, "
-                                                     "defaults to search for all images", default="image_id in "
-                                                                                                  "image_ids", nargs='?')
+                                                     "defaults to search for all images to select all images and "
+                                                     "their annotations", default="image_id in image_ids", nargs='?')
     parser.add_argument('-cats', '--keep-cats', type=str, help="Specify specific categories or category ids (comma "
-                                                               "separated) to keep for each image")
+                                                               "separated) to keep for each image otherwise all "
+                                                               "associated image annotations will be carried over. If "
+                                                               "an image does not contain that annotation, "
+                                                               "it will not be select")
     parser.add_argument('-caps', '--keep-captions', type=str, help="Specify specific captions (comma separated to "
-                                                                   "keep for each image")
-    parser.add_argument('-v', '--verbose', action='store_true', help="More output")
+                                                                   "keep for each image otherwise all associated "
+                                                                   "image annotations will be carried over. If an "
+                                                                   "image does not contain that caption, it will not "
+                                                                   "be selected")
+    parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     return parser.parse_args()
 
 

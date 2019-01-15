@@ -29,7 +29,7 @@ setup(
         "applications/coco-select",
         "applications/coco-merge",
         "applications/coco-overlay-masks",
-        "applications/coco-relabel",
+        "applications/coco-remap",
         "applications/coco-repath",
         "applications/coco-sample",
         "applications/coco-sample",
