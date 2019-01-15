@@ -39,7 +39,9 @@ examples:
     cat coco.json | coco-select "img_id in img_ids"                                         Select all images
     
     cat coco.json | coco-select "cat == 'JD'" --keep-cats JD                                Select all images that have JD as an annotation and keep ONLY annotations with JD as a category
-    cat coco.json | coco-select --keep-cats JD,RI,C                                         Select all images and keep only annotations that have JD, RI, or C as a category   
+    cat coco.json | coco-select --keep-cats JD,RI,C                                         Select all images and keep only annotations that have JD, RI, or C as a category
+    
+    cat coco.json | coco-select "JD or RI"                                                  Select all images that have JD or RI as an annotation. Does not require quotation marks as the data set is pre-parsed for available annotations and creates variables named JD and RI using globals().update    
 """
 
 
@@ -175,8 +177,9 @@ def main():
             pass
 
     to_add_ann_ids = coco.getAnnIds(imgIds=to_add_img_ids)
-    to_add_img_ids = set()
+
     if ARGS.keep_cats:
+        to_add_img_ids = set()
         keep_cats = ARGS.keep_cats.split(',')
         tmp, to_add_ann_ids = to_add_ann_ids, []
         cat_id_2_cat = {cat['id']: cat['name'] for cat in coco.loadCats(coco.getCatIds())}
@@ -186,6 +189,7 @@ def main():
                 to_add_ann_ids.append(ann['id'])
                 to_add_img_ids.add(ann['image_id'])
     elif ARGS.keep_captions:
+		to_add_img_ids = set()
         keep_captions = ARGS.keep_captions.split(',')
         tmp, to_add_ann_ids = to_add_ann_ids, []
         for ann in coco.loadAnns(tmp):
@@ -212,6 +216,8 @@ def eval_expression(curr_img_id):
         if eval(ARGS.expression):
             return curr_img_id
     except NameError:
+        pass
+	except TypeError:
         pass
 
 
@@ -250,7 +256,7 @@ def get_args() -> argparse.Namespace:
                                                                "separated) to keep for each image otherwise all "
                                                                "associated image annotations will be carried over. If "
                                                                "an image does not contain that annotation, "
-                                                               "it will not be select")
+															   "it will not be selected")
     parser.add_argument('-caps', '--keep-captions', type=str, help="Specify specific captions (comma separated to "
                                                                    "keep for each image otherwise all associated "
                                                                    "image annotations will be carried over. If an "
