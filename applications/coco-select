@@ -201,10 +201,10 @@ def main():
     sys.exit()
 
 
-def eval_expression(img_id):
+def eval_expression(curr_img_id):
     try:
         if eval(ARGS.expression):
-            return img_id
+            return curr_img_id
     except NameError as e:
         say(ARGS.expression)
         say("[{}] is not defined in the dataset".format(str(e).split("'")[1]))
