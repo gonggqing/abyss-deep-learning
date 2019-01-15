@@ -217,7 +217,7 @@ def eval_expression(curr_img_id):
             return curr_img_id
     except NameError:
         pass
-        except TypeError:
+	except TypeError:
         pass
 
 
