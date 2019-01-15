@@ -28,6 +28,7 @@ setup(
         "applications/coco-from-csv",
         "applications/coco-select",
         "applications/coco-merge",
+        "applications/coco-metrics",
         "applications/coco-overlay-masks",
         "applications/coco-remap",
         "applications/coco-repath",
