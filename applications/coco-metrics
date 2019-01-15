@@ -21,21 +21,20 @@ take predictions.json, truth.json, output to stdout coco annotations labeled as 
 
 usage: cat predictions.json | coco-metrics --truth truth.json > tfpn.json
 
-categories in predictions.json and truth.json should be the same, no checks performed
+limitations:
+    - categories in predictions.json and truth.json should be the same, no checks performed
+    - FN annotation ids do NOT match the ground thruth ids, since there is no way to make them
+      unique across output; todo: work out required semantics (e.g. optionally output FN only)
 """
 
 def tfpn(args):
     predictions = json.loads(sys.stdin.read())
     f = open(args.truth)
     truth = json.loads(f.read())
-    
-    
-    # category -> category_id
-    
-    
     category_ids = []
     for c in truth['categories']: category_ids.append(c['id'])
     images = {}
+    iou_matrix = None
     if args.bounding_boxes:
         for annotation in predictions['annotations']:
             if annotation['score'] < args.score_threshold: continue
@@ -45,50 +44,66 @@ def tfpn(args):
                 print( 'coco-metrics: expected category id in', category_ids, '; got:', category_id, '; discarded' )
                 continue
             if not image_id in images: images[image_id] = {}
-            if not category_id in images[image_id]: images[image_id][category_id] = ( [], [] )
-            images[image_id][category_id][0].append( annotation['bbox'] ) # todo: make sure coordinate order is correct (x,y vs y,x?)        
+            if not category_id in images[image_id]: images[image_id][category_id] = ( [], [], [], [] )
+            images[image_id][category_id][0].append( annotation['bbox'] ) # todo: make sure coordinate order is correct (x,y vs y,x?)
+            images[image_id][category_id][1].append( annotation['id'] ) # quick and dirty
         for annotation in truth['annotations']:
             image_id = annotation['image_id']
             if image_id not in images: images[image_id] = {}
             category_id = annotation['category_id']
-            if not category_id in images[image_id]: images[image_id][category_id] = ( [], [] )
-            images[image_id][category_id][1].append( annotation['bbox'] ) # todo: make sure coordinate order is correct (x,y vs y,x?)        
-    annotations = {} # todo: match annotation ids?
+            if not category_id in images[image_id]: images[image_id][category_id] = ( [], [], [], [] )
+            images[image_id][category_id][2].append( annotation['bbox'] ) # todo: make sure coordinate order is correct (x,y vs y,x?)        
+            images[image_id][category_id][3].append( annotation['id'] ) # quick and dirty
+        iou_matrix = metrics.bbox_iou_matrix
+    if iou_matrix is None: print( 'coco-metrics: only bounding boxes are currently supported' ); sys.exit( 1 )
     match = eval( args.match() )
+    tfpn['annotations'] = []
     for image_id, image in images.items():
         for i in range( len( category_ids ) ):
             category_id = category_ids[i]
-            if len( image[category_id] ) == 0:
-                1 == 1
-                
-                
-                # todo
-                
-                
+            if len( image[category_id][0] ) == 0:
+                tn = []
+                fn = [ *range( len( image[category_id][2] ) ) ]
             else:
-                iou = metrics.bbox_iou_matrix( image[category_id][0], image[category_id][1] ) # only to get iou scores; remove, if scores not required
-                tp, fp, tn, fn = metrics.tp_fp_tn_fn( image[category_id][0], image[category_id][1], args.iou_threshold, match )
-                
-                
-                # todo:         mark TP
-                # todo:         mark FP
-                # todo:         append FN
-    predictions['categories'] = []
+                ious = iou_matrix( image[category_id][0], image[category_id][3] )
+                tp, fp, tn, fn = metrics.tp_fp_tn_fn( ious, args.iou_threshold, match )
+                category_id_offset = 0 if args.flat_categories else 0
+                for k in range( len( tp[0] ) ):
+                    tfpn['annotations'].append( { "image_id": image_id
+                                                , "bbox": image[category_id][0][tp[0][k]]
+                                                , "id": image[category_id][1][tp[0][k]]
+                                                , "score": ious[tp[0][k],tp[1][k]]
+                                                , "category_id": 0 + category_id_offset } )
+                for j in fp:
+                    tfpn['annotations'].append( { "image_id": image_id
+                                                , "bbox": image[category_id][0][j]
+                                                , "id": image[category_id][1][j]
+                                                , "category_id": 1 + category_id_offset } )
+            for j in tn:
+                tfpn['annotations'].append( { "image_id": image_id
+                                            , "bbox": image[category_id][2][j]
+                                            , "id": image[category_id][3][j]
+                                            , "category_id": 2 + category_id_offset } )
+            for j in fn:
+                tfpn['annotations'].append( { "image_id": image_id
+                                            , "bbox": image[category_id][2][j]
+                                            , "id": image[category_id][3][j]
+                                            , "category_id": 3 + category_id_offset } )
+    tfpn['categories'] = []
     if args.flat_categories:
-        predictions['categories'] += [ { 'name': 'TP', 'supercategory': '', 'id': 0 }
-                                     , { 'name': 'FP', 'supercategory': '', 'id': 1 }
-                                     , { 'name': 'TN', 'supercategory': '', 'id': 2 }
-                                     , { 'name': 'FN', 'supercategory': '', 'id': 3 } ]
+        tfpn['categories'] += [ { 'name': 'TP', 'supercategory': '', 'id': 0 }
+                              , { 'name': 'FP', 'supercategory': '', 'id': 1 }
+                              , { 'name': 'TN', 'supercategory': '', 'id': 2 }
+                              , { 'name': 'FN', 'supercategory': '', 'id': 3 } ]
     else:
         i = 0
         for c in truth['categories']:
-            predictions['categories'] += [ { 'name': 'TP', 'supercategory': c['name'], 'id': i }
-                                         , { 'name': 'FP', 'supercategory': c['name'], 'id': i + 1 }
-                                         , { 'name': 'TN', 'supercategory': c['name'], 'id': i + 2 }
-                                         , { 'name': 'FN', 'supercategory': c['name'], 'id': i + 3 } ]
+            tfpn['categories'] += [ { 'name': 'TP', 'supercategory': c['name'], 'id': i }
+                                  , { 'name': 'FP', 'supercategory': c['name'], 'id': i + 1 }
+                                  , { 'name': 'TN', 'supercategory': c['name'], 'id': i + 2 }
+                                  , { 'name': 'FN', 'supercategory': c['name'], 'id': i + 3 } ]
             i += 4
-    predictions['annotations'] = annotations
-    json.dump(predictions, sys.stdout, indent=4)
+    json.dump(tfpn, sys.stdout, indent=4)
 
 def get_args():
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
