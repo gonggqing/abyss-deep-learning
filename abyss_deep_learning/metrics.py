@@ -82,16 +82,16 @@ def tp_fp_tn_fn( predictions, truth, threshold = None, match = one_to_one, iou_m
     returns
     -------
     TP, FP, TN, FN
-    TP: numpy.array of size M, indices of TP in a
-    FP: numpy.array of size M, indices of FP in a
-    TN: numpy.array of variable size, indices of TN, empty for bounding boxes, since it does not make sense
-    FN: numpy.array of size N, indices of FN in b
+    TP: numpy.array, 2d; indices of TP in predictions matched with indices in truth
+    FP: numpy.array, 1d; indices of FP in a
+    TN: numpy.array, 1d; indices of TN, empty for bounding boxes, since it does not make sense
+    FN: numpy.array, 1d; indices of FN in b
     '''
-    if len( predictions ) == 0: return [], [], [], truth
+    if len( predictions ) == 0: return [], [], [], [ *range( len( *truth ) ) ]
     ious = iou_matrix( predictions, truth )
     matched = ( match( ious, threshold ) > 0 ) * 1
     thresholded = ( ( ious > ( 0. if threshold is None else threshold ) ) > 0 ) * 1
-    tpi = np.nonzero( matched )[0]
+    tpi = np.nonzero( matched )
     fpi = np.nonzero( np.max( thresholded, axis = 1 ) == 0 )[0]
     tni = []
     fni = np.nonzero( np.max( thresholded, axis = 0 ) == 0 )[0]
