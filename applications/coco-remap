@@ -4,7 +4,6 @@ import json
 import os
 import sys
 from contextlib import redirect_stdout
-from operator import itemgetter
 
 from pycocotools.coco import COCO
 
@@ -13,7 +12,7 @@ DESCRIPTION = \
 Read COCO json file piped in from stdin and relabel categories with new category ids
 
 examples:
-    cat coco.json | coco-relabel "PF-H:0,PF-M:1,PF-L:2,PF-G:3"
+    cat coco.json | coco-remap "PF-H:0,PF-M:1,PF-L:2,PF-G:3"
 """
 
 
