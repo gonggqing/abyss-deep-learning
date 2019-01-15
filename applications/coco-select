@@ -39,7 +39,9 @@ examples:
     cat coco.json | coco-select "img_id in img_ids"                                         Select all images
     
     cat coco.json | coco-select "cat == 'JD'" --keep-cats JD                                Select all images that have JD as an annotation and keep ONLY annotations with JD as a category
-    cat coco.json | coco-select --keep-cats JD,RI,C                                         Select all images and keep only annotations that have JD, RI, or C as a category   
+    cat coco.json | coco-select --keep-cats JD,RI,C                                         Select all images and keep only annotations that have JD, RI, or C as a category
+    
+    cat coco.json | coco-select "JD or RI"                                                  Select all images that have JD or RI as an annotation. Does not require quotation marks as the data set is pre-parsed for available annotations and creates variables named JD and RI using globals().update    
 """
 
 
@@ -250,7 +252,7 @@ def get_args() -> argparse.Namespace:
                                                                "separated) to keep for each image otherwise all "
                                                                "associated image annotations will be carried over. If "
                                                                "an image does not contain that annotation, "
-                                                               "it will not be select")
+															   "it will not be selected")
     parser.add_argument('-caps', '--keep-captions', type=str, help="Specify specific captions (comma separated to "
                                                                    "keep for each image otherwise all associated "
                                                                    "image annotations will be carried over. If an "
