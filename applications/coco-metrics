@@ -6,6 +6,7 @@ import sys
 from collections import defaultdict
 from operator import itemgetter
 from pathlib import Path
+from abyss_deep_learning import metrics
 
 description = """
 
@@ -28,19 +29,50 @@ def tfpn(args):
     f = open(args.truth)
     truth = json.loads(f.read())
     
-    # todo: for each image get predictions and truth annotations
     
+    # category -> category_id
+    
+    
+    category_ids = []
+    for c in truth['categories']: category_ids.append(c['id'])
+    images = {}
     if args.bounding_boxes:
-        # todo: for each image get predictions and truth annotations
-        # todo:     for each category
-        # todo:         get predictions above score threshold
-        # todo:         get truth annotations
-        # todo:         populate prediction and truth arrays
-        # todo:         get one-to-one matrix
-        # todo:         mark TP
-        # todo:         mark FP
-        # todo:         append FN
-        1 == 1
+        for annotation in predictions['annotations']:
+            if annotation['score'] < args.score_threshold: continue
+            image_id = annotation['image_id']
+            category_id = annotation['category_id']
+            if not category_id in category_ids:
+                print( 'coco-metrics: expected category id in', category_ids, '; got:', category_id, '; discarded' )
+                continue
+            if not image_id in images: images[image_id] = {}
+            if not category_id in images[image_id]: images[image_id][category_id] = ( [], [] )
+            images[image_id][category_id][0].append( annotation['bbox'] ) # todo: make sure coordinate order is correct (x,y vs y,x?)        
+        for annotation in truth['annotations']:
+            image_id = annotation['image_id']
+            if image_id not in images: images[image_id] = {}
+            category_id = annotation['category_id']
+            if not category_id in images[image_id]: images[image_id][category_id] = ( [], [] )
+            images[image_id][category_id][1].append( annotation['bbox'] ) # todo: make sure coordinate order is correct (x,y vs y,x?)        
+    annotations = {} # todo: match annotation ids?
+    match = eval( args.match() )
+    for image_id, image in images.items():
+        for i in range( len( category_ids ) ):
+            category_id = category_ids[i]
+            if len( image[category_id] ) == 0:
+                1 == 1
+                
+                
+                # todo
+                
+                
+            else:
+                iou = metrics.bbox_iou_matrix( image[category_id][0], image[category_id][1] ) # only to get iou scores; remove, if scores not required
+                tp, fp, tn, fn = metrics.tp_fp_tn_fn( image[category_id][0], image[category_id][1], args.iou_threshold, match )
+                
+                
+                # todo:         mark TP
+                # todo:         mark FP
+                # todo:         append FN
     predictions['categories'] = []
     if args.flat_categories:
         predictions['categories'] += [ { 'name': 'TP', 'supercategory': '', 'id': 0 }
@@ -55,6 +87,7 @@ def tfpn(args):
                                          , { 'name': 'TN', 'supercategory': c['name'], 'id': i + 2 }
                                          , { 'name': 'FN', 'supercategory': c['name'], 'id': i + 3 } ]
             i += 4
+    predictions['annotations'] = annotations
     json.dump(predictions, sys.stdout, indent=4)
 
 def get_args():
@@ -64,9 +97,9 @@ def get_args():
     tfpn_parser.set_defaults( func=tfpn )
     tfpn_parser.add_argument( '--bounding-boxes', '--bbox', '-b', action='store_true', help="match bounding boxes" )
     tfpn_parser.add_argument( '--flat-categories', '--flat', action='store_true', help="output just four categories: TP, FP, TN, and FN" )
-    tfpn_parser.add_argument( '--iou-threshold', default=0.5, type=float, help="iou threshold" )
-    tfpn_parser.add_argument( '--match', default='one-to-one', type=str, help="how to match" )
-    tfpn_parser.add_argument( '--score-threshold', default=0.5, type=float, help="score threshold" )
+    tfpn_parser.add_argument( '--iou-threshold', default=0.5, type=float, help="iou threshold; default: %(default)s" )
+    tfpn_parser.add_argument( '--match', default='one_to_one', type=str, help="how to match, 'one_to_one' or 'one_to_many'; default: %(default)s" )
+    tfpn_parser.add_argument( '--score-threshold', default=0.5, type=float, help="score threshold: default: %(default)s" )
     tfpn_parser.add_argument( '--truth', '-t', type=str, help="ground truth coco.json file" )
     return parser.parse_args()
 
