@@ -14,6 +14,7 @@ from pycocotools import mask as coco_mask
 from pycocotools.coco import COCO
 import bidict
 import numpy as np
+from pycocotools.coco import COCO
 
 
 def next_smallest_free_id(id_list):
