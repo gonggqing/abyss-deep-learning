@@ -45,5 +45,6 @@ setup(
         "applications/maskrcnn-test",
         "applications/maskrcnn-trainval",
         "applications/coco-to-retina-csv",
+        "applications/coco-filter-categories",
         ],
 )
