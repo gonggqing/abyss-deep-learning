@@ -189,7 +189,7 @@ def main():
                 to_add_ann_ids.append(ann['id'])
                 to_add_img_ids.add(ann['image_id'])
     elif ARGS.keep_captions:
-to_add_img_ids = set()
+		to_add_img_ids = set()
         keep_captions = ARGS.keep_captions.split(',')
         tmp, to_add_ann_ids = to_add_ann_ids, []
         for ann in coco.loadAnns(tmp):
