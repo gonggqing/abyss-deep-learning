@@ -20,7 +20,9 @@ def get_annotations(image, annotations, caption_map):
         bb = [floor(bbox[0]), floor(bbox[1]), floor(bbox[0] + bbox[2]), floor(bbox[1] + bbox[3])]
         cl = caption_map[annotation['category_id']]
         # Add to output string
-        output_list.append([file_path, int(bb[0]), int(bb[1]), int(bb[2]), int(bb[3]), cl])
+        # Ensure the boxes don't have zero height/width
+        if int(bb[0]) < int(bb[2]) and int(bb[1]) < int(bb[3]):
+            output_list.append([file_path, int(bb[0]), int(bb[1]), int(bb[2]), int(bb[3]), cl])
     return output_list
 
 

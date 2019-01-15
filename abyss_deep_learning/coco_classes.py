@@ -11,6 +11,7 @@ import os
 import sys
 
 from pycocotools import mask as coco_mask
+from pycocotools.coco import COCO
 import bidict
 import numpy as np
 
@@ -144,6 +145,10 @@ class CocoDataset(object):
         }
         if name is not None:
             self.info['name'] = name
+            coco = COCO(name)
+            self.images = coco.dataset['images']
+            self.annotations = coco.dataset['annotations']
+            self.categories = coco.dataset['categories']
         self.licenses = [
             {
                 "id": 1,
@@ -241,14 +246,16 @@ class CocoDataset(object):
             annotation.update(other)
         self.annotations.append(annotation)
 
-    def split(self, splits, verbose=False):
+    def split(self, splits, seed=None, verbose=False):
         image_set = set([img['id'] for img in self.images])
         datasets = []
+        np.random.seed(seed)
         for split in splits:
             num_choices = int(np.floor(len(self.images) * split))
             if verbose:
                 print("{:d} images, choosing {:d}".format(
                     len(image_set), num_choices), file=sys.stderr)
+
             split_ids = np.random.choice(
                 list(image_set), num_choices, replace=False).tolist()
             image_set -= set(split_ids)

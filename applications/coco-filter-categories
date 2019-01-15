@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+import argparse
+import os
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+import json
+import csv
+import ast
+
+def get_classes_from_args(classes):
+    print(classes)
+    if "[" in classes:
+        lit_eval = ast.literal_eval(classes)
+        if isinstance(lit_eval, list):
+            class_list = lit_eval
+        else:
+            raise ValueError("Classes was expected to be a list of strings")
+    else:
+        raise ValueError("Classes was expected to be a list of strings")
+    return class_list
+
+def main(args):
+    input_jcoco = json.load(open(args.input_coco_path,'r'))
+    output_jcoco = input_jcoco.copy()
+    class_list = get_classes_from_args(args.classes)
+    # Filter the categories
+    new_cat_list = []
+    for cat in output_jcoco['categories']:
+        if args.remove:
+            if cat['name'] not in class_list:
+                new_cat_list.append(cat)
+        else:
+            if cat['name'] in class_list:
+                new_cat_list.append(cat)
+
+    # Redo the category IDs, so they start from zero
+    cat_id_map = {}  # This maps old ID to new ID. key=OldCatId, value=NewCatId
+    if not args.keep_ids:
+        cat_idx = 1
+        for cat in new_cat_list:
+            cat_id_map[cat['id']] = cat_idx
+            cat['id'] = cat_idx
+            cat_idx += 1
+    else:
+        # Else keep the same categories
+        for cat in new_cat_list:
+            cat_id_map[cat['id']] = cat['id']
+
+    output_jcoco['categories'] = new_cat_list
+
+    # Get the new list of category ids - however these are the existing category IDs. These get changed over after!
+    cat_ids = [cat['id'] for cat in output_jcoco['categories']]
+
+    # Filter the annotations
+    new_ann_list = []
+
+    # Get the new category IDs
+    new_ann_list = []
+    for ann in output_jcoco['annotations']:
+        if ann['category_id'] in cat_id_map:
+            ann['category_id'] = cat_id_map[ann['category_id']]
+            new_ann_list.append(ann)
+    output_jcoco['annotations'] = new_ann_list
+
+    with open(args.output_coco_path, 'w') as outfile:
+        json.dump(output_jcoco, outfile)
+
+
+def get_args():
+    '''Get args from the command line args'''
+    parser = argparse.ArgumentParser(
+        description="Filter a COCO dataset to either keep or remove a list of categories. Removes the annotations but not the images or captions")
+    parser.add_argument("input_coco_path", help="The coco JSON to parse.")
+    parser.add_argument("classes", help="The classes to either keep (or remove if --remove is set). Input either a list of str class names, or a dictionary of {\"class_name: class_id\"}")
+    parser.add_argument("output_coco_path", help="The output path for the coco file")
+    parser.add_argument("--remove", action="store_true", help="If this is set, the classes will be removed from the dataset, instead of kept")
+    parser.add_argument("--keep_ids", action="store_true", help="If this is present, the original category ids will be kept")
+    args = parser.parse_args()
+    return args
+
+
+if __name__ == '__main__':
+    main(get_args())

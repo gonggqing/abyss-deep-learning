@@ -10,7 +10,8 @@ from abyss_deep_learning.coco_classes import CocoDataset
 
 description = """
 
-Split a COCO JSON database into multiple
+Split a COCO JSON database into multiple files/sets
+Note: Randomly shuffles the data when doing so
 
 
 """
@@ -30,7 +31,7 @@ def main(args):
     split_ratios = [1.0/len(split_names)]*len(split_names) if args.split_ratios is None or len(args.split_ratios) == 0 \
                    else (float(i) for i in args.split_ratios.split(','))
     database = CocoDataset(args.coco_path)
-    for dataset_split, split_name in zip(database.split(split_ratios), split_names):
+    for dataset_split, split_name in zip(database.split(split_ratios, seed=args.seed), split_names):
         split_path = os.path.join(coco_dir, "{:s}.{:s}.json".format(coco_name, split_name))
         if args.verbose:
             print(
@@ -47,6 +48,7 @@ def get_args():
     parser.add_argument("--image-dir", help="If images referenced relatively, give the image dir", default=None)
     parser.add_argument("--limit", help="Limit the amount of images to read from the dataset before splitting", default=None, type=int)
     parser.add_argument("--split-ratios", "--ratios", type=str, help="CSV-delimited ratios of the splits (0.0 to 1.0); if absent, equal ratios")
+    parser.add_argument("--seed", type=int, default=None, help="Set intial seed for random shuffling of the data")
     parser.add_argument('--verbose', action='store_true', help="more verbose output to stderr")
     return parser.parse_args()
 
