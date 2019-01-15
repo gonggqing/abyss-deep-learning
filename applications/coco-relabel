@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import sys
+from contextlib import redirect_stdout
+from operator import itemgetter
+
+from pycocotools.coco import COCO
+
+DESCRIPTION = \
+"""
+Read COCO json file piped in from stdin and relabel categories with new category ids
+
+examples:
+    cat coco.json | coco-relabel "PF-H:0,PF-M:1,PF-L:2,PF-G:3"
+"""
+
+
+def main():
+    global ARGS
+    ARGS = get_args()
+    say("creating coco object")
+    coco = load_coco(sys.stdin.read())
+
+    new_mapping = {line.split(':')[0]: int(line.split(':')[1]) for line in ARGS.mapping.split(',')}
+    old_mapping = {line['id']: line['name'] for line in coco.dataset['categories'] if line['name'] in new_mapping}
+    for annotation in coco.dataset['annotations']:
+        annotation['category_id'] = new_mapping[old_mapping[annotation['category_id']]]
+
+    new_categories = []
+    for category in coco.dataset['categories']:
+        if category['name'] in new_mapping:
+            category['id'] = new_mapping[old_mapping[category['id']]]
+            new_categories.append(category)
+    coco.dataset['categories'] = new_categories
+    json.dump(coco.dataset, sys.stdout, indent=4)
+    say("done")
+    sys.exit()
+
+
+def load_coco(json_buffer: str) -> COCO:
+    with redirect_stdout(Verbose):
+        coco = COCO()
+        coco.dataset = json.loads(json_buffer)
+        coco.createIndex()
+    return coco
+
+
+class Verbose:
+    @staticmethod
+    def write(line: str):
+        line = line.strip()
+        if line:
+            say(line)
+
+
+def say(*args, verbose=False, **kwargs):
+    if verbose or ARGS.verbose:
+        print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
+
+
+def die(*args, **kwargs):
+    say(*args, verbose=True, **kwargs)
+    sys.exit(1)
+
+
+def get_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('mapping', type=str, help="Categories are separated by comma and their respective category "
+                                                     "id by colon")
+    parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
+    return parser.parse_args()
+
+
+if __name__ == '__main__':
+    main()
