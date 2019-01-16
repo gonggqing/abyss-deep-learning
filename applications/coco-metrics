@@ -74,43 +74,43 @@ def tfpn(args):
                 else:
                     ious = iou_matrix( annotations[0], annotations[2] ) # todo: if too slow, remove; used only to calculate score as iou
                     tp, fp, tn, fn = metrics.tp_fp_tn_fn( annotations[0], annotations[2], args.iou_threshold, match )
-                    category_id_offset = 0 if args.flat_categories else category_id * 4
+                    category_id_offset = 0 if args.flat_categories else ( category_id - 1 ) * 4
                     for k in range( len( tp[0] ) ):
                         result['annotations'].append( { "image_id": image_id
-                                                    , "bbox": annotations[0][tp[0][k]]
-                                                    , "id": id # annotations[1][tp[0][k]]
-                                                    , "score": ious[tp[0][k],tp[1][k]]
-                                                    , "category_id": 0 + category_id_offset } )
+                                                      , "bbox": annotations[0][tp[0][k]]
+                                                      , "id": id # annotations[1][tp[0][k]]
+                                                      , "score": ious[tp[0][k],tp[1][k]]
+                                                      , "category_id": 1 + category_id_offset } )
             for j in fp:
                 result['annotations'].append( { "image_id": image_id
-                                            , "bbox": annotations[0][j]
-                                            , "id": id # annotations[1][j]
-                                            , "category_id": 1 + category_id_offset } )
+                                              , "bbox": annotations[0][j]
+                                              , "id": id # annotations[1][j]
+                                              , "category_id": 2 + category_id_offset } )
             for j in tn:
                 result['annotations'].append( { "image_id": image_id
                                               , "bbox": annotations[2][j]
                                               , "id": id # annotations[3][j]
-                                              , "category_id": 2 + category_id_offset } )
+                                              , "category_id": 3 + category_id_offset } )
             for j in fn:
                 result['annotations'].append( { "image_id": image_id
                                               , "bbox": annotations[2][j]
                                               , "id": id # annotations[3][j]
-                                              , "category_id": 3 + category_id_offset } )
+                                              , "category_id": 4 + category_id_offset } )
             id += 1
     result['categories'] = []
     if args.flat_categories:
-        result['categories'] += [ { 'name': 'TP', 'supercategory': '', 'id': 0 }
-                                , { 'name': 'FP', 'supercategory': '', 'id': 1 }
-                                , { 'name': 'TN', 'supercategory': '', 'id': 2 }
-                                , { 'name': 'FN', 'supercategory': '', 'id': 3 } ]
+        result['categories'] += [ { 'name': 'TP', 'supercategory': '', 'id': 1 }
+                                , { 'name': 'FP', 'supercategory': '', 'id': 2 }
+                                , { 'name': 'TN', 'supercategory': '', 'id': 3 }
+                                , { 'name': 'FN', 'supercategory': '', 'id': 4 } ]
     else:
-        i = 0
         for c in truth['categories']:
-            result['categories'] += [ { 'name': c['name'] + ',TP', 'supercategory': c['name'], 'id': i }
-                                    , { 'name': c['name'] + ',FP', 'supercategory': c['name'], 'id': i + 1 }
-                                    , { 'name': c['name'] + ',TN', 'supercategory': c['name'], 'id': i + 2 }
-                                    , { 'name': c['name'] + ',FN', 'supercategory': c['name'], 'id': i + 3 } ]
-            i += 4
+            category_id_offset = ( c['id'] - 1 ) * 4
+            result['categories'] += [ { 'name': c['name'] + ',TP', 'supercategory': c['name'], 'id': category_id_offset + 1 }
+                                    , { 'name': c['name'] + ',FP', 'supercategory': c['name'], 'id': category_id_offset + 2 }
+                                    , { 'name': c['name'] + ',TN', 'supercategory': c['name'], 'id': category_id_offset + 3 }
+                                    , { 'name': c['name'] + ',FN', 'supercategory': c['name'], 'id': category_id_offset + 4 } ]
+    result['images'] = truth['images']
     json.dump(result, sys.stdout, indent=4)
 
 def get_args():
