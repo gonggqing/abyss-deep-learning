@@ -64,9 +64,10 @@ def get_args():
         'output_dir', help="Path to put the desired")
     parser.add_argument('--verbose', action='store_true',
                         help="verbose output to stderr")
-    parser.add_argument('--index_from_zero', action='store_true', help="Index categories from zero - Annotation Tool indexes from 1")
+    parser.add_argument('--index-from-zero', action='store_true', help="Index categories from zero - Annotation Tool "
+                                                                       "indexes from 1")
     parser.add_argument('--prefix', help="The prefix to the images directory")
-    parser.add_argument('--use_filename', help="Use prefix/filename instead of path attributes")
+    parser.add_argument('--use-filename', help="Use prefix/filename instead of path attributes")
     args = parser.parse_args()
     return args
 
