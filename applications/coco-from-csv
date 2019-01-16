@@ -118,7 +118,7 @@ def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
         width = row['x2'] - x
         height = row['y2'] - y
         coco_json['annotations'].append({
-            'id'          : len(coco_json['annotations']),
+            'id'          : len(coco_json['annotations']) + 1,
             'image_id'    : img_file_name_2_img_id[img_file_name],
             'category_id' : category_id,
             'segmentation': None,
