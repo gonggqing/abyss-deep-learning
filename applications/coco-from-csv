@@ -152,7 +152,7 @@ def generate_from_video_frames(df: pd.DataFrame) -> dict:
 def get_args():
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-f', '--fields', type=str, help="Comma separated field names for CSV file")
-    parser.add_argument('-m', '--map', '--categories', type=str, help="Path to original COCO json file of category and "
+    parser.add_argument('--map', '--categories', type=str, help="Path to original COCO json file of category and "
                                                                       "category ids")
     parser.add_argument('-s', '--image-size', type=str, help="<width>,<height> values to use to give to all images")
     parser.add_argument('-m', '--min', action='store_const', help="Output minimised json", const=None, default=4,
