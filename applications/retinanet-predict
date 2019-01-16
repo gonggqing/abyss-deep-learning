@@ -234,8 +234,13 @@ def main(args=None):
     # start evaluation
     line_counter = 0
 
-    for line in sys.stdin:
-        
+    with open(args.images, 'r') as file_handle:
+        images = file_handle.read().split("\n")
+
+    for line in images:
+        if not line:
+            continue
+
         image_path = line.strip()
         print('Processing image ' + str(line_counter) + 'at ' + image_path, file=sys.stderr)
 
