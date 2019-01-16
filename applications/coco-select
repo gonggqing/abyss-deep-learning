@@ -211,7 +211,7 @@ def main():
     sys.exit()
 
 
-def eval_expression(curr_img_id):
+def eval_expression(curr_img_id: int):
     try:
         if eval(ARGS.expression):
             return curr_img_id
