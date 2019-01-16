@@ -10,7 +10,8 @@ from pycocotools.coco import COCO
 
 DESCRIPTION = \
 """
-Read COCO json file piped in from stdin and select images and ALL associated annotations that satisfy a given expression. 
+Read COCO json file piped in from stdin and output to stdout images and !!! ALL associated annotations that satisfy a 
+given expressionin default COCO format. 
 
 Possible expressions that can be used are:
     img_id/image_id
@@ -41,7 +42,8 @@ examples:
     cat coco.json | coco-select "cat == 'JD'" --keep-cats JD                                Select all images that have JD as an annotation and keep ONLY annotations with JD as a category
     cat coco.json | coco-select --keep-cats JD,RI,C                                         Select all images and keep only annotations that have JD, RI, or C as a category
     
-    cat coco.json | coco-select "JD or RI"                                                  Select all images that have JD or RI as an annotation. Does not require quotation marks as the data set is pre-parsed for available annotations and creates variables named JD and RI using globals().update    
+    cat coco.json | coco-select "JD or RI"                                                  Select all images that have JD or RI as an annotation. Does not require quotation marks as the data set is 
+                                                                                            pre-parsed for available annotations and creates variables named JD and RI using globals().update    
 """
 
 
@@ -205,8 +207,7 @@ def main():
 
     coco.dataset['images'] = [] if imgs is None else imgs
     coco.dataset['annotations'] = coco.loadAnns(to_add_ann_ids)
-
-    json.dump(coco.dataset, sys.stdout, indent=4)
+    json.dump(coco.dataset, sys.stdout, indent=ARGS.indent)
     say("done")
     sys.exit()
 
@@ -262,6 +263,8 @@ def get_args() -> argparse.Namespace:
                                                                    "image annotations will be carried over. If an "
                                                                    "image does not contain that caption, it will not "
                                                                    "be selected")
+    parser.add_argument('-m', '--min', action='store_const', help="Output minimised json", const=None, default=4,
+                        dest='indent')
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     return parser.parse_args()
 

@@ -10,13 +10,13 @@ import pandas as pd
 from PIL import Image
 
 DESCRIPTION = \
-    """
-	Generate COCO JSON file from CSV file.
-	
-	Required CSV file fields are:
-		video frame classification: file_name,begin_frame,end_frame,caption
-		bounding boxes: file_name,x1,y1,x2,y2,score,category_id
-	"""
+"""
+Generate COCO JSON file from CSV file.
+
+Required CSV file fields are:
+    video frame classification: file_name,begin_frame,end_frame,caption
+    bounding boxes: file_name,x1,y1,x2,y2,score,category_id
+"""
 
 
 # todo
@@ -44,7 +44,7 @@ def main():
     else:
         die("could not find required fields")
 
-    json.dump(coco_json, sys.stdout, indent=4)
+    json.dump(coco_json, sys.stdout, indent=ARGS.indent)
     say("done")
     sys.exit()
 
@@ -52,17 +52,17 @@ def main():
 def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
     say("generating from bounding boxes")
     coco_json = {
-        'info': {
-            'year': int(datetime.now().year),
-            'version': '1.0',
-            'description': 'This is a dataset configured by Abyss Solutions.',
-            'contributor': 'Abyss Solutions',
-            'url': 'http://www.abysssolutions.com.au',
+        'info'       : {
+            'year'        : int(datetime.now().year),
+            'version'     : '1.0',
+            'description' : 'This is a dataset configured by Abyss Solutions.',
+            'contributor' : 'Abyss Solutions',
+            'url'         : 'http://www.abysssolutions.com.au',
             'date_created': datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'),
         },
-        'images': [],
+        'images'     : [],
         'annotations': [],
-        'licenses': [],
+        'licenses'   : [],
     }
 
     try:
@@ -101,11 +101,11 @@ def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
                     say("width and height values will be omitted from image [{}]".format(img_id))
 
             img = {
-                'id': img_id,
-                'file_name': img_file_name,
-                'license': 0,
+                'id'           : img_id,
+                'file_name'    : img_file_name,
+                'license'      : 0,
                 'date_captured': '',
-                'path': img_path,
+                'path'         : img_path,
             }
             if width and height:
                 img['width'] = width
@@ -118,14 +118,14 @@ def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
         width = row['x2'] - x
         height = row['y2'] - y
         coco_json['annotations'].append({
-            'id': len(coco_json['annotations']),
-            'image_id': img_file_name_2_img_id[img_file_name],
-            'category_id': category_id,
+            'id'          : len(coco_json['annotations']),
+            'image_id'    : img_file_name_2_img_id[img_file_name],
+            'category_id' : category_id,
             'segmentation': None,
-            'area': int(width * height),
-            'bbox': [int(x), int(y), int(width), int(height)],
-            'iscrowd': 0,
-            'score': row['score'],
+            'area'        : int(width * height),
+            'bbox'        : [int(x), int(y), int(width), int(height)],
+            'iscrowd'     : 0,
+            'score'       : row['score'],
         })
     return coco_json
 
@@ -134,16 +134,16 @@ def generate_from_video_frames(df: pd.DataFrame) -> dict:
     say("generating from video frames")
     coco_json = {
         'file_name': '',
-        'segments': [],
+        'segments' : [],
     }
     for idx, row in df.iterrows():
         if 'file_name' in row:
             coco_json['file_name'] = row['file_name']
         coco_json['segments'].append({
-            'id': idx,
+            'id'         : idx,
             'begin_frame': row['begin_frame'],
-            'end_frame': row['end_frame'],
-            'caption': row['caption'],
+            'end_frame'  : row['end_frame'],
+            'caption'    : row['caption'],
         })
     return coco_json
 
@@ -153,6 +153,8 @@ def get_args():
     parser.add_argument('-f', '--fields', type=str, help="Comma separated field names for CSV file")
     parser.add_argument('-m', '--map', '--categories', type=str, help="Path to JSON file of category and category ids")
     parser.add_argument('-s', '--image-size', type=str, help="<width>,<height> values to use to give to all images")
+    parser.add_argument('-m', '--min', action='store_const', help="Output minimised json", const=None, default=4,
+                        dest='indent')
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     return parser.parse_args()
 

@@ -33,7 +33,8 @@ def main():
             category['id'] = new_mapping[old_mapping[category['id']]]
             new_categories.append(category)
     coco.dataset['categories'] = new_categories
-    json.dump(coco.dataset, sys.stdout, indent=4)
+
+    json.dump(coco.dataset, sys.stdout, indent=ARGS.indent)
     say("done")
     sys.exit()
 
@@ -68,6 +69,8 @@ def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('mapping', type=str, help="Categories are separated by comma and their respective category "
                                                      "id by colon")
+    parser.add_argument('-m', '--min', action='store_const', help="Output minimised json", const=None, default=4,
+                        dest='indent')
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     return parser.parse_args()
 
