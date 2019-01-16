@@ -15,7 +15,7 @@ Generate COCO JSON file from CSV file.
 
 Required CSV file fields are:
     video frame classification: file_name,begin_frame,end_frame,caption
-    bounding boxes: file_name,x1,y1,x2,y2,score,category_id
+    bounding boxes: file_name,image_id,x1,y1,x2,y2,score,category_id
 """
 
 
@@ -37,7 +37,7 @@ def main():
     # todo: check whether df is valid, otherwise an obscure error down the line
 
     coco_json = {}
-    if all(field in df for field in ['file_name', 'x1', 'y1', 'x2', 'y2', 'score', 'category_id']):
+    if all(field in df for field in ['file_name', 'image_id', 'x1', 'y1', 'x2', 'y2', 'score', 'category_id']):
         coco_json = generate_from_bounding_boxes(df)
     elif all(field in df for field in ['file_name', 'begin_frame', 'end_frame', 'caption']):
         coco_json = generate_from_video_frames(df)
@@ -85,7 +85,7 @@ def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
 
         if img_file_name not in seen_imgs:
             seen_imgs.add(img_file_name)
-            img_id = len(coco_json['images'])
+            img_id = row['image_id']
 
             # PIL.Image.open does lazy loading so raster data will not be loaded in
             try:
@@ -151,7 +151,8 @@ def generate_from_video_frames(df: pd.DataFrame) -> dict:
 def get_args():
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-f', '--fields', type=str, help="Comma separated field names for CSV file")
-    parser.add_argument('-m', '--map', '--categories', type=str, help="Path to JSON file of category and category ids")
+    parser.add_argument('-m', '--map', '--categories', type=str, help="Path to original COCO json file of category and "
+                                                                      "category ids")
     parser.add_argument('-s', '--image-size', type=str, help="<width>,<height> values to use to give to all images")
     parser.add_argument('-m', '--min', action='store_const', help="Output minimised json", const=None, default=4,
                         dest='indent')
