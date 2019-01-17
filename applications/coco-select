@@ -4,7 +4,6 @@ import json
 import os
 import sys
 from contextlib import redirect_stdout
-from operator import itemgetter
 
 from pycocotools.coco import COCO
 
@@ -84,12 +83,6 @@ def main():
         all_captions = {}
 
     globals().update(all_captions)
-
-    # Load all annotations
-    anns = coco.loadAnns(coco.getAnnIds())
-
-    # Sort all annotations by their image id, then the annotation id as an image can have multiple annotations
-    anns.sort(key=itemgetter('image_id', 'id'))
 
     # Image ids to carry over from COCO dataset
     to_add_img_ids = set()
