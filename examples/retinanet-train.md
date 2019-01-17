@@ -5,7 +5,7 @@ Starting from the coco-boxes.json...
 ## Create the retinanet csv dataset
 
 ```bash
-coco-to-retina-csv coco-boxes.train.json retina-annotations/train/ --index_from_zero
+coco-to-retina-csv coco-boxes.train.json retina-annotations/train/ --index-from-zero
 ```
 
 Rewrite class_mapping.csv to be more intuitive (PF-G = 0, PF-L = 1, PF-M = 2, PF-H = 3)
