@@ -1,8 +1,30 @@
 # Instructions to Train Retinanet
 
-Starting from the coco-boxes.json...
+## Installation
+
+### Install tensorflow-gpu natively
+
+...Unless you want to train on CPU...
+
+You also may consider create a docker from tensorflow-gpu docker and add retinanet to it. Installing tensorflow-gpu cuda dependencies natively may be pain due to version discrepancies. 
+
+```
+sudo pip3 install tensorflow-gpu
+```
+Then, install CUDA by following the twenty intuitively obvious commands here: https://www.tensorflow.org/install/gpu 
+
+### Install keras-retinanet
+
+Follow installation instructions here: https://github.com/fizyr/keras-retinanet
+
+Install missing dependencies with sudo pip3 install later. Apart from tensorflow, the rest seems straigthforward.
+
+### Download model
+...e.g. from here: https://github.com/fizyr/keras-retinanet/releases
 
 ## Create the retinanet csv dataset
+
+Starting from the coco-boxes.json...
 
 ```bash
 coco-to-retina-csv coco-boxes.train.json retina-annotations/train/ --index-from-zero
