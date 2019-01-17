@@ -66,6 +66,7 @@ def resize(coco: COCO) -> COCO:
                 img_data['path'] = new_path
                 img_size = (img_data['width'], img_data['height'])
                 resized_img = cv2.resize(img, img_size)
+                os.makedirs( new_path, exist_ok = True )
                 say("writing image to {}".format(new_path))
                 cv2.imwrite(new_path, resized_img)
 
@@ -81,19 +82,22 @@ def resize(coco: COCO) -> COCO:
             ann['bbox'] = [x, y, width, height]
             ann['area'] = width * height
 
-            tmp = ann['segmentation']
-            if type(tmp) is list:
-                segmentation = []
-                for segment in tmp:
-                    new_segment = [(int(x * h_scale), int(y * v_scale)) for x, y in grouper(segment, 2)]
-                    # Flatten the list of tuples
-                    new_segment = list(itertools.chain(*new_segment))
-                    segmentation.append(new_segment)
-                ann['segmentation'] = segmentation
-            elif type(tmp) is dict:
-                say("rle is not yet supported")
+            if 'segmentation' in ann:
+                tmp = ann['segmentation']
+                if type(tmp) is list:
+                    segmentation = []
+                    for segment in tmp:
+                        new_segment = [(int(x * h_scale), int(y * v_scale)) for x, y in grouper(segment, 2)]
+                        # Flatten the list of tuples
+                        new_segment = list(itertools.chain(*new_segment))
+                        segmentation.append(new_segment)
+                    ann['segmentation'] = segmentation
+                elif type(tmp) is dict:
+                    say("rle is not yet supported")
+                else:
+                    say("unknown data type [{}]".format(type(tmp)))
             else:
-                say("unknown data type [{}]".format(type(tmp)))
+                say("warning: annotation with id", ann['id'], "does not have 'segmentation'; ignored" )
     return coco
 
 
@@ -139,12 +143,12 @@ def get_args() -> argparse.Namespace:
     parser_tile.set_defaults(func=tile)
     tile_args = parser_tile.add_mutually_exclusive_group(required=True)
     tile_args.add_argument('-n', '--num-tiles', type=int, help="Number of tiles to generate from image")
-    tile_args.add_argument('-dum', '--dummy', help="dummy option")
+    tile_args.add_argument('--dummy', help="dummy option")
 
-    parser.add_argument('-o', '--output-images', action='store_true', help="Apply action to images and output in "
+    parser.add_argument('-o', '--apply-to-images', action='store_true', help="Apply action to images and output in "
                                                                            "current working directory [image] "
                                                                            "folder that contains new images")
-    parser.add_argument('-m', '--min', action='store_const', help="Output minimised json", const=None, default=4,
+    parser.add_argument('-m', '--min', '--minified', action='store_const', help="Output minimised json", const=None, default=4,
                         dest='indent')
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     return parser.parse_args()
