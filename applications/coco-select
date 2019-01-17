@@ -13,6 +13,10 @@ DESCRIPTION = \
 Read COCO json file piped in from stdin and output to stdout images and !!! ALL associated annotations that satisfy a 
 given expressionin default COCO format. 
 
+Optional arguments --keep-cats and --keep-caps are there to filter out add annotations as all annotations for on 
+iamge will be copied to the new dataset. Argument to either are comma separated values of categories/captions to 
+keep. The new categories/captions will automatically be given new ids.
+
 Possible expressions that can be used are:
     img_id/image_id
     cat_id/category_id
@@ -185,11 +189,18 @@ def main():
         keep_cats = ARGS.keep_cats.split(',')
         tmp, to_add_ann_ids = to_add_ann_ids, []
         cat_id_2_cat = {cat['id']: cat['name'] for cat in coco.loadCats(coco.getCatIds())}
+        coco.dataset['categories'][:] = [category for category in coco.dataset['categories'] if category['name'] in keep_cats]
+        cat_2_new_id = {}
+        for idx, category in enumerate(coco.dataset['categories']):
+            category['id'] = idx + 1
+            cat_2_new_id[category['name']] = category['id']
         for ann in coco.loadAnns(tmp):
-            cat_id = ann['category_id']
-            if cat_id_2_cat[cat_id] in keep_cats or str(cat_id) in keep_cats:
-                to_add_ann_ids.append(ann['id'])
-                to_add_img_ids.add(ann['image_id'])
+                cat_id = ann['category_id']
+                name = cat_id_2_cat[cat_id]
+                if name in keep_cats or str(cat_id) in keep_cats:
+                    ann['category_id'] = cat_2_new_id[name]
+                    to_add_ann_ids.append(ann['id'])
+                    to_add_img_ids.add(ann['image_id'])
     elif ARGS.keep_captions:
         to_add_img_ids = set()
         keep_captions = ARGS.keep_captions.split(',')
@@ -238,13 +249,17 @@ class Verbose:
             say(line)
 
 
+def debug(*args, **kwargs):
+    say(*args, verbose=True, **kwargs)
+
+
 def say(*args, verbose=False, **kwargs):
     if ARGS.verbose or verbose:
         print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
 
 
 def die(*args, **kwargs):
-    say(*args, verbose=True, **kwargs)
+    debug(*args, **kwargs)
     sys.exit(1)
 
 
