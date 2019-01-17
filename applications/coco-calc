@@ -66,7 +66,7 @@ def resize(coco: COCO) -> COCO:
                 img_data['path'] = new_path
                 img_size = (img_data['width'], img_data['height'])
                 resized_img = cv2.resize(img, img_size)
-                os.makedirs( new_path, exist_ok = True )
+                #os.makedirs( new_path, exist_ok = True )
                 say("writing image to {}".format(new_path))
                 cv2.imwrite(new_path, resized_img)
 
