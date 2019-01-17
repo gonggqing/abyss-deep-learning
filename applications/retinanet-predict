@@ -257,11 +257,16 @@ def main(args=None):
             draw_result(boxes, scores, labels, draw)
 
         for box_idx in range(bsr_output.shape[0]):
+            # Early exit for max detections per image
+            if box_idx >= args.max_detections:
+                break
             # if bsr_output[box_idx,4] < 0
 
+            # Early exit for invalid detections
             idx_ = bsr_output[box_idx, :]
             if idx_[-1] == -1 and args.remove:
-                break  # Can break early as last entries are -1 (check)
+                break
+
             sys.stdout.write('{},{},'.format(image_path, box_idx))
             np.savetxt(sys.stdout, idx_[None, :], delimiter=',', fmt='%.4f')
             # print(boxes.shape, scores.shape, labels.shape, bsr_output.shape)
