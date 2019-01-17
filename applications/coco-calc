@@ -53,6 +53,7 @@ def resize(coco: COCO) -> COCO:
         if ARGS.apply_to_images:
             import cv2
             path = None
+            basenames = set()
             if os.path.isfile(img_data['path']):
                 path = img_data['path']
             elif os.path.isfile(os.path.abspath(img_data['path'])):
@@ -63,6 +64,9 @@ def resize(coco: COCO) -> COCO:
             if path is not None:
                 img = cv2.imread(img_data['path'])
                 new_path = os.path.join(os.getcwd(), 'images', os.path.basename(img_data['path']))
+                if new_path in basenames:
+                    print( 'coco-calc: resize: expected unique image filenames, got duplicated "{}"'.format( new_path ), file = sys.stderr )
+                    sys.exit( 1 )
                 img_data['path'] = new_path
                 img_size = (img_data['width'], img_data['height'])
                 resized_img = cv2.resize(img, img_size)
