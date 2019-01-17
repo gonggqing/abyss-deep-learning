@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import print_function
-from math import floor
-from sys import stderr
-import argparse
+
 import os
+import argparse
+import csv
+
+from sys import stderr
+from math import floor
 
 from pycocotools.coco import COCO
 
@@ -14,7 +17,7 @@ def export_csv(image, annotations, args):
         if args.verbose:
             print(file_name, file=stderr)
 
-        with open(os.path.join(args.annotation_dir, file_name.replace("/", "_") + '.csv'), 'a') as file_handle:
+        with open(os.path.join(args.output_dir, file_name.replace("/", "_") + '.csv'), 'a') as file_handle:
             output_string = []
             for field_name in args.fields:
                 if field_name == 'bbox':
@@ -28,6 +31,7 @@ def export_csv(image, annotations, args):
 
 
 def coco_to_csv(args):
+    args.fields = args.fields.split(',')
     assert os.path.exists(args.coco_path), "COCO file not found."
     coco = COCO(args.coco_path)
     if not os.path.exists(args.annotation_dir):
@@ -37,24 +41,108 @@ def coco_to_csv(args):
         export_csv(image, annotations, args)
 
 
+def bbox_to_roi(bbox):
+    x, y, w, h = bbox
+    # roi = [x, y, x + w, y + w] # BUG? should it be y + h?
+    roi = [x, y, x + w, y + h]
+    return roi
+
+
+def coco_to_yolo3(args):
+    assert os.path.exists(args.coco_path), "COCO file not found."
+    coco = COCO(args.coco_path)
+    with open(args.output_file, 'w') as file_handle:
+        for image_id, image in coco.imgs.items():
+            file_name = '.'.join(image['file_name'].split('.')[:-1])
+            if args.verbose:
+                print(file_name, file=stderr)
+            annotations = coco.loadAnns(coco.getAnnIds(imgIds=[image_id]))
+            if not annotations:
+                continue
+            path = image['path'] if 'path' in image else os.path.join(args.image_dir, image['file_name'])
+
+            bbox = ' '.join(
+                [','.join([str(int(i)) for i in bbox_to_roi(ann['bbox'])] + [str(ann['category_id'] - 1)]) for ann in
+                 annotations])
+            out_str = "{:s} {:s}\n".format(path, bbox)
+            print(out_str)
+            file_handle.write(out_str)
+
+
+def get_annotations(image, annotations, caption_map):
+    output_list = []
+    for annotation in annotations:
+        if 'path' in image:
+            file_path = image['path']
+        else:
+            file_path = image['file_name']  # TODO add prefix
+        bbox = annotation['bbox']
+        bb = [floor(bbox[0]), floor(bbox[1]), floor(bbox[0] + bbox[2]), floor(bbox[1] + bbox[3])]
+        cl = caption_map[annotation['category_id']]
+        # Add to output string
+        # Ensure the boxes don't have zero height/width
+        if int(bb[0]) < int(bb[2]) and int(bb[1]) < int(bb[3]):
+            output_list.append([file_path, int(bb[0]), int(bb[1]), int(bb[2]), int(bb[3]), cl])
+    return output_list
+
+
+def coco_to_retina_csv(args):
+    assert os.path.exists(args.coco_path), "COCO file not found."
+    coco = COCO(args.coco_path)
+    if not os.path.exists(args.output_dir):
+        os.mkdir(args.output_dir)
+
+    caption_map = {}
+    for cat_id, cat in coco.cats.items():
+        caption_map[cat['id']] = cat['name']
+
+    with open(os.path.join(args.output_dir, 'class_mapping.csv'), mode='w') as cmf:
+        class_writer = csv.writer(cmf, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        for key, value in caption_map.items():
+            if args.index_from_zero:
+                class_writer.writerow([value, str(key - 1)])
+            else:
+                class_writer.writerow([value, str(key)])
+
+    with open(os.path.join(args.output_dir, 'annotations.csv'), mode='w') as af:
+        for image_id, image in coco.imgs.items():
+            annotation_writer = csv.writer(af, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            annotations = coco.loadAnns(coco.getAnnIds(imgIds=[image_id]))
+            anninfo = get_annotations(image, annotations, caption_map)  # List of [filename, x1, y1, x2, y2, class]
+            for a in anninfo:
+                annotation_writer.writerow(a)
+
+
 def get_args():
-    parser = argparse.ArgumentParser(
-        description="Convert a COCO JSON into CSV"
-    )
-    parser.add_argument('coco-path', help="Path to the coco JSON.")
-    # parser.add_argument('image_dir', help="Path the images are stored in")
-    parser.add_argument(
-        'annotation-dir', help="Path to output the annotations")
-    parser.add_argument(
-        '--fields', default='id,bbox,category_id',
-        help="Override output fields (CSV list of any annotation key, or 'filename')"
-    )
-    parser.add_argument('--verbose', action='store_true',
-                        help="verbose output to stderr")
-    args = parser.parse_args()
-    args.fields = args.fields.split(',')
-    return args
+    parser = argparse.ArgumentParser(description="Convert a COCO JSON into CSV")
+    subparsers = parser.add_subparsers(title="Format", description="Conversion formats. For more information on each "
+                                                                   "individual action, append -h", help="Available "
+                                                                                                        "formats")
+    parser.add_argument('coco_path', help="Path to the coco JSON.")
+    parser.add_argument('output_dir', help="Path to output the annotations")
+    parser.add_argument('-v', '--verbose', action='store_true', help="Verbose output to stderr")
+
+
+    parser_retina = subparsers.add_parser('retina', help="Convert COCO json into CSV compatible with keras-retinanet")
+    parser_retina.set_defaults(func=coco_to_retina_csv)
+    parser_retina.add_argument('-z', '--index-from-zero', action='store_true', help="Index categories from zero - "
+                                                                                    "Annotation Tool indexes from 1")
+    parser_retina.add_argument('-p', '--prefix', help="The prefix to the images directory")
+    parser_retina.add_argument('-f', '--use-filename', help="Use prefix/filename instead of path attributes")
+
+    parser_yolo = subparsers.add_parser('yolo3', help="Convert COCO json into yolo3 format")
+    parser_yolo.set_defaults(func=coco_to_yolo3)
+    parser_yolo.add_argument('output_file', help="Path to output the annotations")
+    parser_yolo.add_argument('-i', '--image-dir', type=str, help="Set image dir for relative path images.")
+
+    parser_csv = subparsers.add_parser('base', help="Convert COCO json into base CSV format based on annotation keys")
+    parser_csv.set_defaults(func=coco_to_csv)
+    parser_csv.add_argument('-f', '--fields', type=str, default='id,bbox,category_id', help="Override output fields ("
+                                                                                            "CSV list of any "
+                                                                                            "annotation key, "
+                                                                                            "or 'filename')")
+    return parser.parse_args()
 
 
 if __name__ == '__main__':
-    coco_to_csv(get_args())
+    get_args().func(get_args())
