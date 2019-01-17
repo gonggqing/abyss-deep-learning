@@ -37,6 +37,7 @@ setup(
         "applications/coco-split",
         "applications/coco-to-csv",
         "applications/coco-viewer",
+        "applications/coco-view",
         "applications/image-dirs-to-coco",
         "applications/keras-graph",
         "applications/labelbox-to-coco",
