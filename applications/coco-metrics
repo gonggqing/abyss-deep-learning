@@ -26,6 +26,48 @@ limitations:
       optionally output one category, e.g. TP, only)
 """
 
+confusion_matrix_description = """
+
+take predictions.json, truth.json, output to stdout confusion matrix as csv
+
+usage: cat predictions.json | coco-metrics --truth truth.json > confusion-matrix.csv
+
+"""
+
+def confusion_matrix(args):
+    print( "coco-metrics: confusion-matrix: todo", file = sys.stderr ); sys.exit( 1 )
+    predictions = json.loads(sys.stdin.read())
+    f = open(args.truth)
+    truth = json.loads(f.read())
+    category_ids = []
+    for c in truth['categories']: category_ids.append(c['id'])
+    images = {}
+    iou_matrix = None
+    if args.bounding_boxes:
+        for annotation in predictions['annotations']:
+            if 'score' in annotation and annotation['score'] < args.score_threshold: continue
+            image_id = annotation['image_id']
+            category_id = annotation['category_id']
+            if not category_id in category_ids:
+                print( 'coco-metrics: expected category id in', category_ids, '; got:', category_id, '; discarded', file = sys.stderr )
+                continue
+            if not image_id in images: images[image_id] = {}
+            if not category_id in images[image_id]: images[image_id][category_id] = ( [], [], [], [] )
+            bbox = annotation['bbox']
+            images[image_id][category_id][0].append( [ bbox[1], bbox[0], bbox[1] + bbox[3], bbox[0] + bbox[2] ] )
+            images[image_id][category_id][1].append( annotation['id'] ) # quick and dirty
+        for annotation in truth['annotations']:
+            image_id = annotation['image_id']
+            if image_id not in images: images[image_id] = {}
+            category_id = annotation['category_id']
+            if not category_id in images[image_id]: images[image_id][category_id] = ( [], [], [], [] )
+            bbox = annotation['bbox']
+            images[image_id][category_id][2].append( [ bbox[1], bbox[0], bbox[1] + bbox[3], bbox[0] + bbox[2] ] )
+            images[image_id][category_id][3].append( annotation['id'] ) # quick and dirty
+        iou_matrix = metrics.bbox_iou_matrix
+    if iou_matrix is None: print( 'coco-metrics: only bounding boxes are currently supported', file = sys.stderr ); sys.exit( 1 )
+    match = eval( 'metrics.' + args.match ) # quick and dirty
+
 def tfpn(args):
     predictions = json.loads(sys.stdin.read())
     f = open(args.truth)
@@ -64,28 +106,26 @@ def tfpn(args):
     for image_id, image in images.items():
         for category_id, annotations in image.items():
             category_id_offset = 0 if args.flat_categories else ( category_id - 1 ) * 4
+            tp = [[], []]
+            fp = tn = fn = []
             if len( annotations[0] ) == 0:
-                fp = []
-                tn = []
                 fn = [ *range( len( annotations[2] ) ) ]
             else:
                 if len( annotations[2] ) == 0:
                     fp = [ *range( len( annotations[0] ) ) ]
-                    tn = []
-                    fn = []
                 else:
                     ious = iou_matrix( annotations[0], annotations[2] ) # todo: if too slow, remove; used only to calculate score as iou
                     tp, fp, tn, fn = metrics.tp_fp_tn_fn( annotations[0], annotations[2], args.iou_threshold, match )
-                    for k in range( len( tp[0] ) ):
-                        bbox = bbox_to_coco(annotations[0][tp[0][k]])
-                        result['annotations'].append( { "image_id": image_id
-                                                      , "bbox": bbox
-                                                      , "area": bbox[2] * bbox[3]
-                                                      , "iscrowd": 0
-                                                      , "id": len(result['annotations']) # annotations[1][tp[0][k]]
-                                                      , "score": ious[tp[0][k],tp[1][k]]
-                                                      , "category_id": 1 + category_id_offset
-                                                      , 'segmentation': [[1,2,3,4]] } )
+            for k in range( len( tp[0] ) ):
+                bbox = bbox_to_coco(annotations[0][tp[0][k]])
+                result['annotations'].append( { "image_id": image_id
+                                                , "bbox": bbox
+                                                , "area": bbox[2] * bbox[3]
+                                                , "iscrowd": 0
+                                                , "id": len(result['annotations']) # annotations[1][tp[0][k]]
+                                                , "score": ious[tp[0][k],tp[1][k]]
+                                                , "category_id": 1 + category_id_offset
+                                                , 'segmentation': [[1,2,3,4]] } )
             for j in fp:
                 bbox = bbox_to_coco(annotations[0][j])
                 result['annotations'].append( { "image_id": image_id
@@ -94,7 +134,7 @@ def tfpn(args):
                                               , "iscrowd": 0
                                               , "id": len(result['annotations']) # annotations[1][j]
                                               , "category_id": 2 + category_id_offset
-                                                  , 'segmentation': [[1, 2, 3, 4]] } )
+                                              , 'segmentation': [[1, 2, 3, 4]] } )
             for j in tn:
                 bbox = bbox_to_coco(annotations[2][j])
                 result['annotations'].append( { "image_id": image_id
@@ -146,6 +186,7 @@ def tfpn(args):
 def get_args():
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
     subparsers = parser.add_subparsers(title="operations", help="available operations")
+    
     tfpn_parser = subparsers.add_parser('tfpn', description=tfpn_description, help="take predictions.json, truth.json, output to stdout coco annotations labeled as TP, FP, TN", formatter_class=argparse.RawDescriptionHelpFormatter)
     tfpn_parser.set_defaults( func=tfpn )
     tfpn_parser.add_argument( '--bounding-boxes', '--bbox', '-b', action='store_true', help="match bounding boxes" )
@@ -154,6 +195,15 @@ def get_args():
     tfpn_parser.add_argument( '--match', default='one_to_one', type=str, help="how to match, 'one_to_one' or 'one_to_many'; default: %(default)s" )
     tfpn_parser.add_argument( '--score-threshold', default=0.5, type=float, help="score threshold: default: %(default)s" )
     tfpn_parser.add_argument( '--truth', '-t', type=str, help="ground truth coco.json file" )
+    
+    confusion_matrix_parser = subparsers.add_parser('confusion-matrix', description=confusion_matrix_description, help="take predictions.json, truth.json, output to stdout coco annotations labeled as TP, FP, TN", formatter_class=argparse.RawDescriptionHelpFormatter)
+    confusion_matrix_parser.set_defaults( func=confusion_matrix )
+    confusion_matrix_parser.add_argument( '--bounding-boxes', '--bbox', '-b', action='store_true', help="match bounding boxes" )
+    confusion_matrix_parser.add_argument( '--iou-threshold', default=0.5, type=float, help="iou threshold; default: %(default)s" )
+    confusion_matrix_parser.add_argument( '--match', default='one_to_one', type=str, help="how to match, 'one_to_one' or 'one_to_many'; default: %(default)s" )
+    confusion_matrix_parser.add_argument( '--score-threshold', default=0.5, type=float, help="score threshold: default: %(default)s" )
+    confusion_matrix_parser.add_argument( '--truth', '-t', type=str, help="ground truth coco.json file" )
+    
     return parser.parse_args()
 
 def main():

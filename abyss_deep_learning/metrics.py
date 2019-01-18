@@ -39,6 +39,11 @@ def bbox_iou_matrix( a, b ):
 def bbox_to_sklearn_pred_true( ious, labels1, labels2, iou_threshold = 0. ):
     ''' Convert labelled bboxes to y_pred and y_true that could be consumed directly by sklearn.metrics functions
     
+    example
+    -------
+    p, t = bbox_to_sklearn_pred_true( bbox_iou_matrix( a, b ), a_labels, b_labels, 0.5 )
+    print( sklearn.metrics.confusion_matrix( p, t ) )
+    
     parameters
     ----------
     ious: numpy.array, iou matrix as returned by e.g. by bbox_iou_matrix( a, b )
