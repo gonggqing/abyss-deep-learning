@@ -70,6 +70,16 @@ def one_to_many( ious, iou_threshold = None ):
     return ious * flags
 
 def many_to_one( ious, iou_threshold = None ):
+    ''' Match two sets of boxes many to one on max IOU by IOU on given treshold
+    
+    parameters
+    ----------
+    ious: numpy.array, iou matrix as returned by e.g. by bbox_iou_matrix( a, b )
+    
+    returns
+    -------
+    numpy.array, MxN matrix of IOU values
+    '''
     return np.transpose( one_to_many( np.transpose( ious ), iou_threshold ) )
 
 def tp_fp_tn_fn( predictions, truth, threshold = None, match = one_to_one, iou_matrix = bbox_iou_matrix ):
