@@ -69,6 +69,9 @@ def one_to_many( ious, iou_threshold = None ):
     flags[ np.argmax( ious, axis = 0 ), [*range( ious.shape[1] )] ] = 1
     return ious * flags
 
+def many_to_one( ious, iou_threshold = None ):
+    return np.transpose( one_to_many( np.transpose( ious ), iou_threshold ) )
+
 def tp_fp_tn_fn( predictions, truth, threshold = None, match = one_to_one, iou_matrix = bbox_iou_matrix ):
     ''' Return TP, FP, TN, FN
     
