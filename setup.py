@@ -30,7 +30,6 @@ setup(
         "applications/coco-merge",
         "applications/coco-metrics",
         "applications/coco-overlay-masks",
-        "applications/coco-remap",
         "applications/coco-repath",
         "applications/coco-sample",
         "applications/coco-sample",
