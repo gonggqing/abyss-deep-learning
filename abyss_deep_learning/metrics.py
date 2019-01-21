@@ -36,7 +36,7 @@ def bbox_iou_matrix( a, b ):
     b_areas = np.repeat( [ ba ], len( a ), axis = 0 )
     return intersections / ( a_areas + b_areas - intersections )
 
-def bbox_to_sklearn_pred_true( ious, labels1, labels2, iou_threshold = 0. ):
+def bbox_to_sklearn_pred_true( ious, labels1, labels2, iou_threshold = 0., blank_id = 0 ):
     ''' Convert labelled bboxes to y_pred and y_true that could be consumed directly by sklearn.metrics functions
     
     example
@@ -59,8 +59,8 @@ def bbox_to_sklearn_pred_true( ious, labels1, labels2, iou_threshold = 0. ):
     i = np.nonzero( m )
     ia = np.nonzero( np.max( m, axis = 1 ) == 0 )[0]
     ib = np.nonzero( np.max( m, axis = 0 ) == 0 )[0]
-    y_pred = np.append( np.append( labels1[i[0]], labels1[ia] ), np.zeros( len(ib) ) )
-    y_true = np.append( np.append( labels1[i[1]], np.zeros( len(ia) ) ), labels1[ib] )
+    y_pred = np.concatenate( ( np.array(labels1)[i[0]], np.array(labels1)[ia], [blank_id]*len(ib) ) )
+    y_true = np.concatenate( ( np.array(labels2)[i[1]], [blank_id]*len(ia), np.array(labels2)[ib] ) )
     return y_pred, y_true
 
 def one_to_one( ious, iou_threshold = None ):

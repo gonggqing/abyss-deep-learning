@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import numpy as np
 import sys
 from datetime import datetime
 
@@ -61,18 +62,40 @@ def load_annotations( predicted, truth, category_ids, bounding_boxes = False, sc
     print( 'coco-metrics: only loading bounding boxes implemented', file = sys.stderr )
     sys.exit( 1 )
 
-#def bbox_to_sklearn_pred_true( ious, labels1, labels2, iou_threshold = 0. ):
-#    ''' Convert labelled bboxes to y_pred and y_true that could be consumed directly by sklearn.metrics functions
-#    
-#    example
-#    -------
-#    p, t = bbox_to_sklearn_pred_true( bbox_iou_matrix( a, b ), a_labels, b_labels, 0.5 )
-
 def confusion_matrix(args):
+    from sklearn import metrics as skm
     predicted = json.loads(sys.stdin.read())
     f = open(args.truth)
     truth = json.loads(f.read())
-    # todo
+    category_ids = []
+    for c in truth['categories']: category_ids.append(c['id'])
+    images = load_annotations( predicted, truth, category_ids, score = args.score_threshold, bounding_boxes = args.bounding_boxes )
+    iou_matrix = metrics.bbox_iou_matrix if args.bounding_boxes else None
+    predicted_labels = [] # quick and dirty, watch performance
+    truth_labels = [] # quick and dirty, watch performance
+    blank_id = np.max( category_ids )
+    for image_id, image in images.items():
+        p = []
+        t = []
+        pc = []
+        tc = []
+        for category_id, annotations in image.items():
+            p += annotations[0]
+            t += annotations[2]
+            pc += [category_id]*len(annotations[0])
+            tc += [category_id]*len(annotations[2])
+        if len( p ) == 0:
+            pr = [blank_id]*len( t )
+            tr = t
+        elif len( t ) == 0:
+            pr = p
+            tr = [blank_id]*len( p )
+        else:
+            pr, tr = metrics.bbox_to_sklearn_pred_true( iou_matrix( p, t ), pc, tc, iou_threshold = args.iou_threshold, blank_id = blank_id )
+        predicted_labels = np.append( predicted_labels, pr )
+        truth_labels = np.append( truth_labels, tr )
+    m = skm.confusion_matrix( predicted_labels, truth_labels, [blank_id] + category_ids )
+    np.savetxt( sys.stdout, m, delimiter=',', fmt='%d' )
 
 def tfpn(args):
     predicted = json.loads(sys.stdin.read())
