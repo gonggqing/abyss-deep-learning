@@ -6,8 +6,8 @@ import sys
 from operator import itemgetter
 
 DESCRIPTION = \
-"""
-Read coco.json file(s) defined on command line or piped in from another coco utility.
+    """
+Read coco.json file(s) defined on command line.
 
 Duplicate image file names are removed as well as duplicate annotations.
 
@@ -28,17 +28,12 @@ Output merged coco json contents in stdout.
 
 examples:
     coco-merge labelled/abc/coco.json labelled/def/coco.json
-    find . -name coco.json | coco-merge
 """
 
 
 def main():
     global ARGS
     ARGS = get_args()
-
-    if not ARGS.json_files:
-        ARGS.json_files = (sys.stdin.read().split("\n"))
-        del ARGS.json_files[-1]
 
     info = None  # Grabs first available info segment if no specific json_file is given
     images = []  # Merged images
