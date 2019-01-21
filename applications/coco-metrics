@@ -73,7 +73,7 @@ def confusion_matrix(args):
     iou_matrix = metrics.bbox_iou_matrix if args.bounding_boxes else None
     predicted_labels = [] # quick and dirty, watch performance
     truth_labels = [] # quick and dirty, watch performance
-    blank_id = np.max( category_ids )
+    blank_id = np.max( category_ids ) + 1
     for image_id, image in images.items():
         p = []
         t = []
@@ -85,11 +85,11 @@ def confusion_matrix(args):
             pc += [category_id]*len(annotations[0])
             tc += [category_id]*len(annotations[2])
         if len( p ) == 0:
-            pr = [blank_id]*len( t )
-            tr = t
+            pr = [blank_id]*len( tc )
+            tr = tc
         elif len( t ) == 0:
-            pr = p
-            tr = [blank_id]*len( p )
+            pr = pc
+            tr = [blank_id]*len( pc )
         else:
             pr, tr = metrics.bbox_to_sklearn_pred_true( iou_matrix( p, t ), pc, tc, iou_threshold = args.iou_threshold, blank_id = blank_id )
         predicted_labels = np.append( predicted_labels, pr )
