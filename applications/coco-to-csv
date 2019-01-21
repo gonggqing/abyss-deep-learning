@@ -4,13 +4,13 @@ import collections
 import csv
 import json
 import sys
+import copy
 from contextlib import redirect_stdout
 
-from operator import itemgetter
+import pandas as pd
 from pycocotools.coco import COCO
 
-# todo
-# - refactor with pandas, join, --fields, etc
+# TODO
 # - remove
 #   - coco-to-csv.deprecated
 #   - coco-to-yolo3
@@ -18,7 +18,20 @@ from pycocotools.coco import COCO
 
 DESCRIPTION = \
     """
-Convert COCO json file and output csv formatted COCO data.
+Convert COCO json file and output csv formatted COCO data to stdout.
+
+Can perform join operations between different coco sections based on arguments given to positional argument section and 
+optional argument -f/--fields
+
+examples
+    General usage:
+        cat coco.json | coco-to-csv annotations -f id,bbox,area,categories/name,categories/supercategory,images/file_name > annotations.csv
+        cat coco.json | coco-to-csv categories -f id,name --index-from 1 > categories.csv
+        cat coco.json | coco-to-csv annotations -f id,bbox, --bbox-position absolute > annotations.csv
+
+    Retinanet usage:
+        cat coco.json | coco-to-csv annotations -w retinanet > training.csv
+        cat coco.json | coco-to-csv categories -w retinanet > class_mappings.csv
 """
 
 
@@ -27,26 +40,55 @@ def main(args=None):
     section = coco.dataset[args.section]
     csv_writer = csv.writer(sys.stdout)
 
+    dataset = copy.deepcopy(coco.dataset)
+    for i in dataset['annotations']:
+        i['annotation_id'] = i.pop('id')
+    for i in dataset['categories']:
+        i['category_id'] = i.pop('id')
+    for i in dataset['images']:
+        i['image_id'] = i.pop('id')
+        i['license_id'] = i.pop('license')
+    for i in dataset['licenses']:
+        i['license_id'] = i.pop('id')
+
+    if args.section != 'info':
+        for i, j in zip(section, dataset[args.section]):
+            j['id'] = i['id']
+
+    section = dataset[args.section]
+    fields = []
+    joined = set()
+    for field in args.fields:
+        if len(field) == 2:
+            section_to_join, field_to_index = field
+            fields.append(field_to_index)
+            if section_to_join in joined:
+                continue
+            joined.add(section_to_join)
+            say("extra section found, trying to merge between {section} and {section_to_join}".format(
+                section_to_join=section_to_join, section=args.section), verbose=args.verbose)
+            intersection = set(section[0]).intersection(set(dataset[section_to_join][0]))
+            if len(intersection) == 1:
+                common_key = intersection.pop()
+            elif len(intersection) > 1:
+                die(
+                    "More than one common key [{keys}] was found in the join for {section} and {section_to_join}".format(keys=list(intersection), section=args.section, section_to_join=section_to_join))
+            else:
+                die("No common key was found in the join between {section} and {section_to_join}".format(
+                    section=args.section, section_to_join=section_to_join))
+            i, j = pd.DataFrame(section), pd.DataFrame(dataset[section_to_join])
+            df = pd.merge(i, j, on=common_key)
+            section = df.to_dict('records')
+        else:
+            fields.append(*field)
+
     # Find bbox index in list
     try:
-        bbox_index = args.fields.index('bbox')
+        bbox_index = fields.index('bbox')
     except ValueError:
         bbox_index = None
 
-    # Find image id and/or category id index in list
-    if args.id_to_name and args.section == 'annotations':
-        try:
-            image_index = args.fields.index('image_id')
-        except ValueError:
-            image_index = None
-
-        try:
-            category_index = args.fields.index('category_id')
-        except ValueError:
-            category_index = None
-    else:
-        image_index = category_index = None
-
+    # Find key index for category id
     if args.index_from is not None:
         if args.section == 'annotations':
             key = 'category_id'
@@ -56,7 +98,7 @@ def main(args=None):
             key = None
 
         try:
-            key_index = args.fields.index(key)
+            key_index = fields.index(key)
         except ValueError:
             key_index = None
         except TypeError:
@@ -70,11 +112,11 @@ def main(args=None):
         # Print headers
         if args.header:
             headers = section.keys()
-            if args.fields:
-                headers = [header for header in args.fields if header in section]
-                non_headers = list(set(args.fields) - set(headers))
+            if fields:
+                headers = [header for header in fields if header in section]
+                non_headers = list(set(fields) - set(headers))
                 if not headers:
-                    die('cannot find keys {fields} in dict {section}'.format(fields=args.fields, section=args.section))
+                    die('cannot find keys {fields} in dict {section}'.format(fields=fields, section=args.section))
                 if non_headers:
                     say('cannot find keys {fields} in dict {section}'.format(fields=non_headers,
                                                                              section=args.section),
@@ -82,11 +124,11 @@ def main(args=None):
             csv_writer.writerow(headers)
 
         # Print values
-        if args.fields:
-            fields = [field for field in args.fields if field in section]
+        if fields:
+            fields = [field for field in fields if field in section]
             if fields:
                 values = [section[field] for field in fields]
-                non_values = list(set(args.fields) - set(fields))
+                non_values = list(set(fields) - set(fields))
                 if non_values:
                     say('cannot find keys {fields} in dict {section}'.format(fields=non_values,
                                                                              section=args.section),
@@ -102,11 +144,11 @@ def main(args=None):
     elif isinstance(section, list):
         # Print headers
         if args.header:
-            if args.fields:
-                headers = [field for field in args.fields if field in section[0]]
-                non_headers = list(set(args.fields) - set(headers))
+            if fields:
+                headers = [field for field in fields if field in section[0]]
+                non_headers = list(set(fields) - set(headers))
                 if not headers:
-                    die('cannot find keys {fields} in dict {section}'.format(fields=args.fields, section=args.section))
+                    die('cannot find keys {fields} in dict {section}'.format(fields=fields, section=args.section))
                 if non_headers:
                     say('cannot find keys {fields} in dict {section}'.format(fields=non_headers, section=args.section),
                         verbose=True)
@@ -119,17 +161,12 @@ def main(args=None):
                                                                                                               'x2',
                                                                                                               'y2']
 
-            if image_index is not None:
-                headers[image_index] = 'file_name'
-
-            if category_index is not None:
-                headers[category_index] = 'name'
             csv_writer.writerow(flatten(headers))
 
         for entry in section:
-            if args.fields:
-                fields = [field for field in args.fields if field in entry]
-                non_fields = list(set(args.fields) - set(fields))
+            if fields:
+                fields = [field for field in fields if field in entry]
+                non_fields = list(set(fields) - set(fields))
                 if fields:
                     values = [entry[field] for field in fields]
                     if bbox_index is not None:
@@ -139,18 +176,12 @@ def main(args=None):
                             bbox[3] = y + height
                         values[bbox_index] = bbox
 
-                    if image_index is not None:
-                        values[image_index] = coco.loadImgs(values[image_index]).pop()['file_name']
-
-                    if category_index is not None:
-                        values[category_index] = coco.loadCats(values[category_index]).pop()['name']
-
-                    if args.index_from is not None and key_index is not None and category_index is None:
+                    if args.index_from is not None and key_index is not None:
                         values[key_index] += offset
 
                     csv_writer.writerow(flatten(values))
                 else:
-                    die('cannot find keys {fields} in dict {section}'.format(fields=args.fields, section=args.section))
+                    die('cannot find keys {fields} in dict {section}'.format(fields=fields, section=args.section))
 
                 if non_fields:
                     say('cannot find keys {fields} in dict {section}'.format(fields=non_fields,
@@ -158,6 +189,7 @@ def main(args=None):
                         verbose=args.verbose)
             else:
                 csv_writer.writerow(entry.values())
+
     sys.exit()
 
 
@@ -167,7 +199,7 @@ def say(*args, verbose=False, **kwargs):
 
 
 def die(*args, **kwargs):
-    say(*args, ': quitting', verbose=True, **kwargs)
+    say(*args, ": quitting", verbose=True, **kwargs)
     sys.exit(1)
 
 
@@ -180,33 +212,30 @@ def get_args():
                         help="General fields to extract from COCO json to csv; default: %(default)s",
                         )
     parser.add_argument('-f', '--fields', type=str, help="Comma separated values of COCO fields to extract from the "
-                                                         "json file and export to a csv format")
+                                                         "json file and export to a csv format. Performs a join "
+                                                         "between two different sections if a '/' character is given "
+                                                         "separating section and field")
     parser.add_argument('-w', '--what', choices=['retinanet'], help="Format the csv output to be compatible with one "
                                                                     "of the supported options")
     parser.add_argument('-p', '--bbox-position', type=str, default='relative', choices=['absolute', 'relative'],
                         help="Output values of bbox as either x1,y1,x2,y2 or x,y,width,height; default: %(default)s")
     parser.add_argument('-i', '--index-from', type=int, help="Change category indexing values to start "
-                                                                        "from specified value")
-    parser.add_argument('-c', '--id-to-name', action='store_true', help="Convert annotation ids for image id and "
-                                                                        "category id to respective names")
-    parser.add_argument('-head', '--header', '--field-names', action='store_true', help="The first row of the csv output will contain "
-                                                                       "the field names")
+                                                             "from specified value; default: %(default)s")
+    parser.add_argument('-head', '--header', '--field-names', action='store_true',
+                        help="The first row of the csv output will contain "
+                             "the field names")
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     args = parser.parse_args()
-    # Attribute Error is raised if split is called on None type
-    # Handles case if fields has no argument given
+
     if args.what == 'retinanet':
         if args.section == 'annotations':
-            args.fields = 'image_id,bbox,category_id'
-            args.id_to_name = True
+            args.fields = 'images/file_name,bbox,categories/name'
             args.bbox_position = 'absolute'
         elif args.section == 'categories':
             args.fields = 'name,id'
+            args.index_from = 0
 
-    try:
-        args.fields = list(filter(None, args.fields.split(',')))
-    except AttributeError:
-        pass
+    args.fields = list(map(lambda x: x.split('/'), args.fields.split(',')))
 
     return args
 
