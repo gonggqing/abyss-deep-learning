@@ -34,18 +34,11 @@ usage: cat predictions.json | coco-metrics --truth truth.json > confusion-matrix
 
 """
 
-def confusion_matrix(args):
-    print( "coco-metrics: confusion-matrix: todo", file = sys.stderr ); sys.exit( 1 )
-    predictions = json.loads(sys.stdin.read())
-    f = open(args.truth)
-    truth = json.loads(f.read())
-    category_ids = []
-    for c in truth['categories']: category_ids.append(c['id'])
+def load_annotations( predicted, truth, category_ids, bounding_boxes = False, score = None ):
     images = {}
-    iou_matrix = None
-    if args.bounding_boxes:
-        for annotation in predictions['annotations']:
-            if 'score' in annotation and annotation['score'] < args.score_threshold: continue
+    if bounding_boxes:
+        for annotation in predicted['annotations']:
+            if not score is None and 'score' in annotation and annotation['score'] < score: continue
             image_id = annotation['image_id']
             category_id = annotation['category_id']
             if not category_id in category_ids:
@@ -64,45 +57,36 @@ def confusion_matrix(args):
             bbox = annotation['bbox']
             images[image_id][category_id][2].append( [ bbox[1], bbox[0], bbox[1] + bbox[3], bbox[0] + bbox[2] ] )
             images[image_id][category_id][3].append( annotation['id'] ) # quick and dirty
-        iou_matrix = metrics.bbox_iou_matrix
-    if iou_matrix is None: print( 'coco-metrics: only bounding boxes are currently supported', file = sys.stderr ); sys.exit( 1 )
-    match = eval( 'metrics.' + args.match ) # quick and dirty
+        return images
+    print( 'coco-metrics: only loading bounding boxes implemented', file = sys.stderr )
+    sys.exit( 1 )
+
+#def bbox_to_sklearn_pred_true( ious, labels1, labels2, iou_threshold = 0. ):
+#    ''' Convert labelled bboxes to y_pred and y_true that could be consumed directly by sklearn.metrics functions
+#    
+#    example
+#    -------
+#    p, t = bbox_to_sklearn_pred_true( bbox_iou_matrix( a, b ), a_labels, b_labels, 0.5 )
+
+def confusion_matrix(args):
+    predicted = json.loads(sys.stdin.read())
+    f = open(args.truth)
+    truth = json.loads(f.read())
+    # todo
 
 def tfpn(args):
-    predictions = json.loads(sys.stdin.read())
+    predicted = json.loads(sys.stdin.read())
     f = open(args.truth)
     truth = json.loads(f.read())
     category_ids = []
     for c in truth['categories']: category_ids.append(c['id'])
-    images = {}
-    iou_matrix = None
-    if args.bounding_boxes:
-        for annotation in predictions['annotations']:
-            if 'score' in annotation and annotation['score'] < args.score_threshold: continue
-            image_id = annotation['image_id']
-            category_id = annotation['category_id']
-            if not category_id in category_ids:
-                print( 'coco-metrics: expected category id in', category_ids, '; got:', category_id, '; discarded', file = sys.stderr )
-                continue
-            if not image_id in images: images[image_id] = {}
-            if not category_id in images[image_id]: images[image_id][category_id] = ( [], [], [], [] )
-            bbox = annotation['bbox']
-            images[image_id][category_id][0].append( [ bbox[1], bbox[0], bbox[1] + bbox[3], bbox[0] + bbox[2] ] )
-            images[image_id][category_id][1].append( annotation['id'] ) # quick and dirty
-        for annotation in truth['annotations']:
-            image_id = annotation['image_id']
-            if image_id not in images: images[image_id] = {}
-            category_id = annotation['category_id']
-            if not category_id in images[image_id]: images[image_id][category_id] = ( [], [], [], [] )
-            bbox = annotation['bbox']
-            images[image_id][category_id][2].append( [ bbox[1], bbox[0], bbox[1] + bbox[3], bbox[0] + bbox[2] ] )
-            images[image_id][category_id][3].append( annotation['id'] ) # quick and dirty
-        iou_matrix = metrics.bbox_iou_matrix
-    if iou_matrix is None: print( 'coco-metrics: only bounding boxes are currently supported', file = sys.stderr ); sys.exit( 1 )
+    images = load_annotations( predicted, truth, category_ids, score = args.score_threshold, bounding_boxes = args.bounding_boxes )
+    iou_matrix = metrics.bbox_iou_matrix if args.bounding_boxes else None
     match = eval( 'metrics.' + args.match ) # quick and dirty
     result = {}
     result['annotations'] = []
     def bbox_to_coco( box ): return [ box[1], box[0], box[3] - box[1], box[2] - box[0] ]
+    def bbox_to_segmentation( box ): return [ box[1], box[0], box[1], box[0] + box[2], box[1] + box[3], box[0] + box[2], box[1] + box[3], box[0] ]
     for image_id, image in images.items():
         for category_id, annotations in image.items():
             category_id_offset = 0 if args.flat_categories else ( category_id - 1 ) * 4
@@ -125,7 +109,7 @@ def tfpn(args):
                                                 , "id": len(result['annotations']) # annotations[1][tp[0][k]]
                                                 , "score": ious[tp[0][k],tp[1][k]]
                                                 , "category_id": 1 + category_id_offset
-                                                , 'segmentation': [[1,2,3,4]] } )
+                                                , 'segmentation': bbox_to_segmentation( bbox ) } )
             for j in fp:
                 bbox = bbox_to_coco(annotations[0][j])
                 result['annotations'].append( { "image_id": image_id
@@ -134,7 +118,7 @@ def tfpn(args):
                                               , "iscrowd": 0
                                               , "id": len(result['annotations']) # annotations[1][j]
                                               , "category_id": 2 + category_id_offset
-                                              , 'segmentation': [[1, 2, 3, 4]] } )
+                                              , 'segmentation': bbox_to_segmentation( bbox ) } )
             for j in tn:
                 bbox = bbox_to_coco(annotations[2][j])
                 result['annotations'].append( { "image_id": image_id
@@ -143,7 +127,7 @@ def tfpn(args):
                                               , "iscrowd": 0
                                               , "id": len(result['annotations']) # annotations[3][j]
                                               , "category_id": 3 + category_id_offset
-                                                  , 'segmentation': [[1, 2, 3, 4]] } )
+                                              , 'segmentation': bbox_to_segmentation( bbox ) } )
             for j in fn:
                 bbox = bbox_to_coco(annotations[2][j])
                 result['annotations'].append( { "image_id": image_id
@@ -152,7 +136,7 @@ def tfpn(args):
                                               , "iscrowd": 0
                                               , "id": len(result['annotations']) # annotations[3][j]
                                               , "category_id": 4 + category_id_offset
-                                                  , 'segmentation': [[1, 2, 3, 4]] } )
+                                              , 'segmentation': bbox_to_segmentation( bbox ) } )
     result['categories'] = []
     if args.flat_categories:
         result['categories'] += [ { 'name': 'TP', 'supercategory': '', 'id': 1 }
