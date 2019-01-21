@@ -9,6 +9,13 @@ from contextlib import redirect_stdout
 from operator import itemgetter
 from pycocotools.coco import COCO
 
+# todo
+# - refactor with pandas, join, --fields, etc
+# - remove
+#   - coco-to-csv.deprecated
+#   - coco-to-yolo3
+#   - coco-to-retina-to-csv
+
 DESCRIPTION = \
     """
 Convert COCO json file and output csv formatted COCO data.
@@ -170,19 +177,19 @@ def get_args():
                         nargs='?',
                         default='annotations',
                         choices=['annotations', 'categories', 'info', 'images', 'licenses'],
-                        help="General fields to extract from COCO json to csv",
+                        help="General fields to extract from COCO json to csv; default: %(default)s",
                         )
     parser.add_argument('-f', '--fields', type=str, help="Comma separated values of COCO fields to extract from the "
                                                          "json file and export to a csv format")
     parser.add_argument('-w', '--what', choices=['retinanet'], help="Format the csv output to be compatible with one "
                                                                     "of the supported options")
     parser.add_argument('-p', '--bbox-position', type=str, default='relative', choices=['absolute', 'relative'],
-                        help="Output values of bbox as either x1,y1,x2,y2 or x,y,width,height")
-    parser.add_argument('-i', '--index-from', type=int, default=0, help="Change category indexing values to start "
+                        help="Output values of bbox as either x1,y1,x2,y2 or x,y,width,height; default: %(default)s")
+    parser.add_argument('-i', '--index-from', type=int, help="Change category indexing values to start "
                                                                         "from specified value")
     parser.add_argument('-c', '--id-to-name', action='store_true', help="Convert annotation ids for image id and "
                                                                         "category id to respective names")
-    parser.add_argument('-head', '--header', action='store_true', help="The first row of the csv output will contain "
+    parser.add_argument('-head', '--header', '--field-names', action='store_true', help="The first row of the csv output will contain "
                                                                        "the field names")
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     args = parser.parse_args()
