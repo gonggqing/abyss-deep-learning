@@ -18,7 +18,7 @@ tfpn_description = """
 
 take predictions.json, truth.json, output to stdout coco annotations labeled as TP, FP, TN
 
-usage: cat predictions.json | coco-metrics --truth truth.json > tfpn.json
+usage: cat predictions.json | coco-metrics confusion-matrix --truth truth.json --bounding-boxes > confusion_matrix.csv
 
 limitations:
     - categories in predictions.json and truth.json should be the same, no checks performed
