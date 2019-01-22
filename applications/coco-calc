@@ -76,7 +76,7 @@ def crop(coco: COCO) -> COCO:
     say("cropping images")
     width, height = map( int, ARGS.size.split(',') )
     if ARGS.apply_to_images:
-        os.makedirs(os.path.join(os.getcwd(), 'images'), exist_ok=True)
+        os.makedirs(os.path.join(os.getcwd(), ARGS.image_output_dir), exist_ok=True)
     for image_data in coco.loadImgs(coco.getImgIds()):
         if ARGS.apply_to_images:
             import cv2
@@ -210,9 +210,10 @@ def remap(coco: COCO) -> COCO:
 def resize(coco: COCO) -> COCO:
     say("resizing images")
     if ARGS.apply_to_images:
-        os.makedirs(os.path.join(os.getcwd(), ARGS.apply_to_images), exist_ok=True)
+        os.makedirs(os.path.join(os.getcwd(), ARGS.image_output_dir), exist_ok=True)
     for img_data in coco.loadImgs(coco.getImgIds()):
         if ARGS.factor is not None:
+            ARGS.factor = abs(ARGS.factor)
             h_scale = v_scale = ARGS.factor
         else:
             dims = ARGS.size.split(',')
@@ -308,24 +309,29 @@ def get_args() -> argparse.Namespace:
                                                                     "individual action, append -h",
                                        help="Available actions")
 
-    args = ['-o', '--apply-to-images']
-    kwargs = {
+    apply_to_images = ['--apply-to-images']
+    apply_to_images_args = {
+        'action'  : 'store_true',
+        'help'  : 'Apply action to images, output to directory specified by --images-output-dir'
+    }
+    image_output_dir = ['--image-output-dir', '-o']
+    image_output_dir_args = {
         'type'  : str,
         'default': 'images',
-        'help'  : 'Apply action to images and output in current working directory an [image] folder that contains the '
-                  'new images; default %(default)s'
+        'help'  : 'Image output directory; default %(default)s'
     }
     parser_crop = subparsers.add_parser('crop', help="Crop images and labels; currently supports only cropping images")
     parser_crop.set_defaults(func=crop)
     parser_crop.add_argument('--fit', action='store_true', help="if centre of cropped area to close to border, shift cropped area to fit inside image")
     parser_crop.add_argument('--point', action='store_true', help="centre of cropped area identified by annotation_type 'point'")
     parser_crop.add_argument('-s', '--size', type=str, help="<width>,<height> crop size")
-    parser_crop.add_argument(*args, **kwargs)
+    parser_crop.add_argument(*apply_to_images, **apply_to_images_args)
+    parser_crop.add_argument(*image_output_dir, **image_output_dir_args)
     
     parser_resize = subparsers.add_parser('resize', help="Resize all images and their respective annotations by a "
                                                          "scaling factor or to specified width and height",
-                                          formatter_class=argparse.RawDescriptionHelpFormatter,
-                                          description=RESIZE_DESCRIPTION)
+                                                         formatter_class=argparse.RawDescriptionHelpFormatter,
+                                                         description=RESIZE_DESCRIPTION)
     parser_resize.set_defaults(func=resize)
     parser_resize.add_argument('-d', '--digits', type=int, default=None, help="Number of decimal digits in bbox and segmentation coordinates; default: %(default)s")
     mutually_exclusive_resize_args = parser_resize.add_mutually_exclusive_group(required=True)
@@ -333,7 +339,8 @@ def get_args() -> argparse.Namespace:
                                                                                    "value is negative, it will take "
                                                                                    "the absolute value")
     mutually_exclusive_resize_args.add_argument('-s', '--size', type=str, help="[width],[height] to resize images to")
-    mutually_exclusive_resize_args.add_argument(*args, **kwargs)
+    parser_resize.add_argument(*apply_to_images, **apply_to_images_args)
+    parser_resize.add_argument(*image_output_dir, **image_output_dir_args)
 
     parser_remap = subparsers.add_parser('remap', help="Remap categories and/or category id",
                                          formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -350,20 +357,14 @@ def get_args() -> argparse.Namespace:
     mutually_exclusive_tile_args = parser_tile.add_mutually_exclusive_group(required=True)
     mutually_exclusive_tile_args.add_argument('-n', '--num-tiles', type=int, help="Number of tiles to generate from image")
     mutually_exclusive_tile_args.add_argument('--dummy', help="dummy option")
-    mutually_exclusive_tile_args.add_argument(*args, **kwargs)
+    parser_tile.add_argument(*apply_to_images, **apply_to_images_args)
+    parser_tile.add_argument(*image_output_dir, **image_output_dir_args)
 
     parser.add_argument('-m', '--minified', '--min', action='store_const', help="Disable pretty print", const=None,
                         default=4, dest='indent')
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     args = parser.parse_args()
-
-    try:
-        args.factor = abs(args.factor)
-    except TypeError:
-        pass
-
     return args
-
 
 class Verbose:
     @staticmethod
