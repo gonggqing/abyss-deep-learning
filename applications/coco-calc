@@ -328,7 +328,7 @@ def get_args() -> argparse.Namespace:
         'default': 'images',
         'help'  : 'Image output directory; default %(default)s'
     }
-    parser_crop = subparsers.add_parser('crop', help="Crop images and labels; currently supports only cropping images", description=CROP_DESCRIPTION)
+    parser_crop = subparsers.add_parser('crop', help="Crop images and labels; currently supports only cropping images", description=CROP_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser_crop.set_defaults(func=crop)
     parser_crop.add_argument('--fit', action='store_true', help="if centre of cropped area to close to border, shift cropped area to fit inside image")
     parser_crop.add_argument('--point', action='store_true', help="centre of cropped area identified by annotation_type 'point'")
