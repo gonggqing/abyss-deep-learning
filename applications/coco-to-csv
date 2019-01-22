@@ -35,52 +35,96 @@ examples
 """
 
 
-def main(args=None):
+def main(args: argparse.Namespace = None):
     coco = load_coco(sys.stdin.read())
     section = coco.dataset[args.section]
     csv_writer = csv.writer(sys.stdout)
 
     dataset = copy.deepcopy(coco.dataset)
-    for i in dataset['annotations']:
-        i['annotation_id'] = i.pop('id')
-    for i in dataset['categories']:
-        i['category_id'] = i.pop('id')
-    for i in dataset['images']:
-        i['image_id'] = i.pop('id')
-        i['license_id'] = i.pop('license')
-    for i in dataset['licenses']:
-        i['license_id'] = i.pop('id')
+    try:
+        # Create common keys between different sections in coco dataset so that pd.merge has a key to merge on
+        for i in dataset['annotations']:
+            i['annotation_id'] = i.pop('id')
+        for i in dataset['categories']:
+            i['category_id'] = i.pop('id')
+        for i in dataset['images']:
+            i['image_id'] = i.pop('id')
+            i['license_id'] = i.pop('license')
+        for i in dataset['licenses']:
+            i['license_id'] = i.pop('id')
+    except KeyError:
+        pass
 
+    # info section is not valid to merge with other sections
     if args.section != 'info':
+        # Add original unique id to section of interest
         for i, j in zip(section, dataset[args.section]):
             j['id'] = i['id']
 
     section = dataset[args.section]
     fields = []
     joined = set()
+
+    # Iterate through fields and check to see if there are nested keys i.e. annotations/bbox or images/path
     for field in args.fields:
+        # Nested key. Currently supports nesting to two levels
         if len(field) == 2:
+            # Expand values
             section_to_join, field_to_index = field
+
+            # Extract field of interest
             fields.append(field_to_index)
+
+            # If section has already been joined, skip it
             if section_to_join in joined:
                 continue
+
+            # Skip merge on info key
+            if section_to_join == 'info':
+                say("skipping merge on info section as it has no common keys with any other section",
+                    verbose=args.verbose)
+                continue
+
             joined.add(section_to_join)
             say("extra section found, trying to merge between {section} and {section_to_join}"
                 .format(section_to_join=section_to_join, section=args.section), verbose=args.verbose)
-            intersection = set(section[0]).intersection(set(dataset[section_to_join][0]))
-            if len(intersection) == 1:
-                common_key = intersection.pop()
-            elif len(intersection) > 1:
-                die("More than one common key [{keys}] was found in the join for {section} and {section_to_join}"
-                    .format(keys=list(intersection), section=args.section, section_to_join=section_to_join))
-            else:
-                die("No common key was found in the join between {section} and {section_to_join}"
-                    .format(section=args.section, section_to_join=section_to_join))
+
+            # Create data frame for each section
             i, j = pd.DataFrame(section), pd.DataFrame(dataset[section_to_join])
+
+            # Find common key to merge on between the two sections
+            intersection = set(section[0]).intersection(set(dataset[section_to_join][0]))
+            if len(intersection) > 1:
+                die(",ore than one common key [{keys}] was found in the join for {section} and {section_to_join}"
+                    .format(keys=list(intersection), section=args.section, section_to_join=section_to_join))
+            elif len(intersection) != 1:
+                die("no common key was found in the join between {section} and {section_to_join}"
+                    .format(section=args.section, section_to_join=section_to_join))
+
+            common_key = intersection.pop()
             df = pd.merge(i, j, on=common_key)
+
+            # Convert data frame back to list
             section = df.to_dict('records')
-        else:
+
+        # Extract field of interest
+        elif len(field) == 1:
             fields.append(*field)
+        else:
+            say("nesting up to {num} levels is not supported".format(num=len(field)), verbose=args.verbose)
+
+    if args.output_fields:
+        if fields:
+            print(",".join(fields))
+        else:
+            section_ = coco.dataset[args.section]
+            if isinstance(section_, dict):
+                section_ = map(lambda x: str(x), section_)
+                print(",".join(section_))
+            elif isinstance(section_, list):
+                section_ = map(lambda x: str(x), section_[0])
+                print(",".join(section_))
+        sys.exit(0)
 
     # Find bbox index in list
     try:
@@ -107,7 +151,7 @@ def main(args=None):
         min_value = min(coco.getCatIds())
         offset = args.index_from - min_value
 
-    # Unpack info or license section
+    # Unpack info section
     if isinstance(section, dict):
         # Print headers
         if args.header:
@@ -121,39 +165,48 @@ def main(args=None):
                 if non_headers:
                     say('cannot find keys {fields} in dict {section}'
                         .format(fields=non_headers, section=args.section), verbose=args.verbose)
+                headers = fields
             csv_writer.writerow(headers)
 
         # Print values
         if fields:
-            fields = [field for field in fields if field in section]
-            if fields:
-                values = [section[field] for field in fields]
-                non_values = list(set(fields) - set(fields))
+            valid_fields = [field for field in fields if field in section]
+            if valid_fields:
+                # If field is not in the dictionary, substitute for whitespace
+                values = [section.get(field, '') for field in fields]
+                csv_writer.writerow(values)
+
+                # Warning message
+                non_values = list(set(fields) - set(valid_fields))
                 if non_values:
                     say('cannot find keys {fields} in dict {section}'
                         .format(fields=non_values, section=args.section), verbose=args.verbose)
-                if values:
-                    csv_writer.writerow(values)
-                else:
-                    die('cannot find keys {fields} in dict {section}'.format(fields=values, section=args.section))
+            else:
+                # No valid field can be found to index into the dictionary
+                die('cannot find keys {fields} in dict {section}'.format(fields=valid_fields, section=args.section))
         else:
             csv_writer.writerow(section.values())
 
-    # Unpack images, annotations or categories section
+    # Unpack images, annotations, categories, or licenses section
     elif isinstance(section, list):
         # Print headers
         if args.header:
             if fields:
+                # Find fields that are not valid keys
                 headers = [field for field in fields if field in section[0]]
                 non_headers = list(set(fields) - set(headers))
+
+                # Warning prints
                 if not headers:
                     die('cannot find keys {fields} in dict {section}'.format(fields=fields, section=args.section))
                 if non_headers:
                     say('cannot find keys {fields} in dict {section}'
                         .format(fields=non_headers, section=args.section), verbose=True)
+                headers = fields.copy()
             else:
                 headers = section[0].keys()
 
+            # Substitute bbox for either x,y,width,height or x1,y1,x2,y2
             if bbox_index is not None:
                 headers[bbox_index] = ['x', 'y', 'width', 'height'] \
                     if args.bbox_position == 'relative' \
@@ -161,12 +214,13 @@ def main(args=None):
 
             csv_writer.writerow(flatten(headers))
 
+        # Print values in fields. If field is not valid, output empty string
         for entry in section:
             if fields:
-                fields = [field for field in fields if field in entry]
-                non_fields = list(set(fields) - set(fields))
-                if fields:
-                    values = [entry[field] for field in fields]
+                valid_fields = [field for field in fields if field in entry]
+                non_fields = list(set(fields) - set(valid_fields))
+                if valid_fields:
+                    values = [entry.get(field, '') for field in fields]
                     if bbox_index is not None:
                         x, y, width, height = bbox = values[bbox_index]
                         if args.bbox_position == 'absolute':
@@ -179,9 +233,11 @@ def main(args=None):
 
                     csv_writer.writerow(flatten(values))
                 else:
+                    # Error print
                     die('cannot find keys {fields} in dict {section}'.format(fields=fields, section=args.section))
 
                 if non_fields:
+                    # Warning print
                     say('cannot find keys {fields} in dict {section}'
                         .format(fields=non_fields, section=args.section), verbose=args.verbose)
             else:
@@ -196,11 +252,11 @@ def say(*args, verbose=False, **kwargs):
 
 
 def die(*args, **kwargs):
-    say(*args, ": quitting", verbose=True, **kwargs)
+    say("error: ", *args, verbose=True, **kwargs)
     sys.exit(1)
 
 
-def get_args():
+def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('section',
                         nargs='?',
@@ -219,8 +275,9 @@ def get_args():
     parser.add_argument('-i', '--index-from', type=int, help="Change category indexing values to start "
                                                              "from specified value; default: %(default)s")
     parser.add_argument('-head', '--header', '--field-names', action='store_true',
-                        help="The first row of the csv output will contain "
-                             "the field names")
+                        help="The first row of the csv output will contain the field names")
+    parser.add_argument('-o', '--output-fields', action='store_true', help="Output to stdout what fields will be "
+                                                                           "retrieved from the coco file")
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     args = parser.parse_args()
 
@@ -232,12 +289,24 @@ def get_args():
             args.fields = 'name,id'
             args.index_from = 0
 
-    args.fields = list(map(lambda x: x.split('/'), args.fields.split(',')))
+    try:
+        args.fields = list(map(lambda x: x.split('/'), args.fields.split(',')))
+    except AttributeError:
+        args.fields = []
 
     return args
 
 
-def flatten(l):
+def flatten(l: collections.Iterable) -> list:
+    """
+    Flatten an iterable into a single list recursively
+
+    Args:
+        l: iterable item
+
+    Returns: list of flattened elements
+
+    """
     result = []
     for el in l:
         if isinstance(el, collections.Iterable) and not isinstance(el, (str, bytes)):
@@ -255,7 +324,7 @@ class Verbose:
             say(line)
 
 
-def load_coco(json_buffer):
+def load_coco(json_buffer: str) -> COCO:
     with redirect_stdout(Verbose):
         coco = COCO()
         coco.dataset = json.loads(json_buffer)
