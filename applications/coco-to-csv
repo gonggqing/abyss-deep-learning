@@ -65,17 +65,17 @@ def main(args=None):
             if section_to_join in joined:
                 continue
             joined.add(section_to_join)
-            say("extra section found, trying to merge between {section} and {section_to_join}".format(
-                section_to_join=section_to_join, section=args.section), verbose=args.verbose)
+            say("extra section found, trying to merge between {section} and {section_to_join}"
+                .format(section_to_join=section_to_join, section=args.section), verbose=args.verbose)
             intersection = set(section[0]).intersection(set(dataset[section_to_join][0]))
             if len(intersection) == 1:
                 common_key = intersection.pop()
             elif len(intersection) > 1:
-                die(
-                    "More than one common key [{keys}] was found in the join for {section} and {section_to_join}".format(keys=list(intersection), section=args.section, section_to_join=section_to_join))
+                die("More than one common key [{keys}] was found in the join for {section} and {section_to_join}"
+                    .format(keys=list(intersection), section=args.section, section_to_join=section_to_join))
             else:
-                die("No common key was found in the join between {section} and {section_to_join}".format(
-                    section=args.section, section_to_join=section_to_join))
+                die("No common key was found in the join between {section} and {section_to_join}"
+                    .format(section=args.section, section_to_join=section_to_join))
             i, j = pd.DataFrame(section), pd.DataFrame(dataset[section_to_join])
             df = pd.merge(i, j, on=common_key)
             section = df.to_dict('records')
@@ -116,11 +116,11 @@ def main(args=None):
                 headers = [header for header in fields if header in section]
                 non_headers = list(set(fields) - set(headers))
                 if not headers:
-                    die('cannot find keys {fields} in dict {section}'.format(fields=fields, section=args.section))
+                    die('cannot find keys {fields} in dict {section}'
+                        .format(fields=fields, section=args.section))
                 if non_headers:
-                    say('cannot find keys {fields} in dict {section}'.format(fields=non_headers,
-                                                                             section=args.section),
-                        verbose=args.verbose)
+                    say('cannot find keys {fields} in dict {section}'
+                        .format(fields=non_headers, section=args.section), verbose=args.verbose)
             csv_writer.writerow(headers)
 
         # Print values
@@ -130,9 +130,8 @@ def main(args=None):
                 values = [section[field] for field in fields]
                 non_values = list(set(fields) - set(fields))
                 if non_values:
-                    say('cannot find keys {fields} in dict {section}'.format(fields=non_values,
-                                                                             section=args.section),
-                        verbose=args.verbose)
+                    say('cannot find keys {fields} in dict {section}'
+                        .format(fields=non_values, section=args.section), verbose=args.verbose)
                 if values:
                     csv_writer.writerow(values)
                 else:
@@ -150,16 +149,15 @@ def main(args=None):
                 if not headers:
                     die('cannot find keys {fields} in dict {section}'.format(fields=fields, section=args.section))
                 if non_headers:
-                    say('cannot find keys {fields} in dict {section}'.format(fields=non_headers, section=args.section),
-                        verbose=True)
+                    say('cannot find keys {fields} in dict {section}'
+                        .format(fields=non_headers, section=args.section), verbose=True)
             else:
                 headers = section[0].keys()
 
             if bbox_index is not None:
-                headers[bbox_index] = ['x', 'y', 'width', 'height'] if args.bbox_position == 'relative' else ['x1',
-                                                                                                              'y1',
-                                                                                                              'x2',
-                                                                                                              'y2']
+                headers[bbox_index] = ['x', 'y', 'width', 'height'] \
+                    if args.bbox_position == 'relative' \
+                    else ['x1', 'y1', 'x2', 'y2']
 
             csv_writer.writerow(flatten(headers))
 
@@ -184,9 +182,8 @@ def main(args=None):
                     die('cannot find keys {fields} in dict {section}'.format(fields=fields, section=args.section))
 
                 if non_fields:
-                    say('cannot find keys {fields} in dict {section}'.format(fields=non_fields,
-                                                                             section=args.section),
-                        verbose=args.verbose)
+                    say('cannot find keys {fields} in dict {section}'
+                        .format(fields=non_fields, section=args.section), verbose=args.verbose)
             else:
                 csv_writer.writerow(entry.values())
 
