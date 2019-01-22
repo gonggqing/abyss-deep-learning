@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import itertools
 import json
 import numpy as np
 import sys
@@ -62,6 +63,23 @@ def load_annotations( predicted, truth, category_ids, bounding_boxes = False, sc
     print( 'coco-metrics: only loading bounding boxes implemented', file = sys.stderr )
     sys.exit( 1 )
 
+def plot_confusion_matrix(m, classes, normalized = False):
+    import matplotlib.pyplot as plt
+    plt.imshow(m, interpolation='nearest', cmap=plt.cm.Blues)
+    plt.title('confusion matrix')
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+    fmt = '.2f' if normalized else 'd'
+    thresh = m.max() / 2.
+    for i, j in itertools.product(range(m.shape[0]), range(m.shape[1])):
+        plt.text(j, i, format(m[i, j], fmt), horizontalalignment="center", color="white" if m[i, j] > thresh else "black")
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+    plt.show()
+    
 def confusion_matrix(args):
     from sklearn import metrics as skm
     predicted = json.loads(sys.stdin.read())
@@ -95,6 +113,11 @@ def confusion_matrix(args):
         predicted_labels = np.append( predicted_labels, pr )
         truth_labels = np.append( truth_labels, tr )
     m = skm.confusion_matrix( predicted_labels, truth_labels, [blank_id] + category_ids )
+    if args.normalize: m = m.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+    if args.plot:
+        classes = ['BG']
+        for c in truth['categories']: classes.append(c['name'])
+        plot_confusion_matrix( m, classes, args.normalize )
     np.savetxt( sys.stdout, m, delimiter=',', fmt='%d' )
 
 def tfpn(args):
@@ -208,6 +231,8 @@ def get_args():
     confusion_matrix_parser.add_argument( '--bounding-boxes', '--bbox', '-b', action='store_true', help="match bounding boxes" )
     confusion_matrix_parser.add_argument( '--iou-threshold', default=0.5, type=float, help="iou threshold; default: %(default)s" )
     confusion_matrix_parser.add_argument( '--match', default='one_to_one', type=str, help="how to match, 'one_to_one' or 'one_to_many'; default: %(default)s" )
+    confusion_matrix_parser.add_argument( '--normalize', action='store_true', help="normalize confusion matrix" )
+    confusion_matrix_parser.add_argument( '--plot', action='store_true', help="plot confusion matrix, convenience option" )
     confusion_matrix_parser.add_argument( '--score-threshold', default=0.5, type=float, help="score threshold: default: %(default)s" )
     confusion_matrix_parser.add_argument( '--truth', '-t', type=str, help="ground truth coco.json file" )
     
