@@ -112,7 +112,7 @@ def confusion_matrix(args):
             pr, tr = metrics.bbox_to_sklearn_pred_true( iou_matrix( p, t ), pc, tc, iou_threshold = args.iou_threshold, blank_id = blank_id )
         predicted_labels = np.append( predicted_labels, pr )
         truth_labels = np.append( truth_labels, tr )
-    m = skm.confusion_matrix( predicted_labels, truth_labels, [blank_id] + category_ids )
+    m = skm.confusion_matrix( truth_labels, predicted_labels, [blank_id] + category_ids )
     if args.normalize: m = m.astype('float') / cm.sum(axis=1)[:, np.newaxis]
     if args.plot:
         classes = ['BG']
