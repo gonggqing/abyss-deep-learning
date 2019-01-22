@@ -4,6 +4,7 @@ import itertools
 import json
 import os
 import sys
+import copy
 from contextlib import redirect_stdout
 
 from pycocotools.coco import COCO
@@ -39,6 +40,7 @@ def main():
 
 def remap(coco: COCO) -> COCO:
     from ast import literal_eval
+
     say("remapping categories")
     mapping = literal_eval(ARGS.mapping)
     old_id_2_new_id, old_id_2_new_str, old_str_2_new_id, old_str_2_new_str = {}, {}, {}, {}
@@ -56,10 +58,13 @@ def remap(coco: COCO) -> COCO:
             old_str_2_new_str[old] = new
 
     coco_categories = coco.loadCats(coco.getCatIds())
+    anns = []
     for cat in coco_categories:
         if cat['id'] in old_id_2_new_id:
             for ann in coco.loadAnns(coco.getAnnIds(catIds=cat['id'])):
-                ann['category_id'] = old_id_2_new_id[cat['id']]
+                ann_copy = copy.deepcopy(ann)
+                ann_copy['category_id'] = old_id_2_new_id[cat['id']]
+                anns.append(ann_copy)
             cat['id'] = old_id_2_new_id[cat['id']]
 
         elif cat['id'] in old_id_2_new_str:
@@ -67,7 +72,9 @@ def remap(coco: COCO) -> COCO:
 
         elif cat['name'] in old_str_2_new_id:
             for ann in coco.loadAnns(coco.getAnnIds(catIds=coco.getCatIds(catNms=cat['name']))):
-                ann['category_id'] = old_str_2_new_id[cat['name']]
+                ann_copy = copy.deepcopy(ann)
+                ann_copy['category_id'] = old_str_2_new_id[cat['name']]
+                anns.append(ann_copy)
             cat['id'] = old_str_2_new_id[cat['name']]
 
         elif cat['name'] in old_str_2_new_str:
@@ -83,6 +90,7 @@ def remap(coco: COCO) -> COCO:
             cat['name'] = categories[cat['id']]
 
     coco.dataset['categories'] = [dict(tple) for tple in {tuple(dct.items()) for dct in coco_categories}]
+    coco.dataset['annotations'] = anns
 
     category_ids = coco.getCatIds()
     if len(set(category_ids)) != len(category_ids):
