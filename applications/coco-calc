@@ -10,8 +10,7 @@ from operator import itemgetter
 
 from pycocotools.coco import COCO
 
-DESCRIPTION = \
-    """
+DESCRIPTION = """
 Read COCO json file piped in from stdin or a list of COCO json files and apply image manipulation and 
 processing. Output new COCO json file with relevant changes to the data and if output images is specified, 
 output an image directory in the current working directory with all modified images.
@@ -20,12 +19,47 @@ RLE not currently supported for segmentation resizing
 tile action is currently dummy action for demonstration purposes
 
 examples:
-    cat coco.json | coco-calc --apply-to-images tile --tiles 4,5
-    cat coco.json | coco-calc resize --factor 0.3
-    cat coco.json | coco-calc --verbose resize --size 480,640
+    resize
+        cat coco.json | coco-calc resize --factor 0.3
+        cat coco.json | coco-calc --verbose resize --size 480,640
+        
+    tile
+        cat coco.json | coco-calc --apply-to-images tile --tiles 4,5
     
+    remap
+        cat pf.json | coco-calc remap "{1:1,2:1,3:1,4:1}" -c "{1:PF}"
+        cat pf.json | coco-calc remap "{'PF-G':'PF','PF-L':'PF','PF-M':'PF','PF-H':'PF'}"
+"""
+
+REMAP_DESCRIPTION = """
+Remap categories and/or category id to categories and/or category id
+
+4 use cases:
+    old id to new id
+        "{1:1,2:1,3:1,4:1}" collapses all category ids to one id
+        "{1:0,2:1,3:2,4:3}" change starting index of all categories
+    old id to new category
+        "{1: 'PF', 2:'PF', 3:'PF', 4:'PF'}" collapses all categories to a single category
+    old category to new id
+        "{'PF-G':1,'PF-L':2,'PF-M':3,'PF-H':4}" change category ordering
+    old category to new category
+        "{'PF-G': 'PF', 'PF-L':'PF', 'PF-M':'PF', 'PF-H':'PF'}" collapses all categories to a single category
+
+-c/--categories argument is shortcut to relabel categories after updating from old id to new id
+
+examples
     cat pf.json | coco-calc remap "{1:1,2:1,3:1,4:1}" -c "{1:PF}"
     cat pf.json | coco-calc remap "{'PF-G':'PF','PF-L':'PF','PF-M':'PF','PF-H':'PF'}"
+"""
+
+RESIZE_DESCRIPTION = """
+Resize images in a given coco json file. Image dimensions can be specified by [width],[height] or by a 
+scaling factor to enlarge or reduce. Specify -o/--output-images with an output image directory which 
+will write the new directory, if not created, in the current directory with the new images.
+
+examples
+    cat coco.json | coco-calc resize --factor 0.3
+    cat coco.json | coco-calc --verbose resize --size 480,640
 """
 
 
@@ -41,7 +75,6 @@ def main():
 
 def remap(coco: COCO) -> COCO:
     from ast import literal_eval
-
     say("remapping categories")
     mapping = literal_eval(ARGS.mapping)
     old_id_2_new_id, old_id_2_new_str, old_str_2_new_id, old_str_2_new_str = {}, {}, {}, {}
@@ -61,30 +94,37 @@ def remap(coco: COCO) -> COCO:
     coco_categories = coco.loadCats(coco.getCatIds())
     anns = []
     for cat in coco_categories:
+        # Given a category id, update its id
         if cat['id'] in old_id_2_new_id:
+            # Update annotation category id to new id
             for ann in coco.loadAnns(coco.getAnnIds(catIds=cat['id'])):
                 ann_copy = copy.deepcopy(ann)
                 ann_copy['category_id'] = old_id_2_new_id[cat['id']]
                 anns.append(ann_copy)
             cat['id'] = old_id_2_new_id[cat['id']]
 
+        # Given a category id, update its name
         elif cat['id'] in old_id_2_new_str:
             cat['name'] = old_id_2_new_str[cat['id']]
 
+        # Given a category name, update its id
         elif cat['name'] in old_str_2_new_id:
+            # Update annotation category id to new id
             for ann in coco.loadAnns(coco.getAnnIds(catIds=coco.getCatIds(catNms=cat['name']))):
                 ann_copy = copy.deepcopy(ann)
                 ann_copy['category_id'] = old_str_2_new_id[cat['name']]
                 anns.append(ann_copy)
             cat['id'] = old_str_2_new_id[cat['name']]
 
+        # Given a category name, update its name
         elif cat['name'] in old_str_2_new_str:
             cat['name'] = old_str_2_new_str[cat['name']]
 
+        # Skip category entry
         else:
             say("skipping category", json.dumps(cat, indent=4))
 
-    # Relabel categories with specific ids after having given new ids
+    # Useful for scenario when updating old ids to new ids, at the same time, relabel the category names
     if ARGS.categories:
         categories = literal_eval(ARGS.categories)
         for cat in coco_categories:
@@ -104,7 +144,7 @@ def remap(coco: COCO) -> COCO:
 def resize(coco: COCO) -> COCO:
     say("resizing images")
     if ARGS.apply_to_images:
-        os.makedirs(os.path.join(os.getcwd(), 'images'), exist_ok=True)
+        os.makedirs(os.path.join(os.getcwd(), ARGS.apply_to_images), exist_ok=True)
     for img_data in coco.loadImgs(coco.getImgIds()):
         if ARGS.factor is not None:
             h_scale = v_scale = ARGS.factor
@@ -204,38 +244,52 @@ def get_args() -> argparse.Namespace:
 
     args = ['-o', '--apply-to-images']
     kwargs = {
-        'action': 'store_true',
+        'type'  : str,
+        'default': 'images',
         'help'  : 'Apply action to images and output in current working directory an [image] folder that contains the '
-                  'new images'
+                  'new images; default %(default)s'
     }
     parser_resize = subparsers.add_parser('resize', help="Resize all images and their respective annotations by a "
-                                                         "scaling factor or to specified width and height")
+                                                         "scaling factor or to specified width and height",
+                                          formatter_class=argparse.RawDescriptionHelpFormatter,
+                                          description=RESIZE_DESCRIPTION)
     parser_resize.set_defaults(func=resize)
     parser_resize.add_argument('-d', '--digits', type=int, default=None, help="Number of decimal digits in bbox and segmentation coordinates; default: %(default)s")
-    resize_args = parser_resize.add_mutually_exclusive_group(required=True)
-    resize_args.add_argument('-f', '--factor', type=float, help="Scale images by a percentage")
-    resize_args.add_argument('-s', '--size', type=str, help="[width],[height] to resize images to")
-    resize_args.add_argument(*args, **kwargs)
+    mutually_exclusive_resize_args = parser_resize.add_mutually_exclusive_group(required=True)
+    mutually_exclusive_resize_args.add_argument('-f', '--factor', type=float, help="Scale images by a percentage. If "
+                                                                                   "value is negative, it will take "
+                                                                                   "the absolute value")
+    mutually_exclusive_resize_args.add_argument('-s', '--size', type=str, help="[width],[height] to resize images to")
+    mutually_exclusive_resize_args.add_argument(*args, **kwargs)
 
-    parser_remap = subparsers.add_parser('remap', help="Remap categories and/or category id")
+    parser_remap = subparsers.add_parser('remap', help="Remap categories and/or category id",
+                                         formatter_class=argparse.RawDescriptionHelpFormatter,
+                                         description=REMAP_DESCRIPTION)
     parser_remap.set_defaults(func=remap)
     parser_remap.add_argument('mapping', type=str, help="Dict style string for remapping of either category "
                                                         "id/category name to category id/category name")
     parser_remap.add_argument('-c', '--categories', type=str, help="Use to rename category name after new category "
                                                                    "ids have been assigned. Input argument is in "
-                                                                   "similar form as mapping")
+                                                                   "same form as mapping")
 
     parser_tile = subparsers.add_parser('tile', help="For testing purposes, no functionality currently")
     parser_tile.set_defaults(func=tile)
-    tile_args = parser_tile.add_mutually_exclusive_group(required=True)
-    tile_args.add_argument('-n', '--num-tiles', type=int, help="Number of tiles to generate from image")
-    tile_args.add_argument('--dummy', help="dummy option")
-    tile_args.add_argument(*args, **kwargs)
+    mutually_exclusive_tile_args = parser_tile.add_mutually_exclusive_group(required=True)
+    mutually_exclusive_tile_args.add_argument('-n', '--num-tiles', type=int, help="Number of tiles to generate from image")
+    mutually_exclusive_tile_args.add_argument('--dummy', help="dummy option")
+    mutually_exclusive_tile_args.add_argument(*args, **kwargs)
 
-    parser.add_argument('-m', '--min', '--minified', action='store_const', help="Output minimised json; default: %(default)s", const=None,
+    parser.add_argument('-m', '--minified', '--min', action='store_const', help="Disable pretty print", const=None,
                         default=4, dest='indent')
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    try:
+        args.factor = abs(args.factor)
+    except TypeError:
+        pass
+
+    return args
 
 
 class Verbose:
