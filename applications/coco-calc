@@ -209,7 +209,7 @@ def get_args() -> argparse.Namespace:
     parser_resize = subparsers.add_parser('resize', help="Resize all images and their respective annotations by a "
                                                          "scaling factor or to specified width and height")
     parser_resize.set_defaults(func=resize)
-    parser_resize.add_argument('-d', '--digits', type=int, help="Number of decimal digits in bbox and segmentation coordinates; default: %(default)s")
+    parser_resize.add_argument('-d', '--digits', type=int, default=None, help="Number of decimal digits in bbox and segmentation coordinates; default: %(default)s")
     resize_args = parser_resize.add_mutually_exclusive_group(required=True)
     resize_args.add_argument('-f', '--factor', type=float, help="Scale images by a percentage")
     resize_args.add_argument('-s', '--size', type=str, help="[width],[height] to resize images to")
