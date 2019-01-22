@@ -6,6 +6,7 @@ import os
 import sys
 import copy
 from contextlib import redirect_stdout
+from operator import itemgetter
 
 from pycocotools.coco import COCO
 
@@ -89,7 +90,8 @@ def remap(coco: COCO) -> COCO:
         for cat in coco_categories:
             cat['name'] = categories[cat['id']]
 
-    coco.dataset['categories'] = [dict(tple) for tple in {tuple(dct.items()) for dct in coco_categories}]
+    coco.dataset['categories'] = sorted([dict(tple) for tple in {tuple(dct.items()) for dct in coco_categories}],
+                                        key=itemgetter('id'))
     coco.dataset['annotations'] = anns
 
     category_ids = coco.getCatIds()
