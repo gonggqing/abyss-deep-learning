@@ -100,10 +100,10 @@ def resize(coco: COCO) -> COCO:
             h_scale = v_scale = ARGS.factor
         else:
             dims = ARGS.size.split(',')
-            h_scale = int(dims[0]) / img_data['width']
-            v_scale = int(dims[1]) / img_data['height']
-        img_data['height'] = int(img_data['height'] * v_scale)
-        img_data['width'] = int(img_data['width'] * h_scale)
+            h_scale = float(dims[0]) / img_data['width']
+            v_scale = float(dims[1]) / img_data['height']
+        img_data['height'] = round(img_data['height'] * v_scale, None)
+        img_data['width'] = round(img_data['width'] * h_scale, None)
 
         if ARGS.apply_to_images:
             import cv2
@@ -135,10 +135,10 @@ def resize(coco: COCO) -> COCO:
         # format is [x, y, width, height]
         # Rescaled area value i.e. new_width * new_height
         for ann in anns:
-            x = int(ann['bbox'][0] * h_scale)
-            y = int(ann['bbox'][1] * v_scale)
-            width = int(ann['bbox'][2] * h_scale)
-            height = int(ann['bbox'][3] * v_scale)
+            x = round(ann['bbox'][0] * h_scale, ARGS.digits)
+            y = round(ann['bbox'][1] * v_scale, ARGS.digits)
+            width = round(ann['bbox'][2] * h_scale, ARGS.digits)
+            height = round(ann['bbox'][3] * v_scale, ARGS.digits)
             ann['bbox'] = [x, y, width, height]
             ann['area'] = width * height
 
@@ -147,7 +147,7 @@ def resize(coco: COCO) -> COCO:
                 if type(tmp) is list:
                     segmentation = []
                     for segment in tmp:
-                        new_segment = [(int(x * h_scale), int(y * v_scale)) for x, y in grouper(segment, 2)]
+                        new_segment = [(round(x * h_scale, ARGS.digits), round(y * v_scale, ARGS.digits)) for x, y in grouper(segment, 2)]
                         # Flatten the list of tuples
                         new_segment = list(itertools.chain(*new_segment))
                         segmentation.append(new_segment)
@@ -201,15 +201,9 @@ def get_args() -> argparse.Namespace:
     parser_resize = subparsers.add_parser('resize', help="Resize all images and their respective annotations by a "
                                                          "scaling factor or to specified width and height")
     parser_resize.set_defaults(func=resize)
+    parser_resize.add_argument('-d', '--digits', type=int, help="Number of decimal digits in bbox and segmentation coordinates; default: %(default)s")
     resize_args = parser_resize.add_mutually_exclusive_group(required=True)
-
-    def restricted_float(x):
-        x = float(x)
-        if x < 0.0 or x > 1.0:
-            raise argparse.ArgumentTypeError("{factor} not in range [0.0, 1.0]".format(factor=x))
-        return x
-
-    resize_args.add_argument('-f', '--factor', type=restricted_float, help="Scale images by a percentage")
+    resize_args.add_argument('-f', '--factor', type=float, help="Scale images by a percentage")
     resize_args.add_argument('-s', '--size', type=str, help="[width],[height] to resize images to")
     resize_args.add_argument(*args, **kwargs)
 
@@ -228,7 +222,7 @@ def get_args() -> argparse.Namespace:
     tile_args.add_argument('--dummy', help="dummy option")
     tile_args.add_argument(*args, **kwargs)
 
-    parser.add_argument('-m', '--min', '--minified', action='store_const', help="Output minimised json", const=None,
+    parser.add_argument('-m', '--min', '--minified', action='store_const', help="Output minimised json; default: %(default)s", const=None,
                         default=4, dest='indent')
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     return parser.parse_args()
