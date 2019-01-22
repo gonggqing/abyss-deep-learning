@@ -94,7 +94,7 @@ def crop(coco: COCO) -> COCO:
             elif os.path.isfile(os.path.abspath(image_data['path'])): path = image_data['path']
             else: say("file not found: [{}]".format(image_data['path'])); sys.exit(1)
             basename = os.path.basename(image_data['path'])
-            stubname = os.path.join(os.getcwd(), 'images', '.'.join( basename.split('.')[:-1] ))
+            stubname = os.path.join(os.getcwd(), ARGS.image_output_dir, '.'.join( basename.split('.')[:-1] ))
             do_crop = False
             if ARGS.point:
                 annotations = coco.loadAnns(coco.getAnnIds(image_data['id']))
@@ -243,7 +243,7 @@ def resize(coco: COCO) -> COCO:
 
             if path is not None:
                 img = cv2.imread(img_data['path'])
-                new_path = os.path.join(os.getcwd(), 'images', os.path.basename(img_data['path']))
+                new_path = os.path.join(os.getcwd(), ARGS.image_output_dir, os.path.basename(img_data['path']))
                 if new_path in basenames:
                     print('coco-calc: resize: expected unique image filenames, got duplicated "{}"'.format(new_path),
                           file=sys.stderr)
@@ -318,16 +318,10 @@ def get_args() -> argparse.Namespace:
                                        help="Available actions")
 
     apply_to_images = ['--apply-to-images']
-    apply_to_images_args = {
-        'action'  : 'store_true',
-        'help'  : 'Apply action to images, output to directory specified by --images-output-dir'
-    }
+    apply_to_images_args = { 'action': 'store_true', 'help': 'Apply action to images, output to directory specified by --images-output-dir' }
     image_output_dir = ['--image-output-dir', '-o']
-    image_output_dir_args = {
-        'type'  : str,
-        'default': 'images',
-        'help'  : 'Image output directory; default %(default)s'
-    }
+    image_output_dir_args = { 'type': str, 'default': 'images', 'help': 'Image output directory; default %(default)s' }
+    
     parser_crop = subparsers.add_parser('crop', help="Crop images and labels; currently supports only cropping images", description=CROP_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser_crop.set_defaults(func=crop)
     parser_crop.add_argument('--fit', action='store_true', help="if centre of cropped area to close to border, shift cropped area to fit inside image")
