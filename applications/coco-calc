@@ -66,7 +66,7 @@ def remap(coco: COCO) -> COCO:
             cat['name'] = old_id_2_new_str[cat['id']]
 
         elif cat['name'] in old_str_2_new_id:
-            for ann in coco.loadAnns(coco.getAnnIds(catIds=coco.getCatIds(catNms=old_str_2_new_id[cat['name']]))):
+            for ann in coco.loadAnns(coco.getAnnIds(catIds=coco.getCatIds(catNms=cat['name']))):
                 ann['id'] = old_str_2_new_id[cat['name']]
             cat['id'] = old_str_2_new_id[cat['name']]
 
