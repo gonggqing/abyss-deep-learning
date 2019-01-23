@@ -118,12 +118,14 @@ def confusion_matrix(args):
     # if args.normalize: m = m.astype('float') / cm.sum(axis=1)[:, np.newaxis]  # Not working???
     # Normalise per class
     if args.normalize:
+        m = m.astype(np.float32)
         m = (m.T  / np.sum(m, axis=1)).T  # Normalise across rows
     if args.plot:
         classes = ['BG']
         for c in truth['categories']: classes.append(c['name'])
         plot_confusion_matrix( m, classes, args.normalize )
-    np.savetxt( sys.stdout, m, delimiter=',', fmt='%d' )
+    fmt = '%.2f' if args.normalize else '%d'
+    np.savetxt( sys.stdout, m, delimiter=',', fmt=fmt )
 
 def tfpn(args):
     predicted = json.loads(sys.stdin.read())
