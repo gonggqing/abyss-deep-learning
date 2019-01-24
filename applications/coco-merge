@@ -113,6 +113,8 @@ def main():
 
     # Remove duplicate annotations
     annotations = [dict(item) for item in set(to_tuple([list(i) for i in sorted(ann.items())]) for ann in annotations)]
+    licenses = [dict(item) for item in set(to_tuple([list(i) for i in sorted(license.items())]) for license in
+                                           licenses)]
 
     # Sort annotations by image id
     annotations.sort(key=itemgetter('image_id'))
