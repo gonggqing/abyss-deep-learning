@@ -10,24 +10,20 @@ import argparse
 import os
 import sys
 import time
-import numpy as np
 
 import keras
+import numpy as np
 import tensorflow as tf
-
 
 # Allow relative imports when being executed as script.
 if __name__ == "__main__" and __package__ is None:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-    import keras_retinanet.bin  # noqa: F401
+
     __package__ = "keras_retinanet.bin"
 
 # Change these to absolute imports if you copy this script outside the keras_retinanet package.
 from keras_retinanet import models
-from keras_retinanet.preprocessing.csv_generator import CSVGenerator
-from keras_retinanet.preprocessing.pascal_voc import PascalVocGenerator
 from keras_retinanet.utils.config import read_config_file, parse_anchor_parameters
-from keras_retinanet.utils.eval import evaluate
 from keras_retinanet.utils.keras_version import check_keras_version
 from keras_retinanet.utils.image import read_image_bgr, preprocess_image, resize_image
 
@@ -39,8 +35,6 @@ from keras_retinanet.utils.anchors import AnchorParameters
 from keras_retinanet.utils.visualization import draw_box, draw_caption
 
 
-
-
 def get_session():
     """ Construct a modified tf session.
     """
@@ -50,13 +44,13 @@ def get_session():
 
 
 def retinanet_bbox(
-    model                 = None,
-    nms                   = True,
-    class_specific_filter = True,
-    nms_threshold         = 0.5, 
-    name                  = 'retinanet-bbox',
-    anchor_params         = None,
-    **kwargs
+        model=None,
+        nms=True,
+        class_specific_filter=True,
+        nms_threshold=0.5,
+        name='retinanet-bbox',
+        anchor_params=None,
+        **kwargs
 ):
     """ Construct a RetinaNet model on top of a backbone and adds convenience functions to output boxes directly.
 
@@ -98,10 +92,10 @@ def retinanet_bbox(
 
     # compute the anchors
     features = [model.get_layer(p_name).output for p_name in ['P3', 'P4', 'P5', 'P6', 'P7']]
-    anchors  = __build_anchors(anchor_params, features)
+    anchors = __build_anchors(anchor_params, features)
 
     # we expect the anchors, regression and classification values as first output
-    regression     = model.outputs[0]
+    regression = model.outputs[0]
     classification = model.outputs[1]
 
     # "other" can be any additional output from custom submodels, by default this will be []
@@ -113,50 +107,50 @@ def retinanet_bbox(
 
     # filter detections (apply NMS / score threshold / select top-k)
     detections = layers.FilterDetections(
-        nms                   = nms,
-        nms_threshold         = nms_threshold, 
-        class_specific_filter = class_specific_filter,
-        name                  = 'filtered_detections'
+        nms=nms,
+        nms_threshold=nms_threshold,
+        class_specific_filter=class_specific_filter,
+        name='filtered_detections'
     )([boxes, classification] + other)
 
     # construct the model
     return keras.models.Model(inputs=model.inputs, outputs=detections, name=name)
 
+
 def parse_args(args):
     """ Parse the arguments.
     """
-    parser     = argparse.ArgumentParser(description='Evaluation script for a RetinaNet network.')
-    # subparsers = parser.add_subparsers(help='Arguments for specific dataset types.', dest='dataset_type')
-    # subparsers.required = True
-
-    parser.add_argument('model',              help='Path to RetinaNet model.')
-    parser.add_argument('--convert-model',    help='Convert the model to an inference model (ie. the input is a training model).', action='store_true')
-    parser.add_argument('--backbone',         help='The backbone of the model.', default='resnet50')
-    parser.add_argument('--gpu',              help='Id of the GPU to use (as reported by nvidia-smi).')
-    parser.add_argument('--score-threshold',  help='Threshold on score to filter detections with (defaults to 0.05).', default=0.05, type=float)
-    parser.add_argument('--iou-threshold',    help='IoU Threshold to count for a positive detection (defaults to 0.5).', default=0.5, type=float)
-    parser.add_argument('--nms-threshold',    help='IoU threshold for non-maximum supression for outputs (defaults to 0.1).', default=0.1, type=float)
-    parser.add_argument('--max-detections',   help='Max Detections per image (defaults to 100).', default=100, type=int)
-    parser.add_argument('--save-path',        help='Path for saving images with detections (doesn\'t work for COCO).')
-    parser.add_argument('--show',             help='Show per-image examples in matplotlib', action='store_true')
-    parser.add_argument('--image-min-side',   help='Rescale the image so the smallest side is min_side.', type=int, default=800)
-    parser.add_argument('--image-max-side',   help='Rescale the image if the largest side is larger than max_side.', type=int, default=1333)
-    parser.add_argument('--config',           help='Path to a configuration parameters .ini file (only used with --convert-model).')
+    parser = argparse.ArgumentParser(description='Evaluation script for a RetinaNet network.')
+    parser.add_argument('images',               help='Text file of image paths', type=str)
+    parser.add_argument('--model',              help='Path to RetinaNet model.', type=str)
+    parser.add_argument('--convert-model',      help='Convert the model to an inference model (ie. the input is a '
+                                                     'training model).', action='store_true')
+    parser.add_argument('--backbone',           help='The backbone of the model.', default='resnet50')
+    parser.add_argument('--gpu',                help='Id of the GPU to use (as reported by nvidia-smi).')
+    parser.add_argument('--score-threshold',    help='Threshold on score to filter detections with (defaults to '
+                                                     '0.05).', default=0.05, type=float)
+    parser.add_argument('--iou-threshold',      help='IoU Threshold to count for a positive detection (defaults to '
+                                                     '0.5).', default=0.5, type=float)
+    parser.add_argument('--nms-threshold',      help='IoU threshold for non-maximum supression for outputs (defaults '
+                                                     'to 0.1).', default=0.1, type=float)
+    parser.add_argument('--max-detections',     help='Max Detections per image (defaults to 100).', default=100, type=int)
+    parser.add_argument('--save-path',          help='Path for saving images with detections (doesn\'t work for COCO).')
+    parser.add_argument('--show',               help='Show per-image examples in matplotlib', action='store_true')
+    parser.add_argument('--image-min-side',     help='Rescale the image so the smallest side is min_side.', type=int, default=800)
+    parser.add_argument('--image-max-side',     help='Rescale the image if the largest side is larger than '
+                                                     'max_side.', type=int, default=1333)
+    parser.add_argument('--config',             help='Path to a configuration parameters .ini file (only used with '
+                                                     '--convert-model).')
+    parser.add_argument('--remove',             help="Remove negative category detections from output", action='store_true')
 
     # EXAMPLE USAGE to be added to --help output
     # cat ~/data/anadarko/object-recognition/val_annotations.csv | sed 's/images/\/home\/users\/sba\/data\/anadarko\/object-recognition\/images/g' | cut -d, -f1 | sort | uniq | ~/src/abyss/deep-learning/applications/retinanet-predict --score-threshold=0.5 --image-min-side=1000 --image-max-side=1000 ~/scratch/anadarko/object-recognition/snapshots/resnet50_csv_100.h5 --convert-model > ~/data/anadarko/object-recognition/val_predictions.csv
-    
+
     return parser.parse_args(args)
 
 
-
-
-
-    
-def draw_result(boxes, scores, labels, image, annotations=None):
-
+def draw_result(boxes, scores, labels, image):
     import webcolors
-    import cv2
     import matplotlib.pyplot as plt
 
     color_strings = ['green', 'blue', 'yellow', 'red']
@@ -164,10 +158,9 @@ def draw_result(boxes, scores, labels, image, annotations=None):
     for color_string in color_strings:
         color_rgb_list.append(tuple(webcolors.name_to_rgb(color_string)))
 
-
     labels_to_names = {0: 'PF-G', 1: 'PF-L', 2: 'PF-M', 3: 'PF-H'}
     names_to_labels = {}
-    for k,v in labels_to_names.items():
+    for k, v in labels_to_names.items():
         names_to_labels[v] = k
 
     # visualize detections
@@ -176,19 +169,18 @@ def draw_result(boxes, scores, labels, image, annotations=None):
         if score < 0.5:
             break
 
-#         color = label_color(label)
+        #         color = label_color(label)
         b = box.astype(int)
         draw_box(image, b, color=color_rgb_list[label])
 
         caption = "{} {:.3f}".format(labels_to_names[label], score)
         draw_caption(image, b, caption)
-    
-    fig, ax = plt.subplots(1,1,figsize=(15,15))
-    
+
+    fig, ax = plt.subplots(1, 1, figsize=(15, 15))
+
     ax.imshow(image)
     ax.axis('off')
     plt.show()
-
 
 
 def main(args=None):
@@ -229,14 +221,17 @@ def main(args=None):
     if args.convert_model:
         nms_threshold = 0.1
         model = retinanet_bbox(model=model, nms=True, nms_threshold=nms_threshold, anchor_params=anchor_params)
-        
 
     # start evaluation
-    line_counter = 0
-    for line in sys.stdin:
-        
+    with open(args.images, 'r') as file_handle:
+        images = file_handle.read().split("\n")
+
+    for line_counter, line in enumerate(images):
+        if not line:
+            continue
+
         image_path = line.strip()
-        print('Processing image ' + str(line_counter) + 'at ' + image_path, file=sys.stderr)
+        print('Processing image ' + str(line_counter) + ' at ' + image_path, file=sys.stderr)
 
         image = read_image_bgr(image_path)
         if args.show:
@@ -250,11 +245,9 @@ def main(args=None):
         # process image
         start = time.time()
         boxes, scores, labels = model.predict_on_batch(np.expand_dims(image, axis=0))
-        bsr_output = np.concatenate((boxes[0,:], scores.T, labels.T),axis=1)
+        bsr_output = np.concatenate((boxes[0, :], scores.T, labels.T), axis=1)
         print("processing time: ", time.time() - start, file=sys.stderr)
         print(boxes.shape, scores.shape, labels.shape, bsr_output.shape, file=sys.stderr)
-
-
 
         # correct for image scale
         boxes /= scale
@@ -263,14 +256,19 @@ def main(args=None):
         if args.show:
             draw_result(boxes, scores, labels, draw)
 
-
-        line_counter += 1
-
         for box_idx in range(bsr_output.shape[0]):
+            # Early exit for max detections per image
+            if box_idx >= args.max_detections:
+                break
             # if bsr_output[box_idx,4] < 0
 
+            # Early exit for invalid detections
+            idx_ = bsr_output[box_idx, :]
+            if idx_[-1] == -1 and args.remove:
+                break
+
             sys.stdout.write('{},{},'.format(image_path, box_idx))
-            np.savetxt(sys.stdout, bsr_output[box_idx,:][None,:], delimiter=',', fmt='%.4f')
+            np.savetxt(sys.stdout, idx_[None, :], delimiter=',', fmt='%.4f')
             # print(boxes.shape, scores.shape, labels.shape, bsr_output.shape)
 
 

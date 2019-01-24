@@ -20,7 +20,9 @@ def get_annotations(image, annotations, caption_map):
         bb = [floor(bbox[0]), floor(bbox[1]), floor(bbox[0] + bbox[2]), floor(bbox[1] + bbox[3])]
         cl = caption_map[annotation['category_id']]
         # Add to output string
-        output_list.append([file_path, int(bb[0]), int(bb[1]), int(bb[2]), int(bb[3]), cl])
+        # Ensure the boxes don't have zero height/width
+        if int(bb[0]) < int(bb[2]) and int(bb[1]) < int(bb[3]):
+            output_list.append([file_path, int(bb[0]), int(bb[1]), int(bb[2]), int(bb[3]), cl])
     return output_list
 
 
@@ -62,9 +64,10 @@ def get_args():
         'output_dir', help="Path to put the desired")
     parser.add_argument('--verbose', action='store_true',
                         help="verbose output to stderr")
-    parser.add_argument('--index_from_zero', action='store_true', help="Index categories from zero - Annotation Tool indexes from 1")
+    parser.add_argument('--index-from-zero', action='store_true', help="Index categories from zero - Annotation Tool "
+                                                                       "indexes from 1")
     parser.add_argument('--prefix', help="The prefix to the images directory")
-    parser.add_argument('--use_filename', help="Use prefix/filename instead of path attributes")
+    parser.add_argument('--use-filename', help="Use prefix/filename instead of path attributes")
     args = parser.parse_args()
     return args
 

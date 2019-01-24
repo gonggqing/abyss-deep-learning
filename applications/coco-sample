@@ -15,8 +15,7 @@ Randomly sample data from coco json file passed as command line arguments or pip
 Output coco json contents in stdout.
 
 examples:
-    coco-sample coco.a.json coco.b.json
-    find . -name coco.json | coco-merge
+    cat coco.json | coco-sample 100
 """
 
 
@@ -35,8 +34,8 @@ def main():
 
     coco.dataset['images'] = coco.loadImgs(sample)
     coco.dataset['annotations'] = coco.loadAnns(coco.getAnnIds(imgIds=sample))
-    json.dump(coco.dataset, sys.stdout, indent=4)
 
+    json.dump(coco.dataset, sys.stdout, indent=ARGS.indent)
     say("done")
     sys.exit()
 
@@ -64,8 +63,9 @@ class Verbose:
 
 def get_args():
     parser = argparse.ArgumentParser(description=DESCRIPTION)
-    parser.add_argument('json_file', nargs='*', type=str, help='JSON file to sample from')
     parser.add_argument('num_imgs', type=int, help="Number of images to randomly sample")
+    parser.add_argument('-m', '--min', action='store_const', help="Output minimised json", const=None, default=4,
+                        dest='indent')
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     return parser.parse_args()
 

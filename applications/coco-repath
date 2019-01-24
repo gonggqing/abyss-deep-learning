@@ -1,174 +1,63 @@
-#!/usr/bin/python3
-
+#!/usr/bin/env python3
 import argparse
-import glob
 import json
 import os
-import re
 import sys
-from inspect import currentframe
-from pathlib import Path
 
-import cv2
-from pycocotools.coco import COCO
+DESCRIPTION = \
+"""
+Read coco file from stdin and re-path all images.
 
-def recursive_search(video_basename: str, root_dir: str) -> str:
-    """
+Output coco json contents in stdout.
 
-    Args:
-        video_basename: Base video file name
-        root_dir: Root directory to search recursively in sub directories for video file
+examples:
+    cat coco.json | {0} images
+    cat coco.json | {0} /mnt/rhino/processed/industry-data/anadarko/images
+""".format(os.path.basename(__file__))
 
-    Returns: Full file path to specified video base name
-
-    """
-    for file_path in glob.iglob(os.path.join(root_dir, "**", video_basename), recursive=True):
-        return file_path
 
 def main():
-    args = get_args()
+    global ARGS
+    ARGS = get_args()
+    say("loading dataset")
+    dataset = load_dataset(sys.stdin.read())
+    try:
+        for image in dataset['images']:
+            if 'path' in image:
+                image['path'] = os.path.join(ARGS.path, os.path.basename(image['path']))
+            elif 'file_name' in image:
+                image['path'] = os.path.join(ARGS.path, os.path.basename(image['file_name']))
+    except KeyError as e:
+        die("could not find key [{}] in dataset".format(str(e)))
 
-    if not args.video_dir:
-        print("No video directory specified to search for video/s")
-        sys.exit(1)
-
-    #TODO: what are edge cases for this function isatty()?
-    if not sys.stdin.isatty():
-        for line in sys.stdin:
-            args.json_files.append(line.strip())
-
-    for json_file in args.json_files:
-        print("Creating COCO object for {}".format(os.path.basename(json_file)))
-        coco = COCO(json_file)
-
-        print(json_file, args.video_dir)
-
-        # if 'dataset' not in coco.dataset['info']: # Unsure if necessary 'if' statement
-        cur_vid = coco.dataset['info']['dataset']['video']['uri']
-        new_vid = recursive_search(os.path.basename(cur_vid), os.path.commonpath((cur_vid[::-1], new_vid[::-1]))[::-1])
-        common_suffix = os.path.commonpath((cur_vid[::-1], new_vid[::-1]))[::-1]
-        coco.dataset['info']['dataset']['video']['uri'] = new_vid
-
-        if args.keep_segmentation:
-            return NotImplementedError("Not yet implemented")
-
-        for image in coco.dataset['images']:
-            if 'original_uri' in image:
-                old_ext = image['original_uri'].split('?')[-1]
-                image['original_uri'] = '?'.join(new_vid, old_ext)
-
-        # Write the new data set
-        with open(os.path.join(json_file), 'w') as outfile:
-            json.dump(coco.dataset, outfile, sort_keys=True, indent=4)
-
-    sys.exit(0)
+    json.dump(dataset, sys.stdout, indent=ARGS.indent)
+    say("done")
+    sys.exit()
 
 
-def debug_print(arg):
-    """Debugging tool to print line number followed by normal print statement arguments
-
-    """
-    frame_info = currentframe()
-    print('Line', frame_info.f_back.f_lineno, ':', arg)
-
-
-def get_unique_list_of_videos(coco):
-    """Gets a unique list of all videos in the dataset
-
-    Args:
-        coco (COCO): A coco dataset
-
-    Returns:
-        list: List of strings of all videos in the dataset
-
-    """
-    video_list = []
-    img_ids = coco.getImgIds(imgIds=[])  # Load all images
-    for img_id in img_ids:
-        video_path = coco.loadImgs(img_id)[0]['path']
-        # debug_print("video path is {}".format(video_path))
-        video_name = os.path.basename(video_path).split(':')[0]
-        video_name = re.sub(r' \([0-9]+\)', '', video_name)
-        # debug_print(video_name)
-        video_list.append(video_name)
-    return list(set(video_list))
-
-
-def recursive_search(video_basename: str, root_dir: str) -> str:
-    """
-
-    Args:
-        video_basename: Base video file name
-        root_dir: Root directory to search recursively in sub directories for video file
-
-    Returns: Full file path to specified video base name
-
-    """
-    for file_path in glob.iglob(os.path.join(root_dir, "**", video_basename), recursive=True):
-        return file_path
-
-
-def get_args():
-    parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("json_files", nargs='+', type=str, help="Path to JSON file")
-    parser.add_argument("--video-dir", "--video", "-v", type=str,
-                        help="Path under which all the videos referenced in JSON file(s) expected to be found")
-    parser.add_argument("--output-dir", "--output", "-o", type=str,
-                        help="Output directory path for database", default=os.getcwd())
-    parser.add_argument("--keep-segmentation", "--seg", "-s", action='store_true',
-                        help="Keep segmentation regions, otherwise assume to be classification task (and discard "
-                             "regions)")
-    # TODO: Check to see what differs between cloud factory format and other formats
-    parser.add_argument("--cloud-factory", "--cloud", "-c", action="store_true",
-                        help="Input JSON files are in (deprecated) cloud factory format flavour")
-    parser.add_argument("--make-images", "--image", "-i", action="store_true",
-                        help="Extract images from video and save as PNG")
-    parser.add_argument("--relative-path", "--relative", "-r", action="store_true",
-                        help="Image paths will be relative to the "
-                             "coco.json file in output data set "
-                             "directory")
+def get_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('path', type=str, help="New path to prepend to each image in data set")
+    parser.add_argument('-m', '--min', action='store_const', help="Output minimised json", const=None, default=4,
+                        dest='indent')
+    parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     return parser.parse_args()
 
 
-# TODO: check with seva & jackson on good way to do this
-def translate_caption(input_format, label):
-    return label
+def load_dataset(json_file_path_or_buffer: str) -> dict:
+    in_dataset = json.loads(json_file_path_or_buffer)
+    return in_dataset
 
 
-def remove_redundant_fields_in_coco(coco: COCO):
-    """
-    Filter old formatted COCO object to new format
-
-    Args:
-        coco: COCO object
-
-    """
-    remove_redundant_fields(coco.dataset, ['info', 'images', 'annotations'])
-    for img in coco.dataset['images']:
-        remove_redundant_fields(img, ["height", "width", "id", "path", "original_uri"])
-    remove_redundant_fields(coco.dataset['info'], ["url",
-                                                   "year",
-                                                   "contributor",
-                                                   "total_time",
-                                                   "description",
-                                                   "version",
-                                                   "date_created",
-                                                   "dataset",
-                                                   ])
+def say(*args, verbose=False, **kwargs):
+    if ARGS.verbose or verbose:
+        print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
 
 
-def remove_redundant_fields(dictionary: dict, fields: list):
-    """
-
-    Args:
-        dictionary: Standard dictionary inside a COCO object
-        fields: Fields of interest to keep
-
-    """
-    for field in list(dictionary):
-        if field not in fields:
-            del dictionary[field]
+def die(*args, **kwargs):
+    say(*args, verbose=True, **kwargs)
+    sys.exit(1)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

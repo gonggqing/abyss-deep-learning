@@ -10,7 +10,7 @@ def bbox_iou_matrix( a, b ):
     a: numpy.array
        first Mx4 array of box begin/end coordinates as y1,x1,y2,x2
     b: numpy.array
-       second Mx4 array of box begin/end coordinates as y1,x1,y2,x2
+       second Nx4 array of box begin/end coordinates as y1,x1,y2,x2
     
     returns
     -------
@@ -36,91 +36,114 @@ def bbox_iou_matrix( a, b ):
     b_areas = np.repeat( [ ba ], len( a ), axis = 0 )
     return intersections / ( a_areas + b_areas - intersections )
 
-def one_to_one( a, b, iou_threshold = None, iou_matrix = bbox_iou_matrix ):
-    ''' Match two sets of boxes one to one by IOU on given treshold
+def bbox_to_sklearn_pred_true( ious, labels1, labels2, iou_threshold = 0., blank_id = 0 ):
+    ''' Convert labelled bboxes to y_pred and y_true that could be consumed directly by sklearn.metrics functions
+    
+    example
+    -------
+    p, t = bbox_to_sklearn_pred_true( bbox_iou_matrix( a, b ), a_labels, b_labels, 0.5 )
+    print( sklearn.metrics.confusion_matrix( p, t ) )
     
     parameters
     ----------
-    a: numpy.array
-       for bounding boxes, first Mx4 array of box begin/end coordinates as y1,x1,y2,x2
-    b: numpy.array
-       for bounding boxes, second Mx4 array of box begin/end coordinates as y1,x1,y2,x2
+    ious: numpy.array, iou matrix as returned by e.g. by bbox_iou_matrix( a, b )
+    labels1: numpy.array, vector of prediction bbox labels
+    labels2: numpy.array, vector of ground truth bbox labels
+    iou_threshold: float, iou threshold
     
     returns
     -------
     numpy.array, MxN matrix of IOU values
-    
-    todo
-    ----
-    refactor, if too slow
     '''
-    ious = iou_matrix( a, b )
+    m = ( ious > iou_threshold ) * 1
+    i = np.nonzero( m )
+    ia = np.nonzero( np.max( m, axis = 1 ) == 0 )[0]
+    ib = np.nonzero( np.max( m, axis = 0 ) == 0 )[0]
+    y_pred = np.concatenate( ( np.array(labels1)[i[0]], np.array(labels1)[ia], [blank_id]*len(ib) ) )
+    y_true = np.concatenate( ( np.array(labels2)[i[1]], [blank_id]*len(ia), np.array(labels2)[ib] ) )
+    return y_pred, y_true
+
+def one_to_one( ious, iou_threshold = None ):
+    ''' Match two sets of boxes one to one by IOU on given treshold
+    
+    parameters
+    ----------
+    ious: numpy.array, iou matrix as returned by e.g. by bbox_iou_matrix( a, b )
+    
+    returns
+    -------
+    numpy.array, MxN matrix of matched IOU values
+    '''
     ious *= ( ious >= ( 0. if iou_threshold is None else iou_threshold ) )
     rows, cols = linear_sum_assignment( 1 - ious )
     result = np.zeros( ious.shape )
-    result[rows, cols] = ious[rows, cols] * ( ious[rows, cols] > 0 );
+    result[rows, cols] = ious[rows, cols] * ( ious[rows, cols] > 0 )
     return result
 
-def tfpn( predictions, truth, threshold = None, match = one_to_one ):
+def one_to_many( ious, iou_threshold = None ):
+    ''' Match two sets of boxes one to many on max IOU by IOU on given treshold
+    
+    parameters
+    ----------
+    ious: numpy.array, iou matrix as returned by e.g. by bbox_iou_matrix( a, b )
+    iou_threshold: float, iou threshold
+    
+    returns
+    -------
+    numpy.array, MxN matrix of matched IOU values
+    '''
+    ious *= ( ious >= ( 0. if iou_threshold is None else iou_threshold ) )
+    flags = np.zeros( ious.shape )
+    flags[ np.argmax( ious, axis = 0 ), [*range( ious.shape[1] )] ] = 1
+    return ious * flags
+
+def many_to_one( ious, iou_threshold = None ):
+    ''' Match two sets of boxes many to one on max IOU by IOU on given treshold
+    
+    parameters
+    ----------
+    ious: numpy.array, iou matrix as returned by e.g. by bbox_iou_matrix( a, b )
+    iou_threshold: scalar iou threshold
+    
+    returns
+    -------
+    numpy.array, MxN matrix of matched IOU values
+    '''
+    return np.transpose( one_to_many( np.transpose( ious ), iou_threshold ) )
+
+def tp_fp_tn_fn( predictions, truth, threshold = None, match = one_to_one, iou_matrix = bbox_iou_matrix ):
     ''' Return TP, FP, TN, FN
     
     parameters
     ----------
-    a: numpy.array
-       for bounding boxes, first Mx4 array of box begin/end coordinates as y1,x1,y2,x2
-    b: numpy.array
-       for bounding boxes, second Mx4 array of box begin/end coordinates as y1,x1,y2,x2
+    predictions: numpy.array
+                 predictions as Mx4 array of box begin/end coordinates as y1,x1,y2,x2
+    truth: numpy.array
+           ground truth as Nx4 array of box begin/end coordinates as y1,x1,y2,x2
+    threshold: float, IOU threshold
+    match: function, how to match
+    iou_matrix: function, how to produce iou matrix
     
     returns
     -------
     TP, FP, TN, FN
-    TP: numpy.array of size M, indices of TP in a
-    FP: numpy.array of size M, indices of FP in a
-    TN: numpy.array of variable size, indices of TN, empty for bounding boxes, since it does not make sense
-    FN: numpy.array of size N, indices of FN in b
+    TP: numpy.array, 2d; indices of TP in predictions matched with indices in truth
+    FP: numpy.array, 1d; indices of FP in a
+    TN: numpy.array, 1d; indices of TN, empty for bounding boxes, since it does not make sense
+    FN: numpy.array, 1d; indices of FN in b
     '''
-    m = ( match( predictions, truth, threshold ) > 0 ) * 1
-    sr = np.sum( m, axis = 1 )
-    return np.nonzero( sr ), np.nonzero( 1 - sr ), np.nonzero( np.sum( m, axis = 0 ) )
-    
-    
+    if len( predictions ) == 0: return [], [], [], [ *range( len( *truth ) ) ]
+    ious = iou_matrix( predictions, truth )
+    matched = ( match( ious, threshold ) > 0 ) * 1
+    thresholded = ( ( ious > ( 0. if threshold is None else threshold ) ) > 0 ) * 1
+    tpi = np.nonzero( matched )
+    fpi = np.nonzero( np.max( thresholded, axis = 1 ) == 0 )[0]
+    tni = []
+    fni = np.nonzero( np.max( thresholded, axis = 0 ) == 0 )[0]
+    return tpi, fpi, tni, fni
 
-#def one_to_one( a, b, iou_threshold = 0. ):
-    #''' Match two sets of boxes one to one by IOU on given treshold
-    
-    #parameters
-    #----------
-    #a: numpy.array
-       #first Mx4 array of box begin/end coordinates as y1,x1,y2,x2
-    #b: numpy.array
-       #second Mx4 array of box begin/end coordinates as y1,x1,y2,x2
-    
-    #returns
-    #-------
-    #numpy.array of size M, dtype=int, for each box in a index of matching box in b
-    #numpy.array of size M, dtype=bool, for each box in a True if the match is valid
-    #numpy.array of size N, dtype=int, for each box in b index of matching box in a
-    #numpy.array of size N, dtype=bool, for each box in b True if the match is valid
-    
-    #todo
-    #----
-    #- refactor, if too slow
-    #'''
-    #ious = iou_matrix( a, b )
-    #rows, cols = linear_sum_assignment( 1 - ious * ( ious >= iou_threshold ) )
-    #ai = np.zeros( len( a ), dtype = int )
-    #av = np.zeros( len( a ), dtype = bool )
-    #bi = np.zeros( len( b ), dtype = int )
-    #bv = np.zeros( len( b ), dtype = bool )
-    #for i in range( len( rows ) ):
-        #if ious[rows[i]][cols[i]] >= iou_threshold:
-            #ai[rows[i]] = cols[i]
-            #av[rows[i]] = True
-            #bi[cols[i]] = rows[i]
-            #bv[cols[i]] = True
-    #return ai, av, bi, bv
-    
-    
+
+
 #def _flat_np(df):
     #return df.apply(pd.Series).as_matrix()
 

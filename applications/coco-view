@@ -88,17 +88,17 @@ def load_inputs(files):
         with redirect_stdout(sys.stderr):
             coco_db = COCO(file)
             # Populate Images
-            for _,v in coco_db.imgs.items():
-                if v['id'] not in image_container.keys():
-                    image_container[v['id']] = ViewerImage(
+            for idx, v in enumerate(coco_db.imgs.values()):
+                if idx not in image_container.keys():
+                    image_container[idx] = ViewerImage(
                         v['id'],v['file_name'],(v['width'],v['height']))
 
-                layer = image_container[v['id']].add_layer()
+                layer = image_container[idx].add_layer()
                 # Populate Bounding Box and Segmentation Data
                 for annotation in coco_db.getAnnIds(v['id']):
                     annotation = coco_db.anns[annotation]
                     layer.bbox.append((annotation['category_id'],annotation['bbox']))
-                    layer.segmentation.append((annotation['category_id'],annotation['segmentation']))
+                    #layer.segmentation.append((annotation['category_id'],annotation['segmentation']))
                 # Populate Category data for each layer
                 for _,cat in coco_db.cats.items():
                     layer.category_data[cat['id']] = (cat['id'],cat['name'])
