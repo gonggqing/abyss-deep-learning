@@ -12,7 +12,7 @@ description = """
 
 calculate metrics on predictions vs labels
 
-run coco-metrics <operation> --help for operation option    
+run coco-metrics <operation> --help for operation option
 """
 
 tfpn_description = """
@@ -73,6 +73,8 @@ def load_annotations( predicted, truth, category_ids, bounding_boxes = False, sc
 
 def plot_confusion_matrix(m, classes, normalized = False):
     import matplotlib.pyplot as plt
+
+
     plt.imshow(m, interpolation='nearest', cmap=plt.cm.Blues)
     plt.title('confusion matrix')
     plt.colorbar()
@@ -179,12 +181,17 @@ def confusion_matrix(args):
         truth_labels = np.append( truth_labels, tr )
     from sklearn import metrics as skm
     m = skm.confusion_matrix( truth_labels, predicted_labels, [blank_id] + category_ids )
-    if args.normalize: m = m.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+    # if args.normalize: m = m.astype('float') / cm.sum(axis=1)[:, np.newaxis]  # Not working???
+    # Normalise per class
+    if args.normalize:
+        m = m.astype(np.float32)
+        m = (m.T  / np.sum(m, axis=1)).T  # Normalise across rows
     if args.plot:
         classes = ['BG']
         for c in truth['categories']: classes.append(c['name'])
         plot_confusion_matrix( m, classes, args.normalize )
-    np.savetxt( sys.stdout, m, delimiter=',', fmt='%d' )
+    fmt = '%.2f' if args.normalize else '%d'
+    np.savetxt( sys.stdout, m, delimiter=',', fmt=fmt )
 
 def tfpn(args):
     predicted = json.loads(sys.stdin.read())
@@ -198,7 +205,7 @@ def tfpn(args):
     result = {}
     result['annotations'] = []
     def bbox_to_coco( box ): return [ box[1], box[0], box[3] - box[1], box[2] - box[0] ]
-    def bbox_to_segmentation( box ): return [ box[1], box[0], box[1], box[0] + box[2], box[1] + box[3], box[0] + box[2], box[1] + box[3], box[0] ]
+    def bbox_to_segmentation( box ): return [[ box[1], box[0], box[1], box[0] + box[2], box[1] + box[3], box[0] + box[2], box[1] + box[3], box[0] ]]
     for image_id, image in images.items():
         for category_id, annotations in image.items():
             category_id_offset = 0 if args.flat_categories else ( category_id - 1 ) * 4
@@ -282,7 +289,7 @@ def tfpn(args):
 def get_args():
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
     subparsers = parser.add_subparsers(title="operations", help="available operations")
-    
+
     tfpn_parser = subparsers.add_parser('tfpn', description=tfpn_description, help="take predictions.json, truth.json, output to stdout coco annotations labeled as TP, FP, TN", formatter_class=argparse.RawDescriptionHelpFormatter)
     tfpn_parser.set_defaults( func=tfpn )
     tfpn_parser.add_argument( '--bounding-boxes', '--bbox', '-b', action='store_true', help="match bounding boxes" )
@@ -291,7 +298,7 @@ def get_args():
     tfpn_parser.add_argument( '--match', default='one_to_one', type=str, help="how to match, 'one_to_one' or 'one_to_many'; default: %(default)s" )
     tfpn_parser.add_argument( '--score-threshold', default=0.5, type=float, help="score threshold: default: %(default)s" )
     tfpn_parser.add_argument( '--truth', '-t', type=str, help="ground truth coco.json file" )
-    
+
     confusion_matrix_parser = subparsers.add_parser('confusion-matrix', description=confusion_matrix_description, help="take predictions.json, truth.json, output to stdout coco annotations labeled as TP, FP, TN", formatter_class=argparse.RawDescriptionHelpFormatter)
     confusion_matrix_parser.set_defaults( func=confusion_matrix )
     confusion_matrix_parser.add_argument( '--bounding-boxes', '--bbox', '-b', action='store_true', help="match bounding boxes" )
@@ -313,6 +320,6 @@ def get_args():
 def main():
     args = get_args()
     args.func(args)
-    
+
 if __name__ == '__main__':
     main()
