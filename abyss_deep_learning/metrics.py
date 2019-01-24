@@ -36,8 +36,8 @@ def bbox_iou_matrix( a, b ):
     b_areas = np.repeat( [ ba ], len( a ), axis = 0 )
     return intersections / ( a_areas + b_areas - intersections )
 
-def bbox_to_sklearn_pred_true( ious, labels1, labels2, iou_threshold = 0., blank_id = 0 ):
-    ''' Convert labelled bboxes to y_pred and y_true that could be consumed directly by sklearn.metrics functions
+def bbox_to_sklearn_pred_true( ious, labels_true, labels_pred, iou_threshold = 0., blank_id = 0 ):
+    ''' Convert labelled bboxes to y_true and y_pred that could be consumed directly by sklearn.metrics functions
     
     example
     -------
@@ -47,21 +47,21 @@ def bbox_to_sklearn_pred_true( ious, labels1, labels2, iou_threshold = 0., blank
     parameters
     ----------
     ious: numpy.array, iou matrix as returned by e.g. by bbox_iou_matrix( a, b )
-    labels1: numpy.array, vector of prediction bbox labels
-    labels2: numpy.array, vector of ground truth bbox labels
+    labels_true: numpy.array, vector of ground truth bbox labels
+    labels_pred: numpy.array, vector of predicted bbox labels
     iou_threshold: float, iou threshold
     
     returns
     -------
-    numpy.array, MxN matrix of IOU values
+    numpy.array, numpy.array: y_true, y_pred as in sklearn.metrics
     '''
     m = ( ious > iou_threshold ) * 1
     i = np.nonzero( m )
-    ia = np.nonzero( np.max( m, axis = 1 ) == 0 )[0]
-    ib = np.nonzero( np.max( m, axis = 0 ) == 0 )[0]
-    y_pred = np.concatenate( ( np.array(labels1)[i[0]], np.array(labels1)[ia], [blank_id]*len(ib) ) )
-    y_true = np.concatenate( ( np.array(labels2)[i[1]], [blank_id]*len(ia), np.array(labels2)[ib] ) )
-    return y_pred, y_true
+    fp = np.nonzero( np.max( m, axis = 1 ) == 0 )[0]
+    fn = np.nonzero( np.max( m, axis = 0 ) == 0 )[0]
+    y_true = np.concatenate( ( np.array(labels_true)[i[1]], [blank_id]*len(fp), np.array(labels_true)[fn] ) )
+    y_pred = np.concatenate( ( np.array(labels_pred)[i[0]], np.array(labels_pred)[fp], [blank_id]*len(fn) ) )
+    return y_true, y_pred
 
 def one_to_one( ious, iou_threshold = None ):
     ''' Match two sets of boxes one to one by IOU on given treshold
