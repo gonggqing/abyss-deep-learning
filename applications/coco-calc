@@ -70,23 +70,19 @@ example
     
 """
 
-
 def main():
     global ARGS
     ARGS = get_args()
     say("creating coco object")
     coco = ARGS.func(load_coco(sys.stdin.read()))
-    if coco is None:
-        say("warning: output coco is empty; nothing will be output to stdout")
-    else:
-        json.dump(coco.dataset, sys.stdout, indent=ARGS.indent)
+    if coco is None: say( "warning: output coco is empty; nothing will be output to stdout" )
+    else: json.dump(coco.dataset, sys.stdout, indent=ARGS.indent)
     say("done")
     sys.exit()
 
-
 def crop(coco: COCO) -> COCO:
     say("cropping images")
-    width, height = map(int, ARGS.size.split(','))
+    width, height = map( int, ARGS.size.split(',') )
     if ARGS.apply_to_images:
         os.makedirs(os.path.join(os.getcwd(), ARGS.image_output_dir), exist_ok=True)
     for image_data in coco.loadImgs(coco.getImgIds()):
@@ -94,72 +90,62 @@ def crop(coco: COCO) -> COCO:
             import cv2
             path = None
             basenames = set()
-            if os.path.isfile(image_data['path']):
-                path = image_data['path']
-            elif os.path.isfile(os.path.abspath(image_data['path'])):
-                path = image_data['path']
-            else:
-                say("file not found: [{}]".format(image_data['path']))
-                sys.exit(1)
+            if os.path.isfile(image_data['path']): path = image_data['path']
+            elif os.path.isfile(os.path.abspath(image_data['path'])): path = image_data['path']
+            else: say("file not found: [{}]".format(image_data['path'])); sys.exit(1)
             basename = os.path.basename(image_data['path'])
-            stubname = os.path.join(os.getcwd(), 'images', '.'.join(basename.split('.')[:-1]))
+            stubname = os.path.join(os.getcwd(), ARGS.image_output_dir, '.'.join( basename.split('.')[:-1] ))
             do_crop = False
             if ARGS.point:
                 annotations = coco.loadAnns(coco.getAnnIds(image_data['id']))
                 for a in annotations:
-                    if a['annotation_type'] == 'point':
-                        do_crop = True; break
-            if not do_crop:
-                continue
+                    if a['annotation_type'] == 'point': do_crop = True; break
+            if not do_crop: continue
             image = cv2.imread(image_data['path'])
             if ARGS.point:
                 annotations = coco.loadAnns(coco.getAnnIds(image_data['id']))
                 for a in annotations:
-                    if a['annotation_type'] != 'point':
-                        continue
-                    x = int(a['bbox'][0]) - int(width / 2)
-                    y = int(a['bbox'][1]) - int(height / 2)
+                    if a['annotation_type'] != 'point': continue
+                    x = int(a['bbox'][0]) - int( width / 2 )
+                    y = int(a['bbox'][1]) - int( height / 2 )
                     if ARGS.fit:
-                        x = min(max(x, 0), image_data['width'] - width)
-                        y = min(max(y, 0), image_data['height'] - height)
+                        x = min( max( x, 0 ), image_data['width'] - width )
+                        y = min( max( y, 0 ), image_data['height'] - height )
                     elif x < 0 or y < 0 or x >= image_data['width'] - width or y >= image_data['height'] - height:
-                        say(
-                            "coco-calc: crop: discarded annotation with patch beyond image dimensions (or please use --fit): annotation id:",
-                            a['id'], "image:", image_data['path'])
+                        print( "coco-calc: crop: discarded annotation with patch beyond image dimensions (or please use --fit): annotation id:", a['id'], "image:", image_data['path'] )
                         continue
-                    cropped = image[y: y + height, x: x + width]
+                    cropped = image[ y : y + height, x : x + width ]
                     cv2.imwrite(stubname + '.' + str(a['id']) + '.png', cropped)
-    say("crop: handle and output annotations: todo")
-    # anns = coco.loadAnns(coco.getAnnIds(img_data['id']))
-    # Rescaling bbox and segmentation values
-    # format is [x, y, width, height]
-    # Rescaled area value i.e. new_width * new_height
-    # for ann in anns:
-    #    x = round(ann['bbox'][0] * h_scale, ARGS.digits)
-    #    y = round(ann['bbox'][1] * v_scale, ARGS.digits)
-    #    width = round(ann['bbox'][2] * h_scale, ARGS.digits)
-    #    height = round(ann['bbox'][3] * v_scale, ARGS.digits)
-    #    ann['bbox'] = [x, y, width, height]
-    #    ann['area'] = width * height
-    #
-    #    if 'segmentation' in ann:
-    #        tmp = ann['segmentation']
-    #        if type(tmp) is list:
-    #            segmentation = []
-    #            for segment in tmp:
-    #                new_segment = [(round(x * h_scale, ARGS.digits), round(y * v_scale, ARGS.digits)) for x, y in grouper(segment, 2)]
-    #                # Flatten the list of tuples
-    #                new_segment = list(itertools.chain(*new_segment))
-    #                segmentation.append(new_segment)
-    #            ann['segmentation'] = segmentation
-    #        elif type(tmp) is dict:
-    #            say("rle is not yet supported")
-    #        else:
-    #            say("unknown data type [{}]".format(type(tmp)))
-    #    else:
-    #        say("warning: annotation with id", ann['id'], "does not have 'segmentation'; ignored")
+    say( "crop: handle and output annotations: todo" )
+        #anns = coco.loadAnns(coco.getAnnIds(img_data['id']))
+        # Rescaling bbox and segmentation values
+        # format is [x, y, width, height]
+        # Rescaled area value i.e. new_width * new_height
+        #for ann in anns:
+        #    x = round(ann['bbox'][0] * h_scale, ARGS.digits)
+        #    y = round(ann['bbox'][1] * v_scale, ARGS.digits)
+        #    width = round(ann['bbox'][2] * h_scale, ARGS.digits)
+        #    height = round(ann['bbox'][3] * v_scale, ARGS.digits)
+        #    ann['bbox'] = [x, y, width, height]
+        #    ann['area'] = width * height
+        #
+        #    if 'segmentation' in ann:
+        #        tmp = ann['segmentation']
+        #        if type(tmp) is list:
+        #            segmentation = []
+        #            for segment in tmp:
+        #                new_segment = [(round(x * h_scale, ARGS.digits), round(y * v_scale, ARGS.digits)) for x, y in grouper(segment, 2)]
+        #                # Flatten the list of tuples
+        #                new_segment = list(itertools.chain(*new_segment))
+        #                segmentation.append(new_segment)
+        #            ann['segmentation'] = segmentation
+        #        elif type(tmp) is dict:
+        #            say("rle is not yet supported")
+        #        else:
+        #            say("unknown data type [{}]".format(type(tmp)))
+        #    else:
+        #        say("warning: annotation with id", ann['id'], "does not have 'segmentation'; ignored")
     return None
-
 
 def remap(coco: COCO) -> COCO:
     from ast import literal_eval
@@ -257,7 +243,7 @@ def resize(coco: COCO) -> COCO:
 
             if path is not None:
                 img = cv2.imread(img_data['path'])
-                new_path = os.path.join(os.getcwd(), 'images', os.path.basename(img_data['path']))
+                new_path = os.path.join(os.getcwd(), ARGS.image_output_dir, os.path.basename(img_data['path']))
                 if new_path in basenames:
                     print('coco-calc: resize: expected unique image filenames, got duplicated "{}"'.format(new_path),
                           file=sys.stderr)
@@ -286,8 +272,7 @@ def resize(coco: COCO) -> COCO:
                 if type(tmp) is list:
                     segmentation = []
                     for segment in tmp:
-                        new_segment = [(round(x * h_scale, ARGS.digits), round(y * v_scale, ARGS.digits)) for x, y in
-                                       grouper(segment, 2)]
+                        new_segment = [(round(x * h_scale, ARGS.digits), round(y * v_scale, ARGS.digits)) for x, y in grouper(segment, 2)]
                         # Flatten the list of tuples
                         new_segment = list(itertools.chain(*new_segment))
                         segmentation.append(new_segment)
@@ -333,35 +318,24 @@ def get_args() -> argparse.Namespace:
                                        help="Available actions")
 
     apply_to_images = ['--apply-to-images']
-    apply_to_images_args = {
-        'action': 'store_true',
-        'help'  : 'Apply action to images, output to directory specified by --images-output-dir'
-    }
+    apply_to_images_args = { 'action': 'store_true', 'help': 'Apply action to images, output to directory specified by --images-output-dir' }
     image_output_dir = ['--image-output-dir', '-o']
-    image_output_dir_args = {
-        'type'   : str,
-        'default': 'images',
-        'help'   : 'Image output directory; default %(default)s'
-    }
-    parser_crop = subparsers.add_parser('crop', help="Crop images and labels; currently supports only cropping images",
-                                        description=CROP_DESCRIPTION,
-                                        formatter_class=argparse.RawDescriptionHelpFormatter)
+    image_output_dir_args = { 'type': str, 'default': 'images', 'help': 'Image output directory; default %(default)s' }
+    
+    parser_crop = subparsers.add_parser('crop', help="Crop images and labels; currently supports only cropping images", description=CROP_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser_crop.set_defaults(func=crop)
-    parser_crop.add_argument('--fit', action='store_true',
-                             help="if centre of cropped area to close to border, shift cropped area to fit inside image")
-    parser_crop.add_argument('--point', action='store_true',
-                             help="centre of cropped area identified by annotation_type 'point'")
+    parser_crop.add_argument('--fit', action='store_true', help="if centre of cropped area to close to border, shift cropped area to fit inside image")
+    parser_crop.add_argument('--point', action='store_true', help="centre of cropped area identified by annotation_type 'point'")
     parser_crop.add_argument('-s', '--size', type=str, help="<width>,<height> crop size")
     parser_crop.add_argument(*apply_to_images, **apply_to_images_args)
     parser_crop.add_argument(*image_output_dir, **image_output_dir_args)
-
+    
     parser_resize = subparsers.add_parser('resize', help="Resize all images and their respective annotations by a "
                                                          "scaling factor or to specified width and height",
-                                          formatter_class=argparse.RawDescriptionHelpFormatter,
-                                          description=RESIZE_DESCRIPTION)
+                                                         formatter_class=argparse.RawDescriptionHelpFormatter,
+                                                         description=RESIZE_DESCRIPTION)
     parser_resize.set_defaults(func=resize)
-    parser_resize.add_argument('-d', '--digits', type=int, default=None,
-                               help="Number of decimal digits in bbox and segmentation coordinates; default: %(default)s")
+    parser_resize.add_argument('-d', '--digits', type=int, default=None, help="Number of decimal digits in bbox and segmentation coordinates; default: %(default)s")
     mutually_exclusive_resize_args = parser_resize.add_mutually_exclusive_group(required=True)
     mutually_exclusive_resize_args.add_argument('-f', '--factor', type=float, help="Scale images by a percentage. If "
                                                                                    "value is negative, it will take "
@@ -383,8 +357,7 @@ def get_args() -> argparse.Namespace:
     parser_tile = subparsers.add_parser('tile', help="For testing purposes, no functionality currently")
     parser_tile.set_defaults(func=tile)
     mutually_exclusive_tile_args = parser_tile.add_mutually_exclusive_group(required=True)
-    mutually_exclusive_tile_args.add_argument('-n', '--num-tiles', type=int,
-                                              help="Number of tiles to generate from image")
+    mutually_exclusive_tile_args.add_argument('-n', '--num-tiles', type=int, help="Number of tiles to generate from image")
     mutually_exclusive_tile_args.add_argument('--dummy', help="dummy option")
     parser_tile.add_argument(*apply_to_images, **apply_to_images_args)
     parser_tile.add_argument(*image_output_dir, **image_output_dir_args)
@@ -394,7 +367,6 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     args = parser.parse_args()
     return args
-
 
 class Verbose:
     @staticmethod
