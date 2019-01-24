@@ -78,9 +78,9 @@ def main(args: argparse.Namespace = None):
     keys = Keys(ann_keys=annotation_keys, img_keys=image_keys, cat_keys=category_keys)
 
     say("evaluating on {}".format(args.on), verbose=args.verbose)
-    if args.on == 'image':
+    if args.on == 'images':
         df: pd.DataFrame = eval_on(df, args, keys, 'image_id')
-    elif args.on == 'annotation':
+    elif args.on == 'annotations':
         df: pd.DataFrame = eval_on(df, args, keys, 'annotation_id')
 
     images = []
@@ -143,7 +143,7 @@ def get_args() -> argparse.Namespace:
                                      formatter_class=argparse.RawDescriptionHelpFormatter,)
     parser.add_argument('on',
                         type=str,
-                        choices=['image', 'annotation'],
+                        choices=['images', 'annotations'],
                         help="How to search and select images and annotations. If on is 'image', then evaluate the "
                              "expression on a per image basis and for images that satisfy the expression, select all "
                              "associated annotations. If on is 'annotation', then evaluate the expression on a per "
