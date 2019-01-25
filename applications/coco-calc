@@ -82,70 +82,82 @@ def main():
 
 def crop(coco: COCO) -> COCO:
     say("cropping images")
+    if ARGS.keep_partial: print( 'coco-calc crop --keep-partial: todo', file = sys.stderr ); sys.exit(1)
     width, height = map( int, ARGS.size.split(',') )
     if ARGS.apply_to_images:
+        import cv2
         os.makedirs(os.path.join(os.getcwd(), ARGS.image_output_dir), exist_ok=True)
+    output_images = []
+    output_annotations = []
     for image_data in coco.loadImgs(coco.getImgIds()):
-        if ARGS.apply_to_images:
-            import cv2
-            path = None
-            basenames = set()
-            if os.path.isfile(image_data['path']): path = image_data['path']
-            elif os.path.isfile(os.path.abspath(image_data['path'])): path = image_data['path']
-            else: say("file not found: [{}]".format(image_data['path'])); sys.exit(1)
-            basename = os.path.basename(image_data['path'])
-            stubname = os.path.join(os.getcwd(), ARGS.image_output_dir, '.'.join( basename.split('.')[:-1] ))
-            do_crop = False
-            if ARGS.point:
-                annotations = coco.loadAnns(coco.getAnnIds(image_data['id']))
+        path = None
+        basenames = set()
+        if os.path.isfile(image_data['path']): path = image_data['path']
+        elif os.path.isfile(os.path.abspath(image_data['path'])): path = image_data['path']
+        else: say("file not found: [{}]".format(image_data['path'])); sys.exit(1)
+        basename = os.path.basename(image_data['path'])
+        stubname = os.path.join(os.getcwd(), ARGS.image_output_dir, '.'.join( basename.split('.')[:-1] ))
+        do_crop = False
+        if ARGS.point:
+            annotations = coco.loadAnns(coco.getAnnIds(image_data['id']))
+            for a in annotations:
+                if a['annotation_type'] == 'point': do_crop = True; break
+        if not do_crop: continue
+        image = cv2.imread(image_data['path'])
+        if ARGS.point:
+            annotations = coco.loadAnns(coco.getAnnIds(image_data['id']))
+            for a in annotations:
+                if a['annotation_type'] != 'point': continue # todo: point selection quick and dirty for now; implement better usage semantics
+                x = int(a['bbox'][0]) - int( width / 2 )
+                y = int(a['bbox'][1]) - int( height / 2 )
+                if ARGS.fit:
+                    x = min( max( x, 0 ), image_data['width'] - width )
+                    y = min( max( y, 0 ), image_data['height'] - height )
+                elif x < 0 or y < 0 or x >= image_data['width'] - width or y >= image_data['height'] - height:
+                    print( "coco-calc: crop: discarded annotation with patch beyond image dimensions (or please use --fit): annotation id:", a['id'], "image:", image_data['path'] )
+                    continue
+                cropped = image[ y : y + height, x : x + width ]
+                path = stubname + '.' + str(a['id']) + '.png'
+                i = copy.deepcopy(image_data)
+                i['file_name'] = os.path.basename(path)
+                i['path'] = path
+                i['id'] = len(output_images)
+                i['height'] = height
+                i['width'] = width
+                output_images.append(i)
                 for a in annotations:
-                    if a['annotation_type'] == 'point': do_crop = True; break
-            if not do_crop: continue
-            image = cv2.imread(image_data['path'])
-            if ARGS.point:
-                annotations = coco.loadAnns(coco.getAnnIds(image_data['id']))
-                for a in annotations:
-                    if a['annotation_type'] != 'point': continue
-                    x = int(a['bbox'][0]) - int( width / 2 )
-                    y = int(a['bbox'][1]) - int( height / 2 )
-                    if ARGS.fit:
-                        x = min( max( x, 0 ), image_data['width'] - width )
-                        y = min( max( y, 0 ), image_data['height'] - height )
-                    elif x < 0 or y < 0 or x >= image_data['width'] - width or y >= image_data['height'] - height:
-                        print( "coco-calc: crop: discarded annotation with patch beyond image dimensions (or please use --fit): annotation id:", a['id'], "image:", image_data['path'] )
-                        continue
-                    cropped = image[ y : y + height, x : x + width ]
-                    cv2.imwrite(stubname + '.' + str(a['id']) + '.png', cropped)
-    say( "crop: handle and output annotations: todo" )
-        #anns = coco.loadAnns(coco.getAnnIds(img_data['id']))
-        # Rescaling bbox and segmentation values
-        # format is [x, y, width, height]
-        # Rescaled area value i.e. new_width * new_height
-        #for ann in anns:
-        #    x = round(ann['bbox'][0] * h_scale, ARGS.digits)
-        #    y = round(ann['bbox'][1] * v_scale, ARGS.digits)
-        #    width = round(ann['bbox'][2] * h_scale, ARGS.digits)
-        #    height = round(ann['bbox'][3] * v_scale, ARGS.digits)
-        #    ann['bbox'] = [x, y, width, height]
-        #    ann['area'] = width * height
-        #
-        #    if 'segmentation' in ann:
-        #        tmp = ann['segmentation']
-        #        if type(tmp) is list:
-        #            segmentation = []
-        #            for segment in tmp:
-        #                new_segment = [(round(x * h_scale, ARGS.digits), round(y * v_scale, ARGS.digits)) for x, y in grouper(segment, 2)]
-        #                # Flatten the list of tuples
-        #                new_segment = list(itertools.chain(*new_segment))
-        #                segmentation.append(new_segment)
-        #            ann['segmentation'] = segmentation
-        #        elif type(tmp) is dict:
-        #            say("rle is not yet supported")
-        #        else:
-        #            say("unknown data type [{}]".format(type(tmp)))
-        #    else:
-        #        say("warning: annotation with id", ann['id'], "does not have 'segmentation'; ignored")
-    return None
+                    if a['annotation_type'] == 'point': continue # todo: better semantics
+                    b = copy.deepcopy(a)
+                    if 'bbox' in a:
+                        x0 = a['bbox'][0] - x
+                        y0 = a['bbox'][1] - y
+                        x1 = x0 + a['bbox'][2]
+                        y1 = y0 + a['bbox'][3]
+                        if x0 < 0 or y0 < 0 or x1 > ( width - 1 ) or y1 > ( height - 1 ): continue
+                        b['bbox'] = [ x0, y0, a['bbox'][2], a['bbox'][3] ]
+                    if 'segmentation' in a:
+                        if isinstance( a['segmentation'], dict ): print( 'coco-calc crop: RLE: todo; discarded', file = sys.stderr ); continue   
+                        if isinstance( a['segmentation'], list ):
+                            fits_into_crop = True
+                            u = []
+                            for s in a['segmentation']:
+                                t = []
+                                for xs, ys in grouper(s, 2):
+                                    xs -= x
+                                    ys -= y
+                                    if xs < 0 or ys < 0 or xs > ( width - 1 ) or ys > ( height - 1 ): fits_into_crop = False; break
+                                    t += [xs, ys]
+                                if not fits_into_crop: break
+                                u.append(t)
+                            if not fits_into_crop: continue
+                            b['segmentation'] = u
+                    b['id'] = len(output_annotations)
+                    b['image_id'] = i['id']
+                    output_annotations.append(b)
+                if ARGS.apply_to_images: cv2.imwrite(path, cropped)
+    coco.dataset['images'] = output_images
+    coco.dataset['annotations'] = output_annotations
+    return coco
 
 def remap(coco: COCO) -> COCO:
     from ast import literal_eval
@@ -325,6 +337,7 @@ def get_args() -> argparse.Namespace:
     parser_crop = subparsers.add_parser('crop', help="Crop images and labels; currently supports only cropping images", description=CROP_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser_crop.set_defaults(func=crop)
     parser_crop.add_argument('--fit', action='store_true', help="if centre of cropped area to close to border, shift cropped area to fit inside image")
+    parser_crop.add_argument('--keep-partial', action='store_true', help="keep partially cropped annotations: todo")
     parser_crop.add_argument('--point', action='store_true', help="centre of cropped area identified by annotation_type 'point'")
     parser_crop.add_argument('-s', '--size', type=str, help="<width>,<height> crop size")
     parser_crop.add_argument(*apply_to_images, **apply_to_images_args)
