@@ -84,7 +84,7 @@ def main(args: argparse.Namespace = None):
         df: pd.DataFrame = eval_on(df, args, keys, 'annotation_id')
 
     images = []
-    for record in df[image_keys].drop_duplicates().itertuples():
+    for record in df[image_keys].itertuples():
         images.append(record_to_dict(record, 'image_id'))
 
     annotations = []
@@ -92,17 +92,23 @@ def main(args: argparse.Namespace = None):
         annotations.append(record_to_dict(record, 'annotation_id'))
 
     categories = []
-    for record in df[category_keys].drop_duplicates().itertuples():
+    for record in df[category_keys].itertuples():
         categories.append(record_to_dict(record, 'category_id'))
 
-    data['annotations'] = annotations
-    data['images'] = images
-    data['categories'] = categories
+    data['annotations'] = drop_duplicates(annotations)
+    data['images'] = drop_duplicates(images)
+    data['categories'] = drop_duplicates(categories)
 
     say("dumping to stdout", verbose=args.verbose)
     json.dump(data, sys.stdout, indent=args.indent)
     say("done in {elapsed_time}s".format(elapsed_time=time.perf_counter() - start), verbose=args.verbose)
     sys.exit()
+
+
+def drop_duplicates(lst: list):
+    def to_tuple(lst_entry: list):
+        return tuple(to_tuple(i) if isinstance(i, list) else i for i in lst_entry)
+    return [dict(item) for item in set(to_tuple([list(i) for i in sorted(entry.items())]) for entry in lst)]
 
 
 def record_to_dict(record: namedtuple, re_id: str) -> dict:
