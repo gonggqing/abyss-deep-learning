@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 
+# example of running it
+#cd /home/users/spo/src/projects/anadarko && \
+#CUDA_VISIBLE_DEVICES=0 \
+#~/src/deep-learning/examples/predict_deeplab_tiled.py \
+#--verbose --output-format '/tmp/pred/{filename:}{extension:}' \
+#frozen_inference_graph.pb \
+#'cubes_small/CD\ -\ 08*_dn_f1.jpg'
+
 import argparse
 import os
 import sys
