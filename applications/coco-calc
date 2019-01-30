@@ -32,9 +32,15 @@ examples:
 """
 
 REMAP_DESCRIPTION = """
-Remap categories and/or category id to categories and/or category id
+Remap categories and/or category id to categories and/or category id.
 
-4 use cases:
+A JSON string can be passed in or another COCO JSON file that contains categories can be passed in.
+
+If a COCO JSON is passed, as many categories will be matched with the existing COCO JSON and new ids will be assigned 
+from category names that are matched. It is possible, consequently for duplicate ids to occur depending on how the 
+categories are formatted in either COCO file. 
+
+5 use cases:
     old id to new id
         "{1:1,2:1,3:1,4:1}" collapses all category ids to one id
         "{1:0,2:1,3:2,4:3}" change starting index of all categories
@@ -50,6 +56,7 @@ Remap categories and/or category id to categories and/or category id
 examples
     cat pf.json | coco-calc remap "{1:1,2:1,3:1,4:1}" -c "{1:PF}"
     cat pf.json | coco-calc remap "{'PF-G':'PF','PF-L':'PF','PF-M':'PF','PF-H':'PF'}"
+    cat predictions.json | coco-calc remap validation.json
 """
 
 RESIZE_DESCRIPTION = """
@@ -193,7 +200,11 @@ def crop(coco: COCO) -> COCO:
 def remap(coco: COCO) -> COCO:
     from ast import literal_eval
     say("remapping categories")
-    mapping = literal_eval(ARGS.mapping)
+    if os.path.isfile(ARGS.mapping):
+        with open(ARGS.mapping) as f:
+            mapping = {category['name']: category['id'] for category in json.load(f)['categories']}
+    else:
+        mapping = literal_eval(ARGS.mapping)
     old_id_2_new_id, old_id_2_new_str, old_str_2_new_id, old_str_2_new_str = {}, {}, {}, {}
     for old, new in mapping.items():
         if isinstance(old, int) and isinstance(new, int):
