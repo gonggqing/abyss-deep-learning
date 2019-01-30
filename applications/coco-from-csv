@@ -63,12 +63,28 @@ def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
         },
         'images'     : [],
         'annotations': [],
-        'licenses'   : [],
+        'licenses'   : [
+            {
+                "id": 0,
+                "name": "Attribution-NonCommercial-ShareAlike License",
+                "url": "http://creativecommons.org/licenses/by-nc-sa/2.0/",
+            }
+        ],
     }
 
     try:
-        with open(ARGS.map, 'r') as file_handle:
-            coco_json['categories'] = json.load(file_handle)['categories']
+        file_name, file_ext = os.path.splitext(ARGS.map)
+        say("trying to open a {} file".format(file_ext))
+        if 'json' in file_ext:
+            with open(ARGS.map, 'r') as f:
+                categories = json.load(f)['categories']
+        elif 'csv' in file_ext:
+            inverted_categories = pd.read_csv('category-mapping.csv', header=None, index_col=1).to_dict()[0]
+            categories = [{'id': k,
+                           'name': v,
+                           'supercategory': '',
+                           } for k, v in inverted_categories.items()]
+        coco_json['categories'] = categories
     except IOError:
         say("could not read file [{}]; omit categories section in coco output".format(ARGS.map))
     except TypeError:
@@ -78,15 +94,15 @@ def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
     img_file_name_2_img_id = {}
     for idx, row in df.iterrows():
         category_id = int(row['category_id'])
-        if category_id <= 0:
+        if category_id < 0:
             continue
 
         img_path = row['file_name']
         img_file_name = os.path.basename(img_path)
 
         if img_file_name not in seen_imgs:
+            img_id = row['image_id'] if 'image_id' in row else (len(seen_imgs))
             seen_imgs.add(img_file_name)
-            img_id = row['image_id'] if 'image_id' in row else len(seen_imgs) + 1
 
             # PIL.Image.open does lazy loading so raster data will not be loaded in
             try:
@@ -119,7 +135,7 @@ def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
         width = row['x2'] - x
         height = row['y2'] - y
         coco_json['annotations'].append({
-            'id'          : len(coco_json['annotations']) + 1,
+            'id'          : len(coco_json['annotations']),
             'image_id'    : img_file_name_2_img_id[img_file_name],
             'category_id' : category_id,
             'segmentation': None,
@@ -152,8 +168,9 @@ def generate_from_video_frames(df: pd.DataFrame) -> dict:
 def get_args():
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-f', '--fields', type=str, help="Comma separated field names for CSV file")
-    parser.add_argument('--map', '--categories', type=str, help="Path to original COCO json file of category and "
-                                                                      "category ids")
+    parser.add_argument('--map', '--categories',
+                        type=str,
+                        help="Path to original COCO json or category mapping csv file of category and category ids")
     parser.add_argument('-s', '--image-size', type=str, help="<width>,<height> values to use to give to all images")
     parser.add_argument('-m', '--min', action='store_const', help="Output minimised json", const=None, default=4,
                         dest='indent')
