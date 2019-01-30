@@ -48,7 +48,7 @@ def main():
     seen_images = set()  # Filter out duplicate images
 
     for json_file_path in ARGS.json_files:
-        say("loading dataset")
+        say("loading {}".format(json_file_path))
         old_ds = load_dataset(json_file_path)
         if not old_ds:
             continue
@@ -79,7 +79,7 @@ def main():
         except KeyError:
             pass
 
-        say("merging dataset")
+        say("merging {}".format(json_file_path))
         for image in old_ds['images']:
             if 'path' not in image:
                 continue
@@ -142,7 +142,7 @@ def main():
     sys.exit()
 
 
-def say(*arg, verbose=True, **kwargs):
+def say(*arg, verbose=False, **kwargs):
     if ARGS.verbose or verbose:
         print("{}:".format(os.path.basename(__file__)), *arg, file=sys.stderr, **kwargs)
 
