@@ -79,14 +79,15 @@ def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
             with open(ARGS.map, 'r') as f:
                 categories = json.load(f)['categories']
         elif 'csv' in file_ext:
-            inverted_categories = pd.read_csv('category-mapping.csv', header=None, index_col=1).to_dict()[0]
+            inverted_categories = pd.read_csv(ARGS.map, header=None, index_col=1).to_dict()[0]
             categories = [{'id': k,
                            'name': v,
                            'supercategory': '',
                            } for k, v in inverted_categories.items()]
         coco_json['categories'] = categories
-    except IOError:
+    except IOError as e:
         say("could not read file [{}]; omit categories section in coco output".format(ARGS.map))
+        say(e)
     except TypeError:
         say("no mapping file given, received [{}]; omit categories section in coco output".format(ARGS.map))
 
