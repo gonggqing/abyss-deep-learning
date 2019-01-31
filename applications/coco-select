@@ -1,4 +1,4 @@
-#!/usr/bin/env/python3
+#!/usr/bin/env python3
 import argparse
 import json
 import os
@@ -62,9 +62,9 @@ def main(args: argparse.Namespace = None):
     for category in data['categories']:
         category['category_id'] = category.pop('id')
 
-    df_annotations = pd.DataFrame(data['annotations'])
-    df_images = pd.DataFrame(data['images'])
-    df_categories = pd.DataFrame(data['categories'])
+    df_annotations = create_data_frame(data['annotations'])
+    df_images = create_data_frame(data['images'])
+    df_categories = create_data_frame(data['categories'])
 
     annotation_keys = df_annotations.keys()
     image_keys = df_images.keys()
@@ -105,6 +105,23 @@ def main(args: argparse.Namespace = None):
     sys.exit()
 
 
+def create_data_frame(data):
+    df = pd.DataFrame(data)
+    values = {}
+    invalid_values = []
+    for column_name in df:
+        try:
+            say("most common key is {}".format(df[column_name].mode()[0]))
+            values[column_name] = df[column_name].mode()[0]
+        except IndexError:
+            invalid_values.append(column_name)
+        except TypeError:
+            invalid_values.append(column_name)
+    df.fillna(value=values, inplace=True)
+    df.loc[:, invalid_values].fillna(method='pad')
+    return df
+
+
 def drop_duplicates(lst: list):
     def to_tuple(lst_entry: list):
         return tuple(to_tuple(i) if isinstance(i, list) else i for i in lst_entry)
@@ -126,7 +143,7 @@ def eval_on(df: pd.DataFrame, args: argparse.Namespace, keys: namedtuple, on_id:
     for a, i, c in zip(df_annotations.itertuples(), df_images.itertuples(), df_categories.itertuples()):
         idx = int(a.Index)
         if eval(args.expression):
-            say("selecting record", df.iloc[idx], verbose=args.verbose)
+            #say("selecting record", df.iloc[idx], verbose=args.verbose)
             ids.add(df.iloc[idx][on_id])
 
     # Index later so that indexing into list doesn't go out of bounds as df shrinks
@@ -149,7 +166,7 @@ def get_args() -> argparse.Namespace:
                                      formatter_class=argparse.RawDescriptionHelpFormatter,)
     parser.add_argument('on',
                         type=str,
-                        choices=['images', 'annotations'],
+                        choices={'images', 'annotations'},
                         help="How to search and select images and annotations. If on is 'image', then evaluate the "
                              "expression on a per image basis and for images that satisfy the expression, select all "
                              "associated annotations. If on is 'annotation', then evaluate the expression on a per "
@@ -172,3 +189,4 @@ def get_args() -> argparse.Namespace:
 
 if __name__ == '__main__':
     main(get_args())
+
