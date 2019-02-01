@@ -258,8 +258,7 @@ def remap(coco: COCO) -> COCO:
         for cat in coco_categories:
             cat['name'] = categories[cat['id']]
 
-    coco.dataset['categories'] = sorted([dict(tple) for tple in {tuple(dct.items()) for dct in coco_categories}],
-                                        key=itemgetter('id'))
+    coco.dataset['categories'] = sorted(drop_duplicates(coco_categories), key=itemgetter('id'))
     coco.dataset['annotations'] = anns
 
     category_ids = coco.getCatIds()
@@ -352,6 +351,12 @@ def repath(coco: COCO) -> COCO:
             except KeyError:
                 say("unable to find valid file name for image {}".format(image))
     return coco
+
+
+def drop_duplicates(lst: list):
+    def to_tuple(lst_entry: list):
+        return tuple(to_tuple(i) if isinstance(i, list) else i for i in lst_entry)
+    return [dict(item) for item in set(to_tuple([list(i) for i in sorted(entry.items())]) for entry in lst)]
 
 
 def load_coco(json_buffer: str) -> COCO:
