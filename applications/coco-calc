@@ -197,6 +197,13 @@ def crop(coco: COCO) -> COCO:
     return coco
 
 
+# todo
+#   usage: cat coco.json | coco-calc remap <remap-dict> [--categories <dict>]
+#   where
+#     - <remap-dict> can be id -> id or name -> name
+#     - categories in coco.json: source dictionary
+#     - --categories: target dictionary (default: source dictionary is target dictionary)
+    
 def remap(coco: COCO) -> COCO:
     from ast import literal_eval
     say("remapping categories")
