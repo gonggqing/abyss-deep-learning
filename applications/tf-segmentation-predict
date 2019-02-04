@@ -3,7 +3,7 @@
 # example of running it
 #cd /home/users/spo/src/projects/anadarko && \
 #CUDA_VISIBLE_DEVICES=0 \
-#~/src/deep-learning/examples/predict_deeplab_tiled.py \
+#~/src/deep-learning/examples/tf-segmentation-predict \
 #--verbose --output-format '/tmp/pred/{filename:}{extension:}' \
 #frozen_inference_graph.pb \
 #'cubes_small/CD\ -\ 08*_dn_f1.jpg'
@@ -26,6 +26,16 @@ COLOR_MAP = [
     (1, 0, 1),
     (0, 1, 1),
 ]
+
+def result_to_coco(labels, file_meta, args):
+    """
+    Output the segmentation results to a COCO JSON file given a label image.
+    The label 0 is always the background class and is not included.
+    Other labels are identified by the label dimension index, and written as RLE annotations"""
+    raise NotImplementedError("TODO: Implement results_to_coco")
+    for label_no in range(1, labels.shape[-1]):
+        label = labels == label_no
+        
 
 def load_graph(frozen_graph_filename):
     # We load the protobuf file from the disk and parse it to retrieve the unserialized graph_def
@@ -52,14 +62,49 @@ def setup_graph(args):
 
 def get_args():
     '''Get args from the command line args'''
-    parser = argparse.ArgumentParser(
-        description="Predict")
+    help_meta = {
+        'scriptname': "tf-segmentation-predict"
+    }
+    description = """
+    Predict a frozen tensorflow inferencece graph over an image with automatic tiling. Border effects exist.
+    At least one output operation should be specified (--output-images and/or --output-coco).
+
+    Examples:
+        Run the segmentation model, assuming the first and last tensors are the input and output tensor.
+        Save the inference results as RGB overlays and also as COCO JSON.
+
+        {scriptname:} \\
+            --output-images '{{dirname:}}/{{filename:}}_predicted.jpg' \\
+            --output-coco '/tmp/inference_coco.json' \\
+            --verbose
+
+        Run the segmentation model, specifying the input and output tensor and tile size.
+        Save the inference results as RGB overlays.
+
+        {scriptname:} \\
+            --output-images '{{dirname:}}/{{filename:}}_predicted.jpg' \\
+            --output-coco '/tmp/inference_coco.json' \\
+            --verbose
+
+    """.format_map(help_meta)
+    parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("graph_path", help="Path to the frozen inference graph.")
-    parser.add_argument("images", nargs='+', help="Path to the images to predict on, globs allowed.")
+    parser.add_argument("inputs", nargs='+',
+        help="Path to the images, videos or COCO JSON files to predict on. Sequences such as image globs and videos allowed, but ensure the use of the {frame_no:} field in --output-images.")
     parser.add_argument(
-        '--output-format',
-        help="The str.format string to use when saving predictions; default '{dirname:}/{filename:}_prediction.png",
-        default="{dirname:}/{filename:}_prediction.png")
+        '--output-coco',
+        help="""
+        Enables output of a COCO JSON file containing the inference results.
+        The argument specifies the str.format string to use when saving JSON; e.g.: '{dirname:}/inference_results.json'
+        Available fields: dirname""",
+        default=None)
+    parser.add_argument(
+        '--output-images',
+        help="""
+        Enables output of RGB images with overlay. The argument specifies the str.format string to use when saving predictions.
+        e.g.: '{dirname:}/{filename:}_prediction.jpg
+        Available fields: dirname, filename, extension, frame_no (for sequences)""",
+        default=None)
     parser.add_argument("--inputs-tensor", help="The inputs tensor to feed images to. Defaults to first operation in the graph.")
     parser.add_argument("--outputs-tensor", help="The output tensor to retrieve the predicted labels from. Defaults to last operation in the graph.")
     parser.add_argument("--tile-size", help="The size at which the images should be fed to the graph. Default: 513,513.)", default="513,513", type=str)
@@ -90,10 +135,11 @@ def main(args):
                     args.outputs_tensor,
                     feed_dict={args.inputs_tensor: tile[np.newaxis, ...]})[0]
                 for tile in tile_gen(image, args.tile_size)], args.tile_size, image.shape[:2])
-            predicted_rgb = draw.masks(
-                predicted, image,
-                image_alpha=1, alpha=0.5, border=True, bg_label=0, colors=COLOR_MAP)
-            imsave(args.output_format.format(**parts), predicted_rgb)
+            if args.output_images:
+                predicted_rgb = draw.masks(
+                    predicted, image,
+                    image_alpha=1, alpha=0.5, border=True, bg_label=0, colors=COLOR_MAP)
+                imsave(args.output_images.format(**parts), predicted_rgb)
 
 
 if __name__ == '__main__':
