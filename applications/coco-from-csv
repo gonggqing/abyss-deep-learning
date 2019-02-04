@@ -49,8 +49,7 @@ def main():
     say("done")
     sys.exit()
 
-
-def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
+def generate_from_bounding_boxes(df): #def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
     say("generating from bounding boxes")
     coco_json = {
         'info'       : {
@@ -75,15 +74,15 @@ def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
     try:
         file_name, file_ext = os.path.splitext(ARGS.map)
         say("trying to open a {} file".format(file_ext))
-        if 'json' in file_ext:
-            with open(ARGS.map, 'r') as f:
-                categories = json.load(f)['categories']
-        elif 'csv' in file_ext:
+        if 'csv' in file_ext:
             inverted_categories = pd.read_csv(ARGS.map, header=None, index_col=1).to_dict()[0]
             categories = [{'id': k,
                            'name': v,
                            'supercategory': '',
                            } for k, v in inverted_categories.items()]
+        else:
+            with open(ARGS.map, 'r') as f:
+                categories = json.load(f)['categories']
         coco_json['categories'] = categories
     except IOError as e:
         say("could not read file [{}]; omit categories section in coco output".format(ARGS.map))

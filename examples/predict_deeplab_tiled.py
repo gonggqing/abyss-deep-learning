@@ -71,8 +71,8 @@ def get_args():
 
 
 def main(args):
-    gpus = [int(i) for i in os.environ['CUDA_VISIBLE_DEVICES'].split(",")] or None
-    config_gpu(gpus, allow_growth=True)
+    gpus = [int(i) for i in os.environ['CUDA_VISIBLE_DEVICES'].split(",")] if 'CUDA_VISIBLE_DEVICES' in os.environ else []
+    config_gpu(gpus, allow_growth=True, log_device_placement=False)
     graph = setup_graph(args)
     with tf.Session(graph=graph) as sess:
         for image_path, frame_no, image in image_streamer(args.images):
