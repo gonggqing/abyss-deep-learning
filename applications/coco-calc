@@ -219,15 +219,23 @@ def remap(coco: COCO) -> COCO:
         if not(category['id'] in mapping or category['name'] in mapping):
             mapping[category['name']] = category['name']
 
+    output_categories = copy.deepcopy(coco.loadCats(ids=coco.getCatIds()))
+    for category in output_categories:
+        if category['name'] in mapping.keys():
+            category_id = mapping[category['name']]
+            if isinstance(category_id, int):
+                category['id'] = category_id
+
     if ARGS.categories:
         ARGS.categories = literal_eval(ARGS.categories)
         if ARGS.keep_source_categories:
-            source_category_ids = set(coco.getCatIds())
+            source_category_ids = set([category['id'] for category in output_categories])
             target_category_ids = set([category['id'] for category in ARGS.categories])
-            if any(category_id in source_category_ids for category_id in target_category_ids):
-                say("duplicate ids found between source and target categories", verbose=True)
-                say("taken ids are {}".format(", ".join((str(i) for i in source_category_ids))), verbose=True)
-                sys.exit(1)
+            for idx in target_category_ids:
+                if idx in source_category_ids:
+                    say("duplicate id {} found between source and target categories".format(idx), verbose=True)
+                    say("taken ids are {}".format(", ".join((str(i) for i in source_category_ids))), verbose=True)
+                    sys.exit(1)
             categories.extend(ARGS.categories)
         else:
             categories = ARGS.categories
