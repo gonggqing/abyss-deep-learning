@@ -214,8 +214,8 @@ def remap(coco: COCO) -> COCO:
     else:
         mapping = literal_eval(ARGS.mapping)
 
-    categories = coco.loadCats(ids=coco.getCatIds())
-    for category in categories:
+    source_categories = coco.loadCats(ids=coco.getCatIds())
+    for category in source_categories:
         if not(category['id'] in mapping or category['name'] in mapping):
             mapping[category['name']] = category['name']
 
@@ -226,28 +226,32 @@ def remap(coco: COCO) -> COCO:
             if isinstance(category_id, int):
                 category['id'] = category_id
 
-    if ARGS.categories:
-        ARGS.categories = literal_eval(ARGS.categories)
+    target_categories = source_categories
+    if ARGS.target_categories:
+        ARGS.target_categories = literal_eval(ARGS.target_categories)
         if ARGS.keep_source_categories:
             source_category_ids = set([category['id'] for category in output_categories])
-            target_category_ids = set([category['id'] for category in ARGS.categories])
+            target_category_ids = set([category['id'] for category in ARGS.target_categories])
             for idx in target_category_ids:
                 if idx in source_category_ids:
                     say("duplicate id {} found between source and target categories".format(idx), verbose=True)
                     say("taken ids are {}".format(", ".join((str(i) for i in source_category_ids))), verbose=True)
                     sys.exit(1)
-            categories.extend(ARGS.categories)
-        else:
-            categories = ARGS.categories
+        target_categories = ARGS.target_categories
 
-    name_2_id = {category['name']: category['id'] for category in categories}
-    category_names = [category['name'] for category in categories]
+    new_name_2_id = {category['name']: category['id'] for category in target_categories}
+    source_category_names = [category['name'] for category in source_categories]
+    target_category_names = [category['name'] for category in target_categories]
     annotations = []
     added_annotation_ids = set()
 
     for old, new in mapping.items():
-        if not (old in category_names or new in category_names):
-            say("cannot find key {} in category list".format(old), verbose=True)
+        if isinstance(old, str) and old not in source_category_names:
+            say("cannot find source key {} in category names {}".format(old, source_category_names), verbose=True)
+            sys.exit(1)
+
+        if isinstance(new, str) and new not in target_category_names:
+            say("cannot find target key {} in category names {}".format(new, target_category_names), verbose=True)
             sys.exit(1)
 
         elif isinstance(old, int) and isinstance(new, int):
@@ -260,10 +264,10 @@ def remap(coco: COCO) -> COCO:
             category['id'] = new
 
         elif isinstance(old, int) and isinstance(new, str):
-            if new in name_2_id.keys():
+            if new in new_name_2_id.keys():
                 for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=old)):
                     ann_copy = copy.deepcopy(ann)
-                    ann_copy['category_id'] = name_2_id[new]
+                    ann_copy['category_id'] = new_name_2_id[new]
                     annotations.append(ann_copy)
                     added_annotation_ids.add(ann_copy['id'])
 
@@ -277,10 +281,10 @@ def remap(coco: COCO) -> COCO:
             category['id'] = new
 
         elif isinstance(old, str) and isinstance(new, str):
-            if new in name_2_id.keys():
+            if new in new_name_2_id.keys():
                 for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=coco.getCatIds(catNms=old))):
                     ann_copy = copy.deepcopy(ann)
-                    ann_copy['category_id'] = name_2_id[new]
+                    ann_copy['category_id'] = new_name_2_id[new]
                     annotations.append(ann_copy)
                     added_annotation_ids.add(ann_copy['id'])
 
@@ -288,8 +292,12 @@ def remap(coco: COCO) -> COCO:
     annotations.extend(coco.loadAnns(ids=to_add_annotation_ids))
 
     coco.dataset['annotations'] = annotations
-    coco.dataset['categories'] = sorted(drop_duplicates(categories), key=itemgetter('id'))
 
+    categories = target_categories
+    if ARGS.keep_source_categories:
+        categories.extend(source_categories)
+
+    coco.dataset['categories'] = sorted(drop_duplicates(categories), key=itemgetter('id'))
     category_ids = coco.getCatIds()
     if len(set(category_ids)) != len(category_ids):
         say('warning, there are duplicate ids in the coco dataset')
@@ -454,7 +462,7 @@ def get_args() -> argparse.Namespace:
     parser_remap.add_argument('mapping',
                               type=str,
                               help="Dict style string for remapping of either category id/category name to category id/category name")
-    parser_remap.add_argument('-c', '--categories',
+    parser_remap.add_argument('-c', '--target-categories',
                               type=str,
                               help="Target categories to be used for re-mapping. Same format as default COCO "
                                    "categories list. Default categories is taken from input COCO JSON file")
