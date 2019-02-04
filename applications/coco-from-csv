@@ -27,10 +27,9 @@ def main():
     global ARGS
     ARGS = get_args()
     csv = StringIO(sys.stdin.read())
-
     try:
         if ARGS.fields:
-            df = pd.read_csv(csv, names=ARGS.fields.split(','), header=0)
+            df = pd.read_csv(csv, names=ARGS.fields.split(','), header=None)
         else:
             df = pd.read_csv(csv)
     except pd.errors.ParserError as e:
@@ -93,6 +92,7 @@ def generate_from_bounding_boxes(df): #def generate_from_bounding_boxes(df: pd.D
     seen_imgs = set()
     img_file_name_2_img_id = {}
     for idx, row in df.iterrows():
+        say("dumping annotation {}".format(idx))
         category_id = int(row['category_id'])
         if category_id < 0:
             continue
@@ -167,7 +167,7 @@ def generate_from_video_frames(df: pd.DataFrame) -> dict:
 
 def get_args():
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('-f', '--fields', type=str, help="Comma separated field names for CSV file")
+    parser.add_argument('fields', type=str, help="Comma separated field names for CSV file")
     parser.add_argument('--map', '--categories',
                         type=str,
                         help="Path to original COCO json or category mapping csv file of category and category ids")
