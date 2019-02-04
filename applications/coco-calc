@@ -46,20 +46,23 @@ categories are formatted in either COCO file.
         "{1:0,2:1,3:2,4:3}" change starting index of all categories
     
     old id to new category
-        "{1: 'PF', 2:'PF', 3:'PF', 4:'PF'}" collapses all categories to a single category
+        "{1: 'PF', 2:'PF', 3:'PF', 4:'PF'}"                         collapses all categories to a single category
+        "{1: 'PF-L'}"                                               combine category id 1 with PF-L category
     
     old category to new id
-        "{'PF-G':1,'PF-L':2,'PF-M':3,'PF-H':4}" change category ordering
+        "{'PF-G': 1,'PF-L': 2,'PF-M': 3,'PF-H': 4}"                 change category ordering
     
     old category to new category
-        "{'PF-G': 'PF', 'PF-L':'PF', 'PF-M':'PF', 'PF-H':'PF'}" collapses all categories to a single category
+        "{'PF-G': 'PF', 'PF-L':'PF', 'PF-M':'PF', 'PF-H':'PF'}"     collapses all categories to a single category
+        "{'PF-G': 'PF-L'}"                                          combine PF-G with PF-L
 
     a COCO JSON file can also be passed as an argument to [mapping] where the categories list will be used in place 
     as the mapping.
 
 examples
-    cat pf.json | coco-calc remap "{1:1,2:1,3:1,4:1}" -c "{1:PF}"
-    cat pf.json | coco-calc remap "{'PF-G':'PF','PF-L':'PF','PF-M':'PF','PF-H':'PF'}"
+    cat pf.json | coco-calc remap "{1:1,2:1,3:1,4:1}"
+    cat pf.json | coco-calc remap "{'PF-G':'PF','PF-L':'PF','PF-M':'PF','PF-H':'PF'}" --categories "[{'name':'PF',
+    'id':5}]" 
     cat predictions.json | coco-calc remap validation.json
 """
 
@@ -200,6 +203,7 @@ def crop(coco: COCO) -> COCO:
     coco.dataset['annotations'] = output_annotations
     return coco
 
+
 def remap(coco: COCO) -> COCO:
     # literal_eval allows usage of either single quote (') or double quote(") to interpret a json string
     from ast import literal_eval
@@ -210,91 +214,67 @@ def remap(coco: COCO) -> COCO:
     else:
         mapping = literal_eval(ARGS.mapping)
 
-    old_id_2_new_id, old_id_2_new_str, old_str_2_new_id, old_str_2_new_str = {}, {}, {}, {}
-    for old, new in mapping.items():
-        if isinstance(old, int) and isinstance(new, int):
-            old_id_2_new_id[old] = new
+    categories = coco.loadCats(ids=coco.getCatIds())
+    for category in categories:
+        if not(category['id'] in mapping or category['name'] in mapping):
+            mapping[category['name']] = category['name']
 
-        elif isinstance(old, int) and isinstance(new, str):
-            old_id_2_new_str[old] = new
+    if ARGS.categories:
+        ARGS.categories = literal_eval(ARGS.categories)
+        if ARGS.keep_source_categories:
+            source_category_ids = set(coco.getCatIds())
+            target_category_ids = set([category['id'] for category in ARGS.categories])
+            if any(category_id in source_category_ids for category_id in target_category_ids):
+                say("duplicate ids found between source and target categories", verbose=True)
+                say("taken ids are {}".format(", ".join((str(i) for i in source_category_ids))), verbose=True)
+                sys.exit(1)
+            categories.extend(ARGS.categories)
+        else:
+            categories = ARGS.categories
 
-        elif isinstance(old, str) and isinstance(new, int):
-            old_str_2_new_id[old] = new
-
-        elif isinstance(old, str) and isinstance(new, str):
-            old_str_2_new_str[old] = new
-
-    categories = literal_eval(ARGS.categories) if ARGS.categories else coco.loadCats(ids=coco.getCatIds())
-    
-    
-    
-    # get source categories
-    #    - from input file
-    #    - put in the map
-    # get target categories: from --categories (default: input file)
-    #    - from input file
-    #    - put in the map
-    #    - if --keep-categories
-    #      - check that all categories have unique id: exit with error, if not unique
-    #      - append input categories to --categories
-    # category mapping:
-    #    - for each source categories: if it is not mapped, add to mapping as mapped onto itself, e.g. 'PF-L': 'PF-L'
-    #    - if any of map categories is not in target categories, exit with error
-    
-    
-
-    name_2_id = {cat['name']: cat['id'] for cat in categories}
+    name_2_id = {category['name']: category['id'] for category in categories}
+    category_names = [category['name'] for category in categories]
     annotations = []
     added_annotation_ids = set()
 
-    for cat in categories:
-        # Given a category id, update its id
-        if cat['id'] in old_id_2_new_id:
-            # Update annotation category id to new id
-            for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=cat['id'])):
-                ann_copy = copy.deepcopy(ann)
-                ann_copy['category_id'] = old_id_2_new_id[cat['id']]
-                annotations.append(ann_copy)
-                added_annotation_ids.add(ann_copy['id'])
-            cat['id'] = old_id_2_new_id[cat['id']]
+    for old, new in mapping.items():
+        if not (old in category_names or new in category_names):
+            say("cannot find key {} in category list".format(old), verbose=True)
+            sys.exit(1)
 
-        # Given a category id, update its name
-        # If the name exists in the original dataset, update the category id to the same id
-        elif cat['id'] in old_id_2_new_str:
-            if old_id_2_new_str[cat['id']] in name_2_id.keys():
-                for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=cat['id'])):
+        elif isinstance(old, int) and isinstance(new, int):
+            for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=old)):
+                ann_copy = copy.deepcopy(ann)
+                ann_copy['category_id'] = new
+                annotations.append(ann_copy)
+                added_annotation_ids.add(ann_copy)
+            category = coco.loadCats(ids=coco.getCatIds(catIds=old)).pop()
+            category['id'] = new
+
+        elif isinstance(old, int) and isinstance(new, str):
+            if new in name_2_id.keys():
+                for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=old)):
                     ann_copy = copy.deepcopy(ann)
-                    ann_copy['category_id'] = name_2_id[old_id_2_new_str[cat['id']]]
+                    ann_copy['category_id'] = name_2_id[new]
                     annotations.append(ann_copy)
                     added_annotation_ids.add(ann_copy['id'])
-            else:
-                cat['name'] = old_id_2_new_str[cat['id']]
 
-        # Given a category name, update its id
-        elif cat['name'] in old_str_2_new_id:
-            # Update annotation category id to new id
-            for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=coco.getCatIds(catNms=cat['name']))):
+        elif isinstance(old, str) and isinstance(new, int):
+            for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=coco.getCatIds(catNms=old))):
                 ann_copy = copy.deepcopy(ann)
-                ann_copy['category_id'] = old_str_2_new_id[cat['name']]
+                ann_copy['category_id'] = new
                 annotations.append(ann_copy)
                 added_annotation_ids.add(ann_copy['id'])
-            cat['id'] = old_str_2_new_id[cat['name']]
+            category = coco.loadCats(ids=coco.getCatIds(catNms=old)).pop()
+            category['id'] = new
 
-        # Given a category name, update its name
-        # If the name exists in the original dataset, update the category id to the same id
-        elif cat['name'] in old_str_2_new_str:
-            if old_str_2_new_str[cat['name']] in name_2_id.keys():
-                for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=coco.getCatIds(catNms=cat['name']))):
+        elif isinstance(old, str) and isinstance(new, str):
+            if new in name_2_id.keys():
+                for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=coco.getCatIds(catNms=old))):
                     ann_copy = copy.deepcopy(ann)
-                    ann_copy['category_id'] = name_2_id[old_str_2_new_str[cat['name']]]
+                    ann_copy['category_id'] = name_2_id[new]
                     annotations.append(ann_copy)
                     added_annotation_ids.add(ann_copy['id'])
-            else:
-                cat['name'] = old_str_2_new_str[cat['name']]
-
-        # Skip category entry
-        else:
-            say("skipping category {category_name}".format(category_name=cat['name']))
 
     to_add_annotation_ids = set(coco.getAnnIds()) - added_annotation_ids
     annotations.extend(coco.loadAnns(ids=to_add_annotation_ids))
@@ -408,8 +388,8 @@ def load_coco(json_buffer: str) -> COCO:
     return coco
 
 
-def say(*args, **kwargs):
-    if ARGS.verbose:
+def say(*args, verbose=False, **kwargs):
+    if ARGS.verbose or verbose:
         print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
 
 
@@ -463,11 +443,16 @@ def get_args() -> argparse.Namespace:
                                          formatter_class=argparse.RawDescriptionHelpFormatter,
                                          description=REMAP_DESCRIPTION)
     parser_remap.set_defaults(func=remap)
-    parser_remap.add_argument('mapping', type=str, help="Dict style string for remapping of either category "
-                                                        "id/category name to category id/category name")
-    parser_remap.add_argument('-c', '--categories', type=str, help="Use to rename category name after new category "
-                                                                   "ids have been assigned. Input argument is in "
-                                                                   "same form as mapping")
+    parser_remap.add_argument('mapping',
+                              type=str,
+                              help="Dict style string for remapping of either category id/category name to category id/category name")
+    parser_remap.add_argument('-c', '--categories',
+                              type=str,
+                              help="Target categories to be used for re-mapping. Same format as default COCO "
+                                   "categories list. Default categories is taken from input COCO JSON file")
+    parser_remap.add_argument('--keep-source-categories',
+                              action='store_true',
+                              help="If target categories is specified, append target to input categories")
 
     parser_repath = subparsers.add_parser('repath',
                                           help="Re-path key value pairs for path for every image in COCO JSON.",
