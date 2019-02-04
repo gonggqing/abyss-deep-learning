@@ -98,9 +98,10 @@ def main(args: argparse.Namespace = None):
     data['annotations'] = drop_duplicates(annotations)
     data['images'] = drop_duplicates(images)
     if not args.keep_categories:
+        data['categories'] = drop_duplicates(categories)
+    else:
         for category in data['categories']:
             category['id'] = category.pop('category_id')
-        data['categories'] = drop_duplicates(categories)
 
     say("dumping to stdout", verbose=args.verbose)
     json.dump(data, sys.stdout, indent=args.indent)
