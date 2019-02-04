@@ -19,16 +19,16 @@ RLE not currently supported for segmentation resizing
 tile action is currently dummy action for demonstration purposes
 
 examples:
+    remap
+        cat pf.json | coco-calc remap "{1:1,2:1,3:1,4:1}" --categories '{ "id": 1, "name": "PF" }'
+        cat pf.json | coco-calc remap "{'PF-G':'PF','PF-L':'PF','PF-M':'PF','PF-H':'PF'}"
+
     resize
         cat coco.json | coco-calc resize --factor 0.3
         cat coco.json | coco-calc --verbose resize --size 480,640
-        
+
     tile
         cat coco.json | coco-calc --apply-to-images tile --tiles 4,5
-    
-    remap
-        cat pf.json | coco-calc remap "{1:1,2:1,3:1,4:1}" -c "{1:PF}"
-        cat pf.json | coco-calc remap "{'PF-G':'PF','PF-L':'PF','PF-M':'PF','PF-H':'PF'}"
 """
 
 REMAP_DESCRIPTION = """
@@ -200,14 +200,6 @@ def crop(coco: COCO) -> COCO:
     coco.dataset['annotations'] = output_annotations
     return coco
 
-
-# todo
-#   usage: cat coco.json | coco-calc remap <remap-dict> [--categories <dict>]
-#   where
-#     - <remap-dict> can be id -> id or name -> name
-#     - categories in coco.json: source dictionary
-#     - --categories: target dictionary (default: source dictionary is target dictionary)
-    
 def remap(coco: COCO) -> COCO:
     # literal_eval allows usage of either single quote (') or double quote(") to interpret a json string
     from ast import literal_eval
@@ -232,10 +224,24 @@ def remap(coco: COCO) -> COCO:
         elif isinstance(old, str) and isinstance(new, str):
             old_str_2_new_str[old] = new
 
-    if ARGS.categories:
-        categories = ARGS.categories
-    else:
-        categories = coco.loadCats(ids=coco.getCatIds())
+    categories = literal_eval(ARGS.categories) if ARGS.categories else coco.loadCats(ids=coco.getCatIds())
+    
+    
+    
+    # get source categories
+    #    - from input file
+    #    - put in the map
+    # get target categories: from --categories (default: input file)
+    #    - from input file
+    #    - put in the map
+    #    - if --keep-categories
+    #      - check that all categories have unique id: exit with error, if not unique
+    #      - append input categories to --categories
+    # category mapping:
+    #    - for each source categories: if it is not mapped, add to mapping as mapped onto itself, e.g. 'PF-L': 'PF-L'
+    #    - if any of map categories is not in target categories, exit with error
+    
+    
 
     name_2_id = {cat['name']: cat['id'] for cat in categories}
     annotations = []
