@@ -63,6 +63,7 @@ def load_annotations( predicted, truth, category_ids, bounding_boxes = False, sc
             images[image_id][category_id][1].append(i) # quick and dirty
         for i in range(len(truth['annotations'])):
             annotation = truth['annotations'][i]
+            if not score is None and 'score' in annotation and annotation['score'] < score: continue
             image_id = annotation['image_id']
             if image_id not in images: images[image_id] = {}
             category_id = annotation['category_id']
@@ -101,6 +102,7 @@ def confusion(args):
     for c in truth['categories']: category_ids.append(c['id'])
     background_id = max(category_ids) + 1
     images = load_annotations( predicted, truth, category_ids, score = args.score_threshold, bounding_boxes = args.bounding_boxes )
+    #for k, v in images.items(): print("--> k:", k, v, file = sys.stderr );
     iou_matrix = metrics.bbox_iou_matrix if args.bounding_boxes else None
     result = {}
     result['categories'] = []
@@ -157,7 +159,8 @@ def confusion(args):
             a['category_id'] = confusion_category_ids[ ( a['category_id'], background_id ) ]
             if not 'segmentation' in a or a['segmentation'] is None: a['segmentation'] = bbox_to_segmentation( a['bbox'] )
             result['annotations'].append( a )
-    result['images'] = truth['images']
+    #print("--> len(truth['images']):", len(truth['images']), file = sys.stderr)
+    result['images'] = copy.deepcopy(truth['images'])
     result['licenses'] = [{
         'id': 1,
         'url': 'http://creativecommons.org/licenses/by-nc-sa/2.0/',
