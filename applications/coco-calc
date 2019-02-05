@@ -215,6 +215,8 @@ def remap(coco: COCO) -> COCO:
         mapping = literal_eval(ARGS.mapping)
 
     source_categories = coco.loadCats(ids=coco.getCatIds())
+    if not source_categories:
+        return coco
     for category in source_categories:
         if not(category['id'] in mapping or category['name'] in mapping):
             mapping[category['name']] = category['name']

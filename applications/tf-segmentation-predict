@@ -207,6 +207,10 @@ def add_info_and_license_to_coco(coco):
     return coco
 
 
+def result_to_csv(labels, file_meta, args):
+    """When --outputs-tensor is used results should be CSV"""
+    raise NotImplementedError("TODO: --outputs-tensor CSV output")
+
 def load_graph(frozen_graph_filename):
     # We load the protobuf file from the disk and parse it to retrieve the unserialized graph_def
     with tf.gfile.GFile(frozen_graph_filename, "rb") as file:
@@ -223,8 +227,13 @@ def load_graph(frozen_graph_filename):
 def setup_graph(args):
     graph = load_graph(args.graph_path)
     graph_ops = graph.get_operations()
-    args.inputs_tensor = graph.get_tensor_by_name(args.input_tensor if args.inputs_tensor else graph_ops[0].name + ":0")
-    args.outputs_tensor = graph.get_tensor_by_name(args.input_tensor if args.outputs_tensor else graph_ops[-1].name + ":0")
+    if args.output_operations:
+        for i, operation in enumerate(graph_ops):
+            print(i, operation.name)
+        exit(0)
+
+    args.inputs_tensor = graph.get_tensor_by_name(args.inputs_tensor if args.inputs_tensor else graph_ops[0].name + ":0")
+    args.outputs_tensor = graph.get_tensor_by_name(args.outputs_tensor if args.outputs_tensor else graph_ops[-1].name + ":0")
     assert args.inputs_tensor is not None, "Input tensor not found"
     assert args.outputs_tensor is not None, "Predictions tensor not found"
     return graph
@@ -258,10 +267,19 @@ def get_args():
             --verbose
 
     """.format_map(help_meta)
-    parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("graph_path", help="Path to the frozen inference graph.")
-    parser.add_argument("inputs", nargs='+',
+    parser = argparse.ArgumentParser(
+        description=description,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "graph_path",
+        help="Path to the frozen inference graph.")
+    parser.add_argument(
+        "inputs", nargs='+',
         help="Path to the images, videos or COCO JSON files to predict on. Sequences such as image globs and videos allowed, but ensure the use of the {frame_no:} field in --output-images.")
+    parser.add_argument(
+        '--output-operations',
+        action='store_true',
+        help="Load the graph and output the operations and operation names, then quit.")
     parser.add_argument(
         '--output-coco',
         help="""
@@ -276,10 +294,18 @@ def get_args():
         e.g.: '{dirname:}/{filename:}_prediction.jpg
         Available fields: dirname, filename, extension, frame_no (for sequences)""",
         default=None)
-    parser.add_argument("--inputs-tensor", help="The inputs tensor to feed images to. Defaults to first operation in the graph.")
-    parser.add_argument("--outputs-tensor", help="The output tensor to retrieve the predicted labels from. Defaults to last operation in the graph.")
-    parser.add_argument("--tile-size", help="The size at which the images should be fed to the graph. Default: 513,513.)", default="513,513", type=str)
-    parser.add_argument("--verbose", "-v", help="Display progress", action="store_true")
+    parser.add_argument(
+        "--inputs-tensor",
+        help="The inputs tensor to feed images to. Defaults to first operation in the graph.")
+    parser.add_argument(
+        "--outputs-tensor",
+        help="The output tensor to retrieve the predicted labels from. Defaults to last operation in the graph.")
+    parser.add_argument(
+        "--tile-size",
+        help="The size at which the images should be fed to the graph. Default: 513,513.)", default="513,513", type=str)
+    parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Display progress")
     parser.add_argument("--categories", help="The categories in this model (only used for coco generation, e.g. BG,AC-L,AC-M,AC-H. You should use BG as the first class.")
 
     args = parser.parse_args()
@@ -291,6 +317,7 @@ def get_args():
 def main(args):
     gpus = [int(i) for i in os.environ['CUDA_VISIBLE_DEVICES'].split(",")] if 'CUDA_VISIBLE_DEVICES' in os.environ else []
     config_gpu(gpus, allow_growth=True, log_device_placement=False)
+    is_custom_output = args.outputs_tensor is not None
     graph = setup_graph(args)
 
     # Create a counter for the images, used for the image_id in the coco format
@@ -359,6 +386,10 @@ def main(args):
                     predicted, image,
                     image_alpha=1, alpha=0.5, border=True, bg_label=0, colors=COLOR_MAP)
                 imsave(args.output_images.format(**parts), predicted_rgb)
+
+            if is_custom_output:
+                result_to_csv(predicted, parts, args)
+                continue
 
 
 if __name__ == '__main__':

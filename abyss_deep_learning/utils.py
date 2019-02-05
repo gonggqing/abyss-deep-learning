@@ -126,22 +126,24 @@ def balanced_annotation_set(coco, ann_type='caption', num_anns=None, ignore=None
     return out
 
 
-def tile_gen(image, window_size, fill_const=0):
-    '''window_size must be tuple of ints'''
+def tile_gen(image, tile_size, stride=None, fill_const=0):
     from itertools import product
-#     print("tile gen")
-    num_tiles = np.ceil(image.shape[0] / window_size[0]), np.ceil(image.shape[1] / window_size[1])
-    num_tiles = [int(i) for i in num_tiles]
+    if stride is None:
+        stride = tile_size
+    height, width, depth = image.shape
+    tile_height, tile_width = tile_size
+    stride_height, stride_width = stride
+    num_tiles_y = int(np.floor((height - tile_height) / stride_height + 1))
+    num_tiles_x = int(np.floor((width - tile_width) / stride_width + 1))
 
-    for i, j in product(*[range(k) for k in num_tiles]):
-        window = np.ones(tuple(window_size) + image.shape[2:], dtype=image.dtype) * fill_const
-        y1, y2 = np.array([i, i + 1]) * window_size[0]
-        x1, x2 = np.array([j, j + 1]) * window_size[1]
-        y2a = np.minimum(image.shape[0], y2)
-        x2a = np.minimum(image.shape[1], x2)
-        h, w = y2a - y1, x2a - x1
-        window[:h, :w, ...] = image[y1:y2a, x1:x2a, ...]
-        yield window
+    for tile_y, tile_x in product(range(num_tiles_y), range(num_tiles_x)):
+        tile = np.ones((tile_height, tile_width, depth), dtype=image.dtype) * fill_const
+        y1, x1 = tile_y * stride_height, tile_x * stride_width
+        y2, x2 = min(tile_height + stride_height * tile_y, height), min(tile_width + stride_width * tile_x, width)
+        h, w = y2 - y1, x2 - x1
+        tile[:h, :w, ...] = image[y1:y2, x1:x2, ...]
+        yield tile
+
 
 def detile(tiles, window_size, image_size):
     """Reassembles tiled images.
@@ -158,10 +160,12 @@ def detile(tiles, window_size, image_size):
 #     print("detile")
     num_tiles = np.ceil(image_size[0] / window_size[0]), np.ceil(image_size[1] / window_size[1])
     num_tiles = [int(i) for i in num_tiles]
+    num_channels = None
     image = None
     for (i, j), window in zip(product(*[range(k) for k in num_tiles]), tiles):
         if image is None:
-            image = np.zeros(image_size + image_size[3:], dtype=window.dtype)
+            num_channels = window.shape[-1]
+            image = np.zeros(image_size + (num_channels,), dtype=window.dtype)
         y1, y2 = np.array([i, i + 1]) * window_size[0]
         x1, x2 = np.array([j, j + 1]) * window_size[1]
         y2a = np.minimum(image_size[0], y2)
