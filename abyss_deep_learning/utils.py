@@ -8,6 +8,8 @@ import cv2
 import numpy as np
 import PIL.Image
 import pandas as pd
+
+
 def cv2_to_Pil(image):
     image = cv2.cvtColor(image ,cv2.COLOR_BGR2RGB)
     return PIL.Image.fromarray(image)
@@ -257,10 +259,30 @@ def warn_once(func, message):
     return new_func
 
 
-def image_streamer(sources, start=0):
-    '''Iterate over frames from multiple sources, expanding any globs.
-    Currently accepts video, images and COCO datasets.'''
-    from skimage.io import imread
+def imread(path, output_size=None, dtype=None):
+    """Read an image from the filesystem, optionally resizing the image size and casting the bit_depth"""
+    im = PIL.Image.open(path)
+    if output_size:
+        im = im.resize(output_size)
+    im = np.array(im)
+    if dtype:
+        im.astype(dtype)
+    return im
+
+
+def image_streamer(sources, start=0, remap_func=None):
+    '''A generator that produces image frames from multiple sources.
+    Currently accepts video, images and COCO datasets and globs of these.
+
+        sources: list of str; The file paths to the image sources.
+                 Can be an image, video or COCO json, globs accepted.
+        start: int (optional); Start from this position in the list.
+        remap_func: lambda or function; A function that accepts a filename
+                    parameter and outputs the path to the file. Used to 
+                    change relative directories of COCO datasets.
+
+    
+    '''
     from warnings import warn
     from glob import glob
     from pycocotools.coco import COCO
@@ -268,9 +290,11 @@ def image_streamer(sources, start=0):
     from contextlib import closing, redirect_stdout
 
     def is_image(path):
-        return path.endswith(('.png', '.jpg', '.jpeg', '.tiff'))
+        return path.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff'))
     def is_video(path):
-        return path.endswith(('.avi', '.mpg', '.mp4'))
+        return path.lower().endswith(('.avi', '.mpg', '.mp4'))
+
+    remap_func = remap_func or (lambda x: x)
 
     # Expand any globbed paths, but not for images since we want to keep the sequence
     full_sources = []
@@ -287,23 +311,22 @@ def image_streamer(sources, start=0):
                     yield source, frame_no, frame
         elif is_image(source):
             for frame_no, image_path in enumerate(glob(source, recursive=True)):
-                yield image_path, frame_no, imread(image_path)
+                yield image_path, frame_no, imread(remap_func(image_path))
         elif source.endswith('.json'):
             # COCO database
             with redirect_stdout(None):
                 coco = COCO(source)
             for frame_no, image in enumerate(coco.loadImgs(coco.getImgIds())):
                 #TODO: It's not clear how to address relative paths
-                image_path = image['path'] if 'path' in image else image['file_name']
+                image_path = image['path'] if 'path' in image else remap_func(image['file_name'])
                 yield image_path, frame_no, imread(image_path)
             del coco
         else:
             warn("Skipped an unknown source type {}.".format(source))
 
 
-
-
 def print_v(*args, level=0):
     if print_v._level >= level:
         print(*args, file=sys.stderr)
 print_v._level = 0
+
