@@ -294,6 +294,9 @@ def main(args=None):
         if tile_size is None:
             tile_size = image_height, image_width
 
+        if stride is None:
+            stride = tile_size
+            
         # Values used for cropping tiles from the image
         stride_height, stride_width = stride
         tile_height, tile_width = tile_size
