@@ -139,7 +139,7 @@ def confusion(args):
             for i in range(len(indices[0])):
                 a = copy.deepcopy( predicted['annotations'][pi[indices[0][i]]] )
                 a['id'] = len(result['annotations'])
-                a['score'] = ious[indices[0][i],indices[1][i]]
+                if args.iou_as_score: a['score'] = ious[indices[0][i],indices[1][i]]
                 a['category_id'] = confusion_category_ids[ ( truth['annotations'][ti[indices[1][i]]]['category_id'], a['category_id'] ) ]
                 if not 'segmentation' in a or a['segmentation'] is None: a['segmentation'] = bbox_to_segmentation( a['bbox'] )
                 result['annotations'].append( a )                
@@ -148,14 +148,14 @@ def confusion(args):
         for i in fp:
             a = copy.deepcopy( predicted['annotations'][i] )
             a['id'] = len(result['annotations'])
-            a['score'] = 0
+            if args.iou_as_score: a['score'] = 0
             a['category_id'] = confusion_category_ids[ ( background_id, a['category_id'] ) ]
             if not 'segmentation' in a or a['segmentation'] is None: a['segmentation'] = bbox_to_segmentation( a['bbox'] )
             result['annotations'].append( a )
         for i in fn:
             a = copy.deepcopy( truth['annotations'][i] )
             a['id'] = len(result['annotations'])
-            a['score'] = 0
+            if args.iou_as_score: a['score'] = 0
             a['category_id'] = confusion_category_ids[ ( a['category_id'], background_id ) ]
             if not 'segmentation' in a or a['segmentation'] is None: a['segmentation'] = bbox_to_segmentation( a['bbox'] )
             result['annotations'].append( a )
@@ -331,6 +331,7 @@ def get_args():
     confusion_parser.set_defaults( func=confusion )
     confusion_parser.add_argument( '--bounding-boxes', '--bbox', '-b', action='store_true', help="match bounding boxes" )
     confusion_parser.add_argument( '--iou-threshold', default=0.5, type=float, help="iou threshold; default: %(default)s" )
+    confusion_parser.add_argument( '--iou-as-score', action='store_true', help="set score to iou value; default: keep score from original annotation" )
     confusion_parser.add_argument( '--score-threshold', default=0.5, type=float, help="score threshold: default: %(default)s" )
     confusion_parser.add_argument( '--truth', '-t', type=str, help="ground truth coco.json file" )
     
