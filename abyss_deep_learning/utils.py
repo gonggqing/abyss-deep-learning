@@ -158,10 +158,12 @@ def detile(tiles, window_size, image_size):
 #     print("detile")
     num_tiles = np.ceil(image_size[0] / window_size[0]), np.ceil(image_size[1] / window_size[1])
     num_tiles = [int(i) for i in num_tiles]
+    num_channels = None
     image = None
     for (i, j), window in zip(product(*[range(k) for k in num_tiles]), tiles):
         if image is None:
-            image = np.zeros(image_size + image_size[3:], dtype=window.dtype)
+            num_channels = window.shape[-1]
+            image = np.zeros(image_size + (num_channels,), dtype=window.dtype)
         y1, y2 = np.array([i, i + 1]) * window_size[0]
         x1, x2 = np.array([j, j + 1]) * window_size[1]
         y2a = np.minimum(image_size[0], y2)
