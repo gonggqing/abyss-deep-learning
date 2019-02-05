@@ -17,6 +17,20 @@ from skimage.io import imread, imsave
 import numpy as np
 from abyss_deep_learning.utils import tile_gen, detile, image_streamer, config_gpu
 import abyss_deep_learning.draw as draw
+# from sklearn.measure import regionprops
+
+from skimage.segmentation import find_boundaries
+from skimage import measure
+from pycocotools import mask
+
+from PIL import Image, ImageDraw
+import json
+import datetime
+
+import time
+
+import cv2
+
 
 COLOR_MAP = [
     (1, 0, 0),
@@ -27,22 +41,178 @@ COLOR_MAP = [
     (0, 1, 1),
 ]
 
-def result_to_coco(labels, file_meta, args):
+
+
+
+def result_to_coco(result_coco, labels, image_meta):
+    """
+    Output the segmentation resutls to a COCO json file given a label image.
+    The label 0 is always the background class and is not included.
+    The labels are converted to polygon points.
+
+    Args:
+        result_coco: the coco format dict, needs to have 'categories' already initialised
+        labels: the label image [m,n], values of pixel are class, 0 = BG, 1 = Class etc.
+        image_meta: the image metadata, used to create the image annotation.
+
+    Returns:
+        dict: coco format dict, with annotations and images added for the image.
+
+    """
+
+    # For each class
+    # - get the binary mask of that class
+    # - for each region
+    # - - get polygon points
+    # - - create annotation
+
+    ann_count = 1
+
+    image = {
+        "id": image_meta['image_id'],
+        "file_name": image_meta['file_name'],
+        "height": image_meta['height'],
+        "width": image_meta['width'],
+        "path": image_meta['path']
+    }
+    result_coco['images'].append(image)
+
+    # print("Overall Max", np.max(np.max(labels)))
+
+    # for label_no in range(1, labels.shape[-1]):
+    label_nums = [cat['id'] for cat in result_coco['categories']]
+    for label_no in label_nums:
+        label = labels == label_no
+
+        label = label.astype(np.uint8)
+
+
+        mask_new, contours, hierarchy = cv2.findContours((label).astype(np.uint8), cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+
+        for contour in contours:
+
+            segmentation = contour.flatten().tolist()
+
+            if len(segmentation) < 8:
+                continue
+
+            area = cv2.contourArea(contour)
+            x1, y1, width, height = cv2.boundingRect(contour)
+
+            annotation = {"segmentation": [segmentation],
+                          "annotation_type": "poly",
+                          "area": area,
+                          "iscrowd": 0,
+                          "image_id": image_meta['image_id'],
+                          "bbox": [x1,y1,width,height],
+                          "category_id": label_no,  # Label_No Has To Correspond to Cat ID!
+                          "id": ann_count}
+
+
+            result_coco['annotations'].append(annotation)
+    return result_coco
+
+
+
+def result_to_coco_sk(result_coco, labels, image_meta):
     """
     Output the segmentation results to a COCO JSON file given a label image.
     The label 0 is always the background class and is not included.
     Other labels are identified by the label dimension index, and written as RLE annotations"""
-    raise NotImplementedError("TODO: Implement results_to_coco")
-    for label_no in range(1, labels.shape[-1]):
+    # labels is an image [n,m,c] where c is num classes. 0=bg,1=class1 etc.
+
+    # For each class
+    # - get the binary mask of that class
+    # - for each region
+    # - - get polygon points
+
+    ann_count = 1
+
+    image = {
+        "id": image_meta['image_id'],
+        "file_name": image_meta['file_name'],
+        "height": image_meta['height'],
+        "width": image_meta['width'],
+        "path": image_meta['path']
+    }
+    result_coco['images'].append(image)
+
+    # print("Overall Max", np.max(np.max(labels)))
+
+    # for label_no in range(1, labels.shape[-1]):
+    label_nums = [cat['id'] for cat in result_coco['categories']]
+    for label_no in label_nums:
+        if label_no == 0:  # Always the background class
+            continue
         label = labels == label_no
-        
+
+        label = label.astype(np.uint8)
+
+        # print("Label Max", label_no, np.max(np.max(label)))
+
+        contours = measure.find_contours(label, 0.5)
+
+        for contour in contours:
+            contour = np.flip(contour, axis=1)
+            segmentation = contour.ravel().tolist()
+
+            cont_int = contour.astype(np.uint32)
+
+            # TODO getting area/bbox is the most time-intensive process. Find a faster way.
+
+            img = Image.new('L', (image_meta['width'], image_meta['height']), 0)
+            ImageDraw.Draw(img).polygon(cont_int, outline=1, fill=1)
+            cont_mask = np.array(img)
+
+            fortran_ground_truth_binary_mask = np.asfortranarray(cont_mask)
+            encoded_ground_truth = mask.encode(fortran_ground_truth_binary_mask.astype(np.uint8))
+            ground_truth_area = mask.area(encoded_ground_truth)
+            ground_truth_bounding_box = mask.toBbox(encoded_ground_truth)
+
+            annotation = {"segmentation": [segmentation],
+                          "area": ground_truth_area.tolist(),
+                          "iscrowd": 0,
+                          "image_id": image_meta['image_id'],
+                          "bbox": ground_truth_bounding_box.tolist(),
+                          "category_id": label_no,  # Label_No Has To Correspond to Cat ID!
+                          "id": ann_count}
+
+
+            result_coco['annotations'].append(annotation)
+        # print("label complete")
+    return result_coco
+
+
+
+def add_info_and_license_to_coco(coco):
+    info = {
+        "contributor": "Abyss Solutions",
+        "date_created": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "description": "This is a dataset configured by Abyss Solutions.",
+        "total_time": "00h00m00s",
+        "url": "http://www.abysssolutions.com.au/",
+        "version": "1.0",
+        "year": 2019
+    }  # TODO make this meaningful - it is a placeholder atm
+
+    licenses = [
+        {
+            "id": 1,
+            "name": "Attribution-NonCommercial-ShareAlike License",
+            "url": "http://creativecommons.org/licenses/by-nc-sa/2.0/"
+        }
+    ]
+    coco['info'] = info
+    coco['licenses'] = licenses
+    return coco
+
 
 def load_graph(frozen_graph_filename):
     # We load the protobuf file from the disk and parse it to retrieve the unserialized graph_def
     with tf.gfile.GFile(frozen_graph_filename, "rb") as file:
         graph_def = tf.GraphDef()
         graph_def.ParseFromString(file.read())
-    # Then, we import the graph_def into a new Graph and returns it 
+    # Then, we import the graph_def into a new Graph and returns it
     with tf.Graph().as_default() as graph:
         # The name var will prefix every op/nodes in your graph
         # Since we load everything in a new graph, this is not needed
@@ -84,6 +254,7 @@ def get_args():
         {scriptname:} \\
             --output-images '{{dirname:}}/{{filename:}}_predicted.jpg' \\
             --output-coco '/tmp/inference_coco.json' \\
+            --categories "BG,M,H" \\
             --verbose
 
     """.format_map(help_meta)
@@ -109,6 +280,8 @@ def get_args():
     parser.add_argument("--outputs-tensor", help="The output tensor to retrieve the predicted labels from. Defaults to last operation in the graph.")
     parser.add_argument("--tile-size", help="The size at which the images should be fed to the graph. Default: 513,513.)", default="513,513", type=str)
     parser.add_argument("--verbose", "-v", help="Display progress", action="store_true")
+    parser.add_argument("--categories", help="The categories in this model (only used for coco generation, e.g. BG,AC-L,AC-M,AC-H. You should use BG as the first class.")
+
     args = parser.parse_args()
     args.tile_size = tuple([int(i) for i in args.tile_size.split(',')])
     assert len(args.tile_size) == 2, "Tile size must be 2D."
@@ -119,8 +292,35 @@ def main(args):
     gpus = [int(i) for i in os.environ['CUDA_VISIBLE_DEVICES'].split(",")] if 'CUDA_VISIBLE_DEVICES' in os.environ else []
     config_gpu(gpus, allow_growth=True, log_device_placement=False)
     graph = setup_graph(args)
+
+    # Create a counter for the images, used for the image_id in the coco format
+    img_count = 0
+
+    if args.output_coco:
+        # Create the coco
+        result_coco = {
+            'images': [],
+            'annotations': [],
+            'categories': []
+        }
+        # Create a list of the categories from the arguments
+        catlist = args.categories.split(',')
+        # Create a category, and add it to the coco dict
+        for id,c in enumerate(catlist):
+            cat = {
+                "id": id,
+                "name": c,
+                "supercategory": ""
+            }
+            result_coco['categories'].append(cat)
+        # Add info and license to coco, necessary for abyss annotation tool
+        result_coco = add_info_and_license_to_coco(result_coco)
+
     with tf.Session(graph=graph) as sess:
         for image_path, frame_no, image in image_streamer(args.inputs):
+
+            img_count += 1  # Increment the counter at the start - as COCO format indexes from 1
+
             if args.verbose:
                 print(image_path, file=sys.stderr)
             filename, extension = os.path.splitext(os.path.basename(image_path))
@@ -135,6 +335,25 @@ def main(args):
                     args.outputs_tensor,
                     feed_dict={args.inputs_tensor: tile[np.newaxis, ...]})[0]
                 for tile in tile_gen(image, args.tile_size)], args.tile_size, image.shape[:2])
+
+
+            if args.output_coco:
+                image_meta = {
+                    'image_id': img_count,
+                    'file_name': filename,
+                    'width': image.shape[0],
+                    'height': image.shape[1],
+                    'path': image_path
+                }
+
+                # start timing
+                ts = time.time()
+                result_coco = result_to_coco(result_coco, predicted, image_meta)
+                print("Coco Gen Time", time.time() - ts)
+
+
+                json.dump(result_coco, open(args.output_coco, "w"), indent=4, sort_keys=True)
+
             if args.output_images:
                 predicted_rgb = draw.masks(
                     predicted, image,
@@ -144,4 +363,3 @@ def main(args):
 
 if __name__ == '__main__':
     main(get_args())
-
