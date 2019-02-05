@@ -120,7 +120,7 @@ def main(args):
     config_gpu(gpus, allow_growth=True, log_device_placement=False)
     graph = setup_graph(args)
     with tf.Session(graph=graph) as sess:
-        for image_path, frame_no, image in image_streamer(args.images):
+        for image_path, frame_no, image in image_streamer(args.inputs):
             if args.verbose:
                 print(image_path, file=sys.stderr)
             filename, extension = os.path.splitext(os.path.basename(image_path))

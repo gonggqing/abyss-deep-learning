@@ -37,6 +37,8 @@ setup(
         "applications/coco-to-voc",
         "applications/coco-viewer",
         "applications/coco-view",
+        "applications/coco-to-tfrecord",
+        "applications/tf-segmentation-predict",
         "applications/image-dirs-to-coco",
         "applications/keras-graph",
         "applications/labelbox-to-coco",
