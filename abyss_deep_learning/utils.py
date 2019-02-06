@@ -8,6 +8,8 @@ import cv2
 import numpy as np
 import PIL.Image
 import pandas as pd
+
+
 def cv2_to_Pil(image):
     image = cv2.cvtColor(image ,cv2.COLOR_BGR2RGB)
     return PIL.Image.fromarray(image)
@@ -124,22 +126,24 @@ def balanced_annotation_set(coco, ann_type='caption', num_anns=None, ignore=None
     return out
 
 
-def tile_gen(image, window_size, fill_const=0):
-    '''window_size must be tuple of ints'''
+def tile_gen(image, tile_size, stride=None, fill_const=0):
     from itertools import product
-#     print("tile gen")
-    num_tiles = np.ceil(image.shape[0] / window_size[0]), np.ceil(image.shape[1] / window_size[1])
-    num_tiles = [int(i) for i in num_tiles]
+    if stride is None:
+        stride = tile_size
+    height, width, depth = image.shape
+    tile_height, tile_width = tile_size
+    stride_height, stride_width = stride
+    num_tiles_y = int(np.floor((height - tile_height) / stride_height + 1))
+    num_tiles_x = int(np.floor((width - tile_width) / stride_width + 1))
 
-    for i, j in product(*[range(k) for k in num_tiles]):
-        window = np.ones(tuple(window_size) + image.shape[2:], dtype=image.dtype) * fill_const
-        y1, y2 = np.array([i, i + 1]) * window_size[0]
-        x1, x2 = np.array([j, j + 1]) * window_size[1]
-        y2a = np.minimum(image.shape[0], y2)
-        x2a = np.minimum(image.shape[1], x2)
-        h, w = y2a - y1, x2a - x1
-        window[:h, :w, ...] = image[y1:y2a, x1:x2a, ...]
-        yield window
+    for tile_y, tile_x in product(range(num_tiles_y), range(num_tiles_x)):
+        tile = np.ones((tile_height, tile_width, depth), dtype=image.dtype) * fill_const
+        y1, x1 = tile_y * stride_height, tile_x * stride_width
+        y2, x2 = min(tile_height + stride_height * tile_y, height), min(tile_width + stride_width * tile_x, width)
+        h, w = y2 - y1, x2 - x1
+        tile[:h, :w, ...] = image[y1:y2, x1:x2, ...]
+        yield tile
+
 
 def detile(tiles, window_size, image_size):
     """Reassembles tiled images.
@@ -156,9 +160,12 @@ def detile(tiles, window_size, image_size):
 #     print("detile")
     num_tiles = np.ceil(image_size[0] / window_size[0]), np.ceil(image_size[1] / window_size[1])
     num_tiles = [int(i) for i in num_tiles]
+    num_channels = None
     image = None
     for (i, j), window in zip(product(*[range(k) for k in num_tiles]), tiles):
         if image is None:
+            num_channels = window.shape[-1]
+            # image = np.zeros(image_size + (num_channels,), dtype=window.dtype)  # TODO FIX then uncomment
             image = np.zeros(image_size + image_size[3:], dtype=window.dtype)
         y1, y2 = np.array([i, i + 1]) * window_size[0]
         x1, x2 = np.array([j, j + 1]) * window_size[1]
@@ -257,10 +264,30 @@ def warn_once(func, message):
     return new_func
 
 
-def image_streamer(sources, start=0):
-    '''Iterate over frames from multiple sources, expanding any globs.
-    Currently accepts video, images and COCO datasets.'''
-    from skimage.io import imread
+def imread(path, output_size=None, dtype=None):
+    """Read an image from the filesystem, optionally resizing the image size and casting the bit_depth"""
+    im = PIL.Image.open(path)
+    if output_size:
+        im = im.resize(output_size)
+    im = np.array(im)
+    if dtype:
+        im.astype(dtype)
+    return im
+
+
+def image_streamer(sources, start=0, remap_func=None):
+    '''A generator that produces image frames from multiple sources.
+    Currently accepts video, images and COCO datasets and globs of these.
+
+        sources: list of str; The file paths to the image sources.
+                 Can be an image, video or COCO json, globs accepted.
+        start: int (optional); Start from this position in the list.
+        remap_func: lambda or function; A function that accepts a filename
+                    parameter and outputs the path to the file. Used to 
+                    change relative directories of COCO datasets.
+
+    
+    '''
     from warnings import warn
     from glob import glob
     from pycocotools.coco import COCO
@@ -268,9 +295,11 @@ def image_streamer(sources, start=0):
     from contextlib import closing, redirect_stdout
 
     def is_image(path):
-        return path.endswith(('.png', '.jpg', '.jpeg', '.tiff'))
+        return path.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff'))
     def is_video(path):
-        return path.endswith(('.avi', '.mpg', '.mp4'))
+        return path.lower().endswith(('.avi', '.mpg', '.mp4'))
+
+    remap_func = remap_func or (lambda x: x)
 
     # Expand any globbed paths, but not for images since we want to keep the sequence
     full_sources = []
@@ -287,23 +316,22 @@ def image_streamer(sources, start=0):
                     yield source, frame_no, frame
         elif is_image(source):
             for frame_no, image_path in enumerate(glob(source, recursive=True)):
-                yield image_path, frame_no, imread(image_path)
+                yield image_path, frame_no, imread(remap_func(image_path))
         elif source.endswith('.json'):
             # COCO database
             with redirect_stdout(None):
                 coco = COCO(source)
             for frame_no, image in enumerate(coco.loadImgs(coco.getImgIds())):
                 #TODO: It's not clear how to address relative paths
-                image_path = image['path'] if 'path' in image else image['file_name']
+                image_path = image['path'] if 'path' in image else remap_func(image['file_name'])
                 yield image_path, frame_no, imread(image_path)
             del coco
         else:
             warn("Skipped an unknown source type {}.".format(source))
 
 
-
-
 def print_v(*args, level=0):
     if print_v._level >= level:
         print(*args, file=sys.stderr)
 print_v._level = 0
+

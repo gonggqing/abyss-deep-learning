@@ -15,12 +15,6 @@ import keras
 import numpy as np
 import tensorflow as tf
 
-# Allow relative imports when being executed as script.
-if __name__ == "__main__" and __package__ is None:
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-
-    __package__ = "keras_retinanet.bin"
-
 # Change these to absolute imports if you copy this script outside the keras_retinanet package.
 from keras_retinanet import models
 from keras_retinanet.utils.config import read_config_file, parse_anchor_parameters
@@ -33,6 +27,13 @@ from keras_retinanet.models import assert_training_model
 from keras_retinanet.models.retinanet import __build_anchors, retinanet
 from keras_retinanet.utils.anchors import AnchorParameters
 from keras_retinanet.utils.visualization import draw_box, draw_caption
+
+from abyss_deep_learning.utils import tile_gen
+
+# Allow relative imports when being executed as script.
+if __name__ == "__main__" and __package__ is None:
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+    __package__ = "keras_retinanet.bin"
 
 
 def get_session():
@@ -76,7 +77,7 @@ def retinanet_bbox(
         ```
 
     NOTE
-    This function was pulled from keras_retinanet.models.retinanet.retinante_bbox
+    This function was pulled from keras_retinanet.models.retinanet.retinant_bbox
     Edited here to allow passthrough of nms_threshold
     """
 
@@ -117,36 +118,85 @@ def retinanet_bbox(
     return keras.models.Model(inputs=model.inputs, outputs=detections, name=name)
 
 
-def parse_args(args):
+def parse_args():
     """ Parse the arguments.
     """
     parser = argparse.ArgumentParser(description='Evaluation script for a RetinaNet network.')
-    parser.add_argument('images',               help='Text file of image paths', type=str)
-    parser.add_argument('--model',              help='Path to RetinaNet model.', type=str)
-    parser.add_argument('--convert-model',      help='Convert the model to an inference model (ie. the input is a '
-                                                     'training model).', action='store_true')
-    parser.add_argument('--backbone',           help='The backbone of the model.', default='resnet50')
-    parser.add_argument('--gpu',                help='Id of the GPU to use (as reported by nvidia-smi).')
-    parser.add_argument('--score-threshold',    help='Threshold on score to filter detections with (defaults to '
-                                                     '0.05).', default=0.05, type=float)
-    parser.add_argument('--iou-threshold',      help='IoU Threshold to count for a positive detection (defaults to '
-                                                     '0.5).', default=0.5, type=float)
-    parser.add_argument('--nms-threshold',      help='IoU threshold for non-maximum supression for outputs (defaults '
-                                                     'to 0.1).', default=0.1, type=float)
-    parser.add_argument('--max-detections',     help='Max Detections per image (defaults to 100).', default=100, type=int)
-    parser.add_argument('--save-path',          help='Path for saving images with detections (doesn\'t work for COCO).')
-    parser.add_argument('--show',               help='Show per-image examples in matplotlib', action='store_true')
-    parser.add_argument('--image-min-side',     help='Rescale the image so the smallest side is min_side.', type=int, default=800)
-    parser.add_argument('--image-max-side',     help='Rescale the image if the largest side is larger than '
-                                                     'max_side.', type=int, default=1333)
-    parser.add_argument('--config',             help='Path to a configuration parameters .ini file (only used with '
-                                                     '--convert-model).')
-    parser.add_argument('--remove',             help="Remove negative category detections from output", action='store_true')
+    parser.add_argument('images',
+                        help='Text file of image paths',
+                        type=str)
+    parser.add_argument('--weights',
+                        help='Path to RetinaNet model weights.',
+                        type=str)
+    parser.add_argument('--convert-model',
+                        help='Convert the model to an inference model (ie. the input is a training model).',
+                        action='store_true')
+    parser.add_argument('--backbone',
+                        help='The backbone of the model. default is %(default)s',
+                        default='resnet50')
+    parser.add_argument('--gpu',
+                        help='Id of the GPU to use (as reported by nvidia-smi).')
+    parser.add_argument('--score-threshold',
+                        help='Threshold on score to filter detections with. default is %(default)s',
+                        default=0.05,
+                        type=float)
+    parser.add_argument('--nms-threshold',
+                        help='IoU threshold for non-maximum supression for outputs. default is %(default)s',
+                        default=0.1,
+                        type=float)
+    parser.add_argument('--max-detections',
+                        help='Max Detections per image. default is %(default)s.',
+                        default=100,
+                        type=int)
+    parser.add_argument('--save-path',
+                        type=str,
+                        help='Directory for saving images with detections. Individual CSV files will be produced for '
+                             'each image that has detections. If no detections are found in the image then the CSV '
+                             'file will be empty. If not specified, detections are output to stdout.')
+    parser.add_argument('--show',
+                        help='Show per-image examples in matplotlib',
+                        action='store_true')
+    parser.add_argument('--image-min-side',
+                        help='Rescale the image so the smallest side is min_side. If omitted, the min value of the '
+                             'first images height and width will be used. In this case, '
+                             'if the rest of the given images do not have the same dimension, the script will stop.',
+                        type=int, )
+    parser.add_argument('--image-max-side',
+                        help='Rescale the image if the largest side is larger than max_side. If omitted, '
+                             'the max value of the first images height and width will be used. In this case, '
+                             'if the rest of the given images do not have the same dimension, the script will stop.',
+                        type=int, )
+    parser.add_argument('--tile-size',
+                        type=str,
+                        help='Comma separated values for [height],[width] of tiles to crop from each image')
+    parser.add_argument('--stride',
+                        type=str,
+                        help='Comma separated values for [height],[width] of strides to take when tiling the image')
+    parser.add_argument('--config',
+                        help='Path to a configuration parameters .ini file (only used with --convert-model).')
+    parser.add_argument('--remove',
+                        help="Remove negative category detections from output as the network outputs fixed size "
+                             "detections",
+                        action='store_true')
+    parser.add_argument('-v', '--verbose',
+                        help="More verbose output to stderr",
+                        action='store_true')
+    args = parser.parse_args()
+
+    try:
+        args.tile_size = [int(num) for num in args.tile_size.split(',')]
+    except AttributeError:
+        pass
+
+    try:
+        args.stride = [int(num) for num in args.stride.split(',')]
+    except AttributeError:
+        pass
 
     # EXAMPLE USAGE to be added to --help output
     # cat ~/data/anadarko/object-recognition/val_annotations.csv | sed 's/images/\/home\/users\/sba\/data\/anadarko\/object-recognition\/images/g' | cut -d, -f1 | sort | uniq | ~/src/abyss/deep-learning/applications/retinanet-predict --score-threshold=0.5 --image-min-side=1000 --image-max-side=1000 ~/scratch/anadarko/object-recognition/snapshots/resnet50_csv_100.h5 --convert-model > ~/data/anadarko/object-recognition/val_predictions.csv
 
-    return parser.parse_args(args)
+    return args
 
 
 def draw_result(boxes, scores, labels, image):
@@ -184,11 +234,7 @@ def draw_result(boxes, scores, labels, image):
 
 
 def main(args=None):
-    # parse arguments
-    if args is None:
-        args = sys.argv[1:]
-    args = parse_args(args)
-
+    script_time = time.perf_counter()
     # make sure keras is the minimum required version
     check_keras_version()
 
@@ -197,9 +243,11 @@ def main(args=None):
         os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     keras.backend.tensorflow_backend.set_session(get_session())
 
-    # make save path if it doesn't exist
-    if args.save_path is not None and not os.path.exists(args.save_path):
-        os.makedirs(args.save_path)
+    # make save path
+    try:
+        os.makedirs(args.save_path, exist_ok=True)
+    except TypeError:
+        pass
 
     # optionally load config parameters
     if args.config:
@@ -214,63 +262,177 @@ def main(args=None):
         anchor_params = parse_anchor_parameters(args.config)
 
     # load the model
-    print('Loading model, this may take a second...', file=sys.stderr)
-    model = models.load_model(args.model, backbone_name=args.backbone)
+    print_verbose('Loading model, this may take a second...', verbose=True)
+    model = models.load_model(args.weights, backbone_name=args.backbone)
 
     # optionally convert the model
     if args.convert_model:
-        nms_threshold = 0.1
-        model = retinanet_bbox(model=model, nms=True, nms_threshold=nms_threshold, anchor_params=anchor_params)
+        model = retinanet_bbox(model=model, nms=True, nms_threshold=args.nms_threshold, anchor_params=anchor_params)
 
     # start evaluation
-    with open(args.images, 'r') as file_handle:
-        images = file_handle.read().split("\n")
+    with open(args.images) as f:
+        images = f.read().split("\n")
 
-    for line_counter, line in enumerate(images):
-        if not line:
+    tile_size = args.tile_size
+    stride = args.stride
+    image_min_side = args.image_min_side
+    image_max_side = args.image_max_side
+    output_path = "stdout"
+    for image_num, image_path in enumerate(images):
+        if not image_path:
             continue
 
-        image_path = line.strip()
-        print('Processing image ' + str(line_counter) + ' at ' + image_path, file=sys.stderr)
+        image_time = time.perf_counter()
+        image_path = image_path.strip()
+        print_verbose("Processing image {image_num} at {image_path}".format(image_num=image_num + 1,
+                                                                            image_path=image_path),
+                      verbose=True)
 
         image = read_image_bgr(image_path)
-        if args.show:
-            import cv2
-            draw = cv2.cvtColor(image.copy(), cv2.COLOR_BGR2RGB)
+        image_height, image_width = image.shape[:2]
 
-        # preprocess image for network
-        image = preprocess_image(image)
-        image, scale = resize_image(image, min_side=args.image_min_side, max_side=args.image_max_side)
+        if tile_size is None:
+            tile_size = image_height, image_width
 
-        # process image
-        start = time.time()
-        boxes, scores, labels = model.predict_on_batch(np.expand_dims(image, axis=0))
-        bsr_output = np.concatenate((boxes[0, :], scores.T, labels.T), axis=1)
-        print("processing time: ", time.time() - start, file=sys.stderr)
-        print(boxes.shape, scores.shape, labels.shape, bsr_output.shape, file=sys.stderr)
+        if stride is None:
+            stride = tile_size
+            
+        # Values used for cropping tiles from the image
+        stride_height, stride_width = stride
+        tile_height, tile_width = tile_size
 
-        # correct for image scale
-        boxes /= scale
+        # Generator of tile images
+        image_tiles = tile_gen(image, (tile_height, tile_width), (stride_height, stride_width))
 
-        # visualize detections
-        if args.show:
-            draw_result(boxes, scores, labels, draw)
+        # Stores all results from each tile for one image
+        image_results = []
+        num_tiles_y = int(np.floor((image_height - tile_height) / stride_height + 1))
+        num_tiles_x = int(np.floor((image_width - tile_width) / stride_width + 1))
 
-        for box_idx in range(bsr_output.shape[0]):
-            # Early exit for max detections per image
-            if box_idx >= args.max_detections:
-                break
-            # if bsr_output[box_idx,4] < 0
+        # Used to evaluate overlapping bboxes for different tiles
+        centroids = []
+        tile_indices = []
+        for i in range(num_tiles_x * num_tiles_y):
+            col = i % num_tiles_x
+            row = i // num_tiles_x
+            tile_indices.append((col, row))
+            centroid_x = col * stride_width + tile_width / 2
+            centroid_y = row * stride_height + tile_height / 2
+            centroids.append((centroid_y, centroid_x))
+        centroids = np.asarray(centroids)
 
-            # Early exit for invalid detections
-            idx_ = bsr_output[box_idx, :]
-            if idx_[-1] == -1 and args.remove:
-                break
+        if args.image_min_side is None:
+            if image_min_side is None:
+                image_min_side = min(tile_size)
+                print_verbose('image min side has been omitted, minimum value of {} will be taken from the first '
+                              'image. If other images do not have same dimensions, the script will stop'
+                              .format(image_min_side), verbose=True)
+            elif image_min_side != min(tile_size):
+                print_and_die("inconsistent image dimensions in file given and no tile size has been specified. "
+                              "exiting")
 
-            sys.stdout.write('{},{},'.format(image_path, box_idx))
-            np.savetxt(sys.stdout, idx_[None, :], delimiter=',', fmt='%.4f')
-            # print(boxes.shape, scores.shape, labels.shape, bsr_output.shape)
+        if args.image_max_side is None:
+            if image_max_side is None:
+                image_max_side = max(tile_size)
+                print_verbose('image max side has been omitted, maximum value of {} will be taken from the first '
+                              'image. If other images do not have same dimensions, the script will stop'
+                              .format(image_max_side), verbose=True)
+            elif image_max_side != max(tile_size):
+                print_and_die("inconsistent image dimensions in file given and no tile size has been specified. "
+                              "exiting")
+
+        for tile_num, tile in enumerate(image_tiles):
+            tile_time = time.perf_counter()
+            col, row = tile_indices[tile_num]
+
+            # bbox offsets of tile in regards to starting pixel of original image
+            offset_x = stride_width * col
+            offset_y = stride_height * row
+
+            offsets = np.asarray((offset_x, offset_y, offset_x, offset_y))
+
+            if args.show:
+                import cv2
+                draw = cv2.cvtColor(tile.copy(), cv2.COLOR_BGR2RGB)
+
+            # Pre-process image for network
+            tile, scale = resize_image(preprocess_image(tile),
+                                       min_side=image_min_side,
+                                       max_side=image_max_side)
+
+            # process image
+            boxes, scores, labels = model.predict_on_batch(np.expand_dims(tile, axis=0))
+
+            # correct for image scale
+            boxes /= scale
+
+            bbox_score_category_output = np.concatenate((boxes[0, :], scores.T, labels.T), axis=1)
+
+            # visualize detections
+            if args.show:
+                draw_result(boxes, scores, labels, draw)
+
+            for box_idx in range(bbox_score_category_output.shape[0]):
+                # Early exit for max detections per image
+                if box_idx >= args.max_detections:
+                    break
+
+                # Early exit for invalid detections
+                bbox = bbox_score_category_output[box_idx, :]
+                if bbox[-1] == -1 and args.remove:
+                    break
+
+                bbox[:4] += offsets
+                bbox_centroid = np.asarray(((bbox[0] + (bbox[2] - bbox[0]) / 2), bbox[1] + (bbox[3] - bbox[1]) / 2))
+                closest_tile_idx = np.argmin(np.linalg.norm(centroids - bbox_centroid, axis=1))
+                if closest_tile_idx == tile_num:
+                    image_results.append(bbox)
+
+            print_verbose("processing time for tile {}: {}h {}m {}s".format(tile_num + 1,
+                                                                            *pretty_time(
+                                                                                time.perf_counter() - tile_time)),
+                          verbose=True)
+
+        if args.save_path:
+            output_path = os.path.join(args.save_path,
+                                       os.path.splitext(os.path.basename(image_path))[0] + '.predictions.csv')
+            output_stream = open(output_path, 'w')
+        else:
+            output_stream = sys.stdout
+        print_verbose("writing to {}".format(output_path), verbose=True)
+        if image_results:
+            output = np.vstack(image_results)
+            for tile_num in range(output.shape[0]):
+                record = output[tile_num, :]
+                print('{},{},'.format(image_path, tile_num), end='', file=output_stream)
+                np.savetxt(output_stream, record[None, :], delimiter=',', fmt='%.4f')
+        if args.save_path:
+            output_stream.close()
+
+        print_verbose("processing time for image {}: {}h {}m {}s".format(image_path,
+                                                                         *pretty_time(
+                                                                             time.perf_counter() - image_time)),
+                      verbose=args.verbose)
+    print_verbose("processing time for script: {}h {}m {}s".format(*pretty_time(time.perf_counter() - script_time)),
+                  verbose=args.verbose)
+    sys.exit(0)
+
+
+def print_and_die(*args, **kwargs):
+    print_verbose(*args, verbose=True, **kwargs)
+    sys.exit(1)
+
+
+def print_verbose(*args, verbose=False, **kwargs):
+    if verbose:
+        print(os.path.basename(__file__) + ': ', *args, **kwargs, file=sys.stderr)
+
+
+def pretty_time(seconds: float):
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    return int(hours), int(minutes), seconds
 
 
 if __name__ == '__main__':
-    main()
+    main(args=parse_args())
