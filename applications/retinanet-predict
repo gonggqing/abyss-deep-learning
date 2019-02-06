@@ -30,6 +30,18 @@ from keras_retinanet.utils.visualization import draw_box, draw_caption
 
 from abyss_deep_learning.utils import tile_gen
 
+_DESCRIPTION = """
+Evaluation script for a RetinaNet network.
+
+examples
+    A 4000x4000 image is tiled into 9 2000x2000 images that are then resized into 1000x1000 images before feeding into the network
+    retinanet-predict images.csv --weights ../20190131/snapshots/resnet50_csv_100.h5 --convert-model --backbone resnet50 --image-min-side 1000 --image-max-side 1000 --tile-size 2000,2000 --stride 1000,1000 --remove --save-path csv-predictions
+    
+    Images are resized to dimensions 1000x1000 before being fed into the network
+    retinanet-predict images.csv --weights ../20190131/snapshots/resnet50_csv_100.h5 --convert-model --backbone resnet50 --image-min-side 1000 --image-max-side 1000  --remove --save-path csv-predictions
+"""
+
+
 # Allow relative imports when being executed as script.
 if __name__ == "__main__" and __package__ is None:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -118,68 +130,70 @@ def retinanet_bbox(
     return keras.models.Model(inputs=model.inputs, outputs=detections, name=name)
 
 
-def parse_args():
+def get_args():
     """ Parse the arguments.
     """
-    parser = argparse.ArgumentParser(description='Evaluation script for a RetinaNet network.')
+    parser = argparse.ArgumentParser(description=_DESCRIPTION)
     parser.add_argument('images',
-                        help='Text file of image paths',
-                        type=str)
+                        help='Text file of image paths')
     parser.add_argument('--weights',
-                        help='Path to RetinaNet model weights.',
-                        type=str)
+                        help='Path to RetinaNet model weights.')
     parser.add_argument('--convert-model',
                         help='Convert the model to an inference model (ie. the input is a training model).',
                         action='store_true')
     parser.add_argument('--backbone',
-                        help='The backbone of the model. default is %(default)s',
+                        help='The backbone of the model. Default is %(default)s',
                         default='resnet50')
     parser.add_argument('--gpu',
                         help='Id of the GPU to use (as reported by nvidia-smi).')
     parser.add_argument('--score-threshold',
-                        help='Threshold on score to filter detections with. default is %(default)s',
+                        help='Threshold on score to filter detections with. Default is %(default)s',
                         default=0.05,
                         type=float)
     parser.add_argument('--nms-threshold',
-                        help='IoU threshold for non-maximum supression for outputs. default is %(default)s',
+                        help='IoU threshold for non-maximum supression for outputs. Default is %(default)s',
                         default=0.1,
                         type=float)
     parser.add_argument('--max-detections',
-                        help='Max Detections per image. default is %(default)s.',
+                        help='Max Detections per image. Default is %(default)s.',
                         default=100,
                         type=int)
-    parser.add_argument('--save-path',
-                        type=str,
+    parser.add_argument('--output-directory-per-image',
                         help='Directory for saving images with detections. Individual CSV files will be produced for '
                              'each image that has detections. If no detections are found in the image then the CSV '
                              'file will be empty. If not specified, detections are output to stdout.')
     parser.add_argument('--show',
                         help='Show per-image examples in matplotlib',
                         action='store_true')
+    parser.add_argument('--batch-size',
+                        help="Number of images to run predictions in a batch at once. Default is %(default)s",
+                        default=1,
+                        type=int)
     parser.add_argument('--image-min-side',
                         help='Rescale the image so the smallest side is min_side. If omitted, the min value of the '
                              'first images height and width will be used. In this case, '
                              'if the rest of the given images do not have the same dimension, the script will stop.',
-                        type=int, )
+                        type=int)
     parser.add_argument('--image-max-side',
                         help='Rescale the image if the largest side is larger than max_side. If omitted, '
                              'the max value of the first images height and width will be used. In this case, '
                              'if the rest of the given images do not have the same dimension, the script will stop.',
-                        type=int, )
+                        type=int)
     parser.add_argument('--tile-size',
-                        type=str,
                         help='Comma separated values for [height],[width] of tiles to crop from each image')
     parser.add_argument('--stride',
-                        type=str,
                         help='Comma separated values for [height],[width] of strides to take when tiling the image')
+    parser.add_argument('--filter-overlaps',
+                        help='Filter out overlapping bounding boxes on the same detection from different tiles',
+                        action='store_true')
     parser.add_argument('--config',
                         help='Path to a configuration parameters .ini file (only used with --convert-model).')
     parser.add_argument('--remove',
-                        help="Remove negative category detections from output as the network outputs fixed size "
-                             "detections",
+                        help='Remove negative category detections from output as the network outputs fixed size '
+                             'detections',
                         action='store_true')
     parser.add_argument('-v', '--verbose',
-                        help="More verbose output to stderr",
+                        help='More verbose output to stderr',
                         action='store_true')
     args = parser.parse_args()
 
@@ -192,9 +206,6 @@ def parse_args():
         args.stride = [int(num) for num in args.stride.split(',')]
     except AttributeError:
         pass
-
-    # EXAMPLE USAGE to be added to --help output
-    # cat ~/data/anadarko/object-recognition/val_annotations.csv | sed 's/images/\/home\/users\/sba\/data\/anadarko\/object-recognition\/images/g' | cut -d, -f1 | sort | uniq | ~/src/abyss/deep-learning/applications/retinanet-predict --score-threshold=0.5 --image-min-side=1000 --image-max-side=1000 ~/scratch/anadarko/object-recognition/snapshots/resnet50_csv_100.h5 --convert-model > ~/data/anadarko/object-recognition/val_predictions.csv
 
     return args
 
@@ -245,7 +256,7 @@ def main(args=None):
 
     # make save path
     try:
-        os.makedirs(args.save_path, exist_ok=True)
+        os.makedirs(args.output_directory_per_image, exist_ok=True)
     except TypeError:
         pass
 
@@ -383,9 +394,9 @@ def main(args=None):
                     break
 
                 bbox[:4] += offsets
-                bbox_centroid = np.asarray(((bbox[0] + (bbox[2] - bbox[0]) / 2), bbox[1] + (bbox[3] - bbox[1]) / 2))
+                bbox_centroid = np.asarray((bbox[1] + ((bbox[3] - bbox[1]) / 2), (bbox[0] + ((bbox[2] - bbox[0]) / 2))))
                 closest_tile_idx = np.argmin(np.linalg.norm(centroids - bbox_centroid, axis=1))
-                if closest_tile_idx == tile_num:
+                if closest_tile_idx == tile_num or not args.filter_overlaps:
                     image_results.append(bbox)
 
             print_verbose("processing time for tile {}: {}h {}m {}s".format(tile_num + 1,
@@ -393,8 +404,8 @@ def main(args=None):
                                                                                 time.perf_counter() - tile_time)),
                           verbose=True)
 
-        if args.save_path:
-            output_path = os.path.join(args.save_path,
+        if args.output_directory_per_image:
+            output_path = os.path.join(args.output_directory_per_image,
                                        os.path.splitext(os.path.basename(image_path))[0] + '.predictions.csv')
             output_stream = open(output_path, 'w')
         else:
@@ -406,7 +417,7 @@ def main(args=None):
                 record = output[tile_num, :]
                 print('{},{},'.format(image_path, tile_num), end='', file=output_stream)
                 np.savetxt(output_stream, record[None, :], delimiter=',', fmt='%.4f')
-        if args.save_path:
+        if args.output_directory_per_image:
             output_stream.close()
 
         print_verbose("processing time for image {}: {}h {}m {}s".format(image_path,
@@ -425,7 +436,7 @@ def print_and_die(*args, **kwargs):
 
 def print_verbose(*args, verbose=False, **kwargs):
     if verbose:
-        print(os.path.basename(__file__) + ': ', *args, **kwargs, file=sys.stderr)
+        print(os.path.basename(__file__) + ':', *args, **kwargs, file=sys.stderr)
 
 
 def pretty_time(seconds: float):
@@ -435,4 +446,4 @@ def pretty_time(seconds: float):
 
 
 if __name__ == '__main__':
-    main(args=parse_args())
+    main(args=get_args())
