@@ -36,7 +36,10 @@ def bbox_iou_matrix( a, b ):
     b_areas = np.repeat( [ ba ], len( a ), axis = 0 )
     return intersections / ( a_areas + b_areas - intersections )
 
-def bbox_to_sklearn_pred_true( ious, labels_true, labels_pred, iou_threshold = 0., blank_id = 0 ):
+def poly_iou_matrix( a, b ):
+    raise Exception( "todo" )
+
+def ious_to_sklearn_pred_true( ious, labels_true, labels_pred, iou_threshold = 0., blank_id = 0 ):
     ''' Convert labelled bboxes to y_true and y_pred that could be consumed directly by sklearn.metrics functions
     
     example
