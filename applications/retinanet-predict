@@ -170,12 +170,14 @@ def get_args():
                         help='Rescale the image so the smallest side is min_side. If omitted, the min value of the '
                              'first images height and width will be used. In this case, '
                              'if the rest of the given images do not have the same dimension, the script will stop.',
-                        type=int)
+                        type=int,
+                        required=True)
     parser.add_argument('--image-max-side',
                         help='Rescale the image if the largest side is larger than max_side. If omitted, '
                              'the max value of the first images height and width will be used. In this case, '
                              'if the rest of the given images do not have the same dimension, the script will stop.',
-                        type=int)
+                        type=int,
+                        required=True)
     parser.add_argument('--tile-size',
                         help='Comma separated values for [height],[width] of tiles to crop from each image')
     parser.add_argument('--stride',
@@ -282,8 +284,7 @@ def main(args=None):
         model = retinanet_bbox(model=model, nms=True, nms_threshold=args.nms_threshold, anchor_params=anchor_params)
 
     # start evaluation
-    image_min_side = args.image_min_side
-    image_max_side = args.image_max_side
+
     output_path = "stdout"
     max_detections = args.max_detections
 
@@ -313,33 +314,14 @@ def main(args=None):
                           .format(image_num=image_num_, image_path=image_path),
                           verbose=True)
 
-        # Stores results from either batched images or tiled images
-        """
-        if args.image_min_side is None:
-            if image_min_side is None:
-                image_min_side = min(args.tile_size)
-                print_verbose('image min side has been omitted, minimum value of {} will be taken from the first '
-                              'image. If other images do not have same dimensions, the script will stop'
-                              .format(image_min_side), verbose=True)
-            elif image_min_side != min(args.tile_size):
-                print_and_die("inconsistent image dimensions in file given and no tile size has been specified. "
-                              "exiting")
-
-        if args.image_max_side is None:
-            if image_max_side is None:
-                image_max_side = max(args.tile_size)
-                print_verbose('image max side has been omitted, maximum value of {} will be taken from the first '
-                              'image. If other images do not have same dimensions, the script will stop'
-                              .format(image_max_side), verbose=True)
-            elif image_max_side != max(args.tile_size):
-                print_and_die("inconsistent image_ dimensions in file given and no tile size has been specified. "
-                              "exiting")
-        """
-
         # Batching on images
         if args.tile_size is None:
+            if args.show:
+                import cv2
+                image_draw = cv2.cvtColor(image_batch[0].copy(), cv2.COLOR_BGR2RGB)
+
             # Preprocess image for network
-            image_batch, scales = preprocess_group(image_batch, image_min_side, image_max_side)
+            image_batch, scales = preprocess_group(image_batch, args.image_min_side, args.image_max_side)
             image_batch = compute_inputs(image_batch, num_batches)
 
             # Run image through network
@@ -351,6 +333,9 @@ def main(args=None):
             category_id = np.expand_dims(category_id, axis=2)
             image_paths_ = np.repeat(image_paths, max_detections).reshape(num_batches, max_detections, 1)
             annotation_ids = np.repeat(np.expand_dims(np.arange(max_detections), axis=0), num_batches, axis=0).reshape(num_batches, max_detections, 1)
+
+            if args.show:
+                draw_result(boxes, scores, category_id, image_draw)
 
             # Join detections, score, and category id together
             bbox_score_category_output = np.dstack((image_paths_, annotation_ids, boxes, scores, category_id))
@@ -413,7 +398,7 @@ def main(args=None):
                 offsets = np.asarray(offsets)
 
                 # Preprocess image for network
-                tile_batch, scales = preprocess_group(tile_batch, image_min_side, image_max_side)
+                tile_batch, scales = preprocess_group(tile_batch, args.image_min_side, args.image_max_side)
                 tile_batch = compute_inputs(tile_batch, num_tiles)
 
                 # Run image through network
@@ -503,14 +488,11 @@ def batch_from_images(image_paths: list, batch_size: int):
     for idx, image_path in enumerate(image_paths):
         if not image_path:
             continue
-
-        image = read_image_bgr(image_path)
-
         if idx >= batch_size * passes:
             yield batch
             batch = []
             passes += 1
-        batch.append(image)
+        batch.append(read_image_bgr(image_path))
     yield batch
 
 
