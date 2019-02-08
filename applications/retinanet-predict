@@ -179,7 +179,8 @@ def get_args():
     parser.add_argument('--tile-size',
                         help='Comma separated values for [height],[width] of tiles to crop from each image')
     parser.add_argument('--stride',
-                        help='Comma separated values for [height],[width] of strides to take when tiling the image')
+                        help='Comma separated values for [height],[width] of strides to take when tiling the image. '
+                             'Used on conjuction with tiling')
     parser.add_argument('--filter-overlaps',
                         help='Filter out overlapping bounding boxes on the same detection from different tiles',
                         action='store_true')
@@ -203,6 +204,9 @@ def get_args():
         args.stride = [int(num) for num in args.stride.split(',')]
     except AttributeError:
         pass
+
+    with open(args.images) as f:
+        args.images = f.read().split("\n")
 
     return args
 
@@ -278,201 +282,314 @@ def main(args=None):
         model = retinanet_bbox(model=model, nms=True, nms_threshold=args.nms_threshold, anchor_params=anchor_params)
 
     # start evaluation
-    with open(args.images) as f:
-        images = f.read().split("\n")
-
-    tile_size = args.tile_size
-    stride = args.stride
     image_min_side = args.image_min_side
     image_max_side = args.image_max_side
     output_path = "stdout"
-    for image_num, image_path in enumerate(images):
-        if not image_path:
-            continue
+    max_detections = args.max_detections
 
-        image_time = time.perf_counter()
-        image_path = image_path.strip()
-        print_verbose("Processing image {image_num} at {image_path}"
-                      .format(image_num=image_num + 1, image_path=image_path),
-                      verbose=True)
+    if args.tile_size is not None:
+        # Calculate required values for producing tiles
+        print_verbose("Tiling option has been selected", verbose=True)
 
-        image = read_image_bgr(image_path)
-        image_height, image_width = image.shape[:2]
-
-        if tile_size is None:
-            tile_size = image_height, image_width
-
-        if stride is None:
-            stride = tile_size
+        if args.stride is None:
+            print_verbose("Stride value has not been given. Set equal to tile_size so that tiled images do not overlap",
+                          verbose=True)
+            args.stride = args.tile_size
 
         # Values used for cropping tile from the image
-        stride_height, stride_width = stride
-        tile_height, tile_width = tile_size
+        tile_height, tile_width = args.tile_size
+        stride_height, stride_width = args.stride
 
-        # Generator of tile images
-        image_tiles = tile_gen(image, (tile_height, tile_width), (stride_height, stride_width))
+    image_batch_size = args.batch_size if args.tile_size is None else 1
+    for image_num, image_batch in enumerate(batch_from_images(args.images, image_batch_size)):
+        image_time = time.perf_counter()
 
-        # Stores all results from each tile for one image
-        image_results = []
-        num_tiles_y = int(np.floor((image_height - tile_height) / stride_height + 1))
-        num_tiles_x = int(np.floor((image_width - tile_width) / stride_width + 1))
+        num_batches = len(image_batch)
+        image_nums = tuple(range(image_num * image_batch_size, image_num * image_batch_size + num_batches))
+        image_paths = [args.images[image_num] for image_num in image_nums]
+        assert len(image_paths) == len(image_nums), "Number of image paths do not match the number of images evaluated"
+        for image_num_, image_path in zip(image_nums, image_paths):
+            print_verbose("Processing image {image_num} at {image_path}"
+                          .format(image_num=image_num_, image_path=image_path),
+                          verbose=True)
 
-        # Used to evaluate overlapping bboxes for different tile
-        centroids = []
-        tile_indices = []
-        for i in range(num_tiles_x * num_tiles_y):
-            col = i % num_tiles_x
-            row = i // num_tiles_x
-            tile_indices.append((col, row))
-            centroid_x = col * stride_width + tile_width / 2
-            centroid_y = row * stride_height + tile_height / 2
-            centroids.append((centroid_y, centroid_x))
-        centroids = np.asarray(centroids)
-
+        # Stores results from either batched images or tiled images
+        """
         if args.image_min_side is None:
             if image_min_side is None:
-                image_min_side = min(tile_size)
+                image_min_side = min(args.tile_size)
                 print_verbose('image min side has been omitted, minimum value of {} will be taken from the first '
                               'image. If other images do not have same dimensions, the script will stop'
                               .format(image_min_side), verbose=True)
-            elif image_min_side != min(tile_size):
+            elif image_min_side != min(args.tile_size):
                 print_and_die("inconsistent image dimensions in file given and no tile size has been specified. "
                               "exiting")
 
         if args.image_max_side is None:
             if image_max_side is None:
-                image_max_side = max(tile_size)
+                image_max_side = max(args.tile_size)
                 print_verbose('image max side has been omitted, maximum value of {} will be taken from the first '
                               'image. If other images do not have same dimensions, the script will stop'
                               .format(image_max_side), verbose=True)
-            elif image_max_side != max(tile_size):
-                print_and_die("inconsistent image dimensions in file given and no tile size has been specified. "
+            elif image_max_side != max(args.tile_size):
+                print_and_die("inconsistent image_ dimensions in file given and no tile size has been specified. "
                               "exiting")
+        """
 
-        for tile_num, tile in enumerate(image_tiles):
-            # print_verbose(tile_num, tile.shape, verbose=True)
-            tile_time = time.perf_counter()
-            col, row = tile_indices[tile_num]
+        # Batching on images
+        if args.tile_size is None:
+            # Preprocess image for network
+            image_batch, scales = preprocess_group(image_batch, image_min_side, image_max_side)
+            image_batch = compute_inputs(image_batch, num_batches)
 
-            # bbox offsets of tile in regards to starting pixel of original image
-            offset_x = stride_width * col
-            offset_y = stride_height * row
+            # Run image through network
+            boxes, scores, category_id = model.predict_on_batch(image_batch)
 
-            offsets = np.asarray((offset_x, offset_y, offset_x, offset_y))
-
-            if args.show:
-                import cv2
-                draw = cv2.cvtColor(tile.copy(), cv2.COLOR_BGR2RGB)
-
-            # Pre-process image for network
-            # scales = np.apply_along_axis(compute_resize_scale, 2, tile, min_side=image_min_side, max_side=image_max_side)
-            # print_verbose(scales, verbose=True)
-            # print_verbose(scales.shape, verbose=True)
-            # break
-            #
-            tile, scale = resize_image(preprocess_image(tile),
-                                        min_side=image_min_side,
-                                        max_side=image_max_side)
-
-            # process image
-            boxes, scores, category_id = model.predict_on_batch(np.expand_dims(tile, axis=0))
-
-            # correct for image scale
-            boxes /= scale
-
-            # visualize detections
-            if args.show:
-                draw_result(boxes, scores, category_id, draw)
+            # Apply scaling to bboxes after resizing
+            boxes = (boxes.T / scales).T
+            scores = np.expand_dims(scores, axis=2)
+            category_id = np.expand_dims(category_id, axis=2)
+            image_paths_ = np.repeat(image_paths, max_detections).reshape(num_batches, max_detections, 1)
+            annotation_ids = np.repeat(np.expand_dims(np.arange(max_detections), axis=0), num_batches, axis=0).reshape(num_batches, max_detections, 1)
 
             # Join detections, score, and category id together
-            bbox_score_category_output = np.hstack((boxes[0, :], scores.T, category_id.T))
+            bbox_score_category_output = np.dstack((image_paths_, annotation_ids, boxes, scores, category_id))
+            num_columns = bbox_score_category_output.shape[2]
 
             # Select the first n rows specified by --max-detections argument. Default is 300
-            bbox_score_category_output = bbox_score_category_output[:args.max_detections, :]
+            bbox_score_category_output = bbox_score_category_output[:, :max_detections, :]
+
+            # Flatten from 3d to 2d array
+            bbox_score_category_output = bbox_score_category_output.reshape(num_batches * max_detections, num_columns)
 
             # Filter out negative category detections as predictions are fixed size
-            bbox_score_category_output = bbox_score_category_output[bbox_score_category_output[:, -1] >= 0]
+            if args.remove:
+                bbox_score_category_output = bbox_score_category_output[bbox_score_category_output[:, -1].astype(int) >= 0]
 
-            # Offset bboxes for this tile with respect to starting index of first tile of image
-            bbox_score_category_output[:, :4] += offsets
+            annotations = bbox_score_category_output
 
-            if args.filter_overlaps:
-                # Calculate bbox centroid by averaging x1, x2 and y1, y2
-                centroid_x = np.expand_dims(np.mean(bbox_score_category_output[:, 0:3:2], axis=1), axis=-1)
-                centroid_y = np.expand_dims(np.mean(bbox_score_category_output[:, 1:4:2], axis=1), axis=-1)
-                bbox_centroids = np.hstack((centroid_y, centroid_x))
-
-                # Expand 2d array of centroids to 3d array for broadcasting of values
-                centroids_repeated = np.repeat(np.expand_dims(centroids, axis=1), bbox_centroids.shape[0], axis=1)
-
-                # Calculate distances between tile centroid and detection centroids for current tile
-                distances = np.linalg.norm(centroids_repeated - bbox_centroids, axis=2)
-
-                # Find the closest tile which is essentially the smallest distance
-                closest_tiles = np.argmin(distances, axis=0)
-
-                # Find indexes of where the closest tile is the current tile
-                filtered_detection_ids = np.array(np.where(closest_tiles == tile_num)[0])
-
-                # Index the valid output annotations
-                bbox_score_category_output = bbox_score_category_output[filtered_detection_ids, :]
-
-            image_results.append(bbox_score_category_output)
-            print_verbose("processing time for tile {}: {}h {}m {}s"
-                          .format(tile_num + 1, *pretty_time(time.perf_counter() - tile_time)),
-                          verbose=True)
-
-        if args.output_directory_per_image:
-            output_path = os.path.join(args.output_directory_per_image,
-                                       os.path.splitext(os.path.basename(image_path))[0] + '.predictions.csv')
-            output_stream = open(output_path, 'w')
+        # Batching on tiles from images
         else:
-            output_stream = sys.stdout
-        print_verbose("writing to {}".format(output_path), verbose=True)
-        if image_results:
-            annotations = np.vstack(image_results)
-            num_annotations = annotations.shape[0]
-            image_paths = np.repeat(image_path, num_annotations).reshape(num_annotations, 1)
-            annotation_ids = np.arange(num_annotations).reshape(num_annotations, 1)
-            np.savetxt(output_stream, np.hstack((image_paths, annotation_ids, annotations)), delimiter=',', fmt='%s')
-        if args.output_directory_per_image:
-            output_stream.close()
+            assert len(image_batch) == 1, "More than one image is being tiled."
+            image = image_batch[0]
+            image_height, image_width = image.shape[:2]
 
-        print_verbose("processing time for image {}: {}h {}m {}s"
+            # Generator of tiled images
+            tiled_images = tile_gen(image, (tile_height, tile_width), (stride_height, stride_width))
+
+            num_tiles_y = int(np.floor((image_height - tile_height) / stride_height + 1))
+            num_tiles_x = int(np.floor((image_width - tile_width) / stride_width + 1))
+
+            assert args.batch_size <= (num_tiles_x * num_tiles_y), "Batching can only be performed on tiles from an image, not across tiles from different images"
+
+            # Calculations for centroids used to evaluate overlapping bboxes for different tiles
+            centroids = []
+            tile_indexes = []
+            for i in range(num_tiles_x * num_tiles_y):
+                col = i % num_tiles_x
+                row = i // num_tiles_x
+                tile_indexes.append((col, row))
+                centroid_x = col * stride_width + tile_width / 2
+                centroid_y = row * stride_height + tile_height / 2
+                centroids.append((centroid_y, centroid_x))
+            centroids = np.asarray(centroids)
+
+            for idx, tile_batch in enumerate(batch_from_tiles(tiled_images, args.batch_size)):
+                # print_verbose(tile_num, tile.shape, verbose=True)
+                tile_time = time.perf_counter()
+
+                num_tiles = len(tile_batch)
+                tile_nums = tuple(range(idx * args.batch_size, idx * args.batch_size + num_tiles))
+
+                offsets = []
+                for tile_num in tile_nums:
+                    col, row = tile_indexes[tile_num]
+
+                    # bbox offsets of tile in regards to starting pixel of original image_
+                    offset_x = stride_width * col
+                    offset_y = stride_height * row
+
+                    offsets.append((offset_x, offset_y, offset_x, offset_y))
+                offsets = np.asarray(offsets)
+
+                # Preprocess image for network
+                tile_batch, scales = preprocess_group(tile_batch, image_min_side, image_max_side)
+                tile_batch = compute_inputs(tile_batch, num_tiles)
+
+                # Run image through network
+                boxes, scores, category_id = model.predict_on_batch(tile_batch)
+
+                # Apply scaling to bboxes after resizing
+                boxes = (boxes.T / scales).T
+                scores = np.expand_dims(scores, axis=2)
+                category_id = np.expand_dims(category_id, axis=2)
+
+                # Join detections, score, and category id together
+                bbox_score_category_output = np.dstack((boxes, scores, category_id))
+                num_columns = bbox_score_category_output.shape[2]
+
+                # Filter out negative category detections as predictions are fixed size
+                if args.remove:
+                    # Default value of max_detections is args.max_detections
+                    # Integer representing max detection of all batched tiles
+                    max_detections = np.argmin(bbox_score_category_output[:, :, -1] >= 0, axis=1).max()
+
+                bbox_score_category_output = bbox_score_category_output[:, :max_detections, :]
+
+                # Reshape from 3d to 2d array
+                bbox_score_category_output = bbox_score_category_output.reshape(num_tiles * max_detections, num_columns)
+
+                # Offset bboxes for this tile with respect to starting index of first tile of image_
+                bbox_score_category_output[:, :4] += np.repeat(offsets, [max_detections] * num_tiles, axis=0)
+
+                if args.filter_overlaps:
+                    # Calculate bbox centroid by averaging x1, x2 and y1, y2
+                    centroid_x = np.expand_dims(np.mean(bbox_score_category_output[:, 0:3:2], axis=1), axis=-1)
+                    centroid_y = np.expand_dims(np.mean(bbox_score_category_output[:, 1:4:2], axis=1), axis=-1)
+                    bbox_centroids = np.hstack((centroid_y, centroid_x))
+
+                    # Expand 2d array of centroids to 3d array for broadcasting of values
+                    centroids_repeated = np.repeat(np.expand_dims(centroids, axis=1), bbox_centroids.shape[0], axis=1)
+
+                    # Calculate distances between tile centroid and detection centroids for current tile
+                    distances = np.linalg.norm(centroids_repeated - bbox_centroids, axis=2)
+
+                    # Find the closest tile which is essentially the smallest distance
+                    closest_tiles = np.argmin(distances, axis=0)
+
+                    # Find indexes of where the closest tile is the current tile
+                    filtered_detection_ids = np.where(closest_tiles == np.repeat(tile_nums, [max_detections] * num_tiles))[0]
+
+                    # Index the valid output annotations
+                    bbox_score_category_output = bbox_score_category_output[filtered_detection_ids, :]
+
+                # Filter out negative category detections as predictions are fixed size
+                if args.remove:
+                    bbox_score_category_output = bbox_score_category_output[bbox_score_category_output[:, -1] >= 0]
+
+                num_annotations = bbox_score_category_output.shape[0]
+                image_paths_ = np.repeat(image_paths, num_annotations).reshape(num_annotations, 1)
+                annotation_ids = np.arange(num_annotations).reshape(num_annotations, 1)
+                annotations = np.hstack((image_paths_, annotation_ids, bbox_score_category_output))
+
+        for image_path in image_paths:
+            if args.output_directory_per_image:
+                output_path = os.path.join(args.output_directory_per_image,
+                                           os.path.splitext(os.path.basename(image_path))[0] + '.predictions.csv')
+                output_stream = open(output_path, 'w')
+            else:
+                output_stream = sys.stdout
+            print_verbose("writing to {}".format(output_path), verbose=True)
+            if annotations.shape[0] > 0:
+                image_annotations = annotations[annotations[:, 0] == image_path]
+                if image_annotations.shape[0] > 0:
+                    np.savetxt(output_stream, image_annotations, delimiter=',', fmt='%s')
+            if args.output_directory_per_image:
+                output_stream.close()
+
+        print_verbose("processing time for batch {}: {}h {}m {}s"
                       .format(image_path, *pretty_time(time.perf_counter() - image_time)),
                       verbose=args.verbose)
     print_verbose("processing time for script: {}h {}m {}s"
                   .format(*pretty_time(time.perf_counter() - script_time)),
-                  verbose=args.verbose)
+                  verbose=True)
     sys.exit(0)
 
 
-def grouper(iterable, n: int):
-    ids = []
-    group = []
+def batch_from_images(image_paths: list, batch_size: int):
+    """ Group elements from a list of images into individual groups of """
+    batch = []
     passes = 1
-    for idx, i in enumerate(iterable):
-        if idx >= n * passes:
-            yield tuple(ids), np.array(group)
-            ids = []
-            group = []
+    for idx, image_path in enumerate(image_paths):
+        if not image_path:
+            continue
+
+        image = read_image_bgr(image_path)
+
+        if idx >= batch_size * passes:
+            yield batch
+            batch = []
             passes += 1
-        ids.append(idx)
-        group.append(i)
-    yield tuple(ids), np.array(group)
+        batch.append(image)
+    yield batch
+
+
+def batch_from_tiles(tiles, batch_size: int):
+    """ Group elements from an iterable into individual groups of size batch_size
+    """
+    batch = []
+    passes = 1
+    for idx, tile in enumerate(tiles):
+        if idx >= batch_size * passes:
+            yield batch
+            batch = []
+            passes += 1
+        batch.append(tile)
+    yield batch
+
+
+def compute_inputs(image_group, batch_size):
+    """ Compute inputs for the network using an image_group.
+    """
+    # get the max image shape
+    max_shape = tuple(max(image.shape[x] for image in image_group) for x in range(3))
+
+    # construct an image batch object
+    image_batch = np.zeros((batch_size,) + max_shape, dtype=keras.backend.floatx())
+
+    # copy all images to the upper left part of the image batch object
+    for image_index, image in enumerate(image_group):
+        image_batch[image_index, :image.shape[0], :image.shape[1], :image.shape[2]] = image
+
+    if keras.backend.image_data_format() == 'channels_first':
+        image_batch = image_batch.transpose((0, 3, 1, 2))
+
+    return image_batch
+
+
+def preprocess_group_entry(image, image_min_side, image_max_side):
+    """ Preprocess image
+    """
+    # preprocess the image_
+    image = preprocess_image(image)
+
+    # resize image_
+    image, image_scale = resize_image(image, min_side=image_min_side, max_side=image_max_side)
+
+    # convert to the wanted keras floatx
+    image = keras.backend.cast_to_floatx(image)
+
+    return image, image_scale
+
+
+def preprocess_group(image_group, image_min_side, image_max_side):
+    """ Preprocess each image
+    """
+    scales = []
+    for idx, image in enumerate(image_group):
+        # pre-process a single group entry
+        image_group[idx], scale = preprocess_group_entry(image, image_min_side, image_max_side)
+        scales.append(scale)
+    return image_group, np.asarray(scales)
 
 
 def print_and_die(*args, **kwargs):
+    """ Print to stderr then exit program with exit code 1
+    """
     print_verbose(*args, verbose=True, **kwargs)
     sys.exit(1)
 
 
 def print_verbose(*args, verbose=False, **kwargs):
+    """ Print to stderr
+    """
     if verbose:
         print(os.path.basename(__file__) + ':', *args, **kwargs, file=sys.stderr)
 
 
 def pretty_time(seconds: float):
+    """ Return seconds as hours minute seconds
+    """
     minutes, seconds = divmod(seconds, 60)
     hours, minutes = divmod(minutes, 60)
     return int(hours), int(minutes), seconds
