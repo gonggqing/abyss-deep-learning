@@ -53,7 +53,7 @@ def main(args: argparse.Namespace = None):
     say("search expressions is [{}]".format(args.expression), verbose=args.verbose)
 
     data = json.loads(sys.stdin.read())
-    if args.on == 'annotations' and len(data.annotations) == 0:
+    if args.on == 'annotations' and len(data['annotations']) == 0:
         say("warning: got empty annotations, just pass input through", verbose=args.verbose)
         json.dump(data, sys.stdout, indent=args.indent)
         sys.exit(0)
