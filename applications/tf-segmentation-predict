@@ -317,8 +317,13 @@ def get_args():
 
 
 def main(args):
-    gpus = [int(i) for i in os.environ['CUDA_VISIBLE_DEVICES'].split(",")] if 'CUDA_VISIBLE_DEVICES' in os.environ else []
-    config_gpu(gpus, allow_growth=True, log_device_placement=False)
+    if 'CUDA_VISIBLE_DEVICES' in os.environ:
+        if os.environ['CUDA_VISIBLE_DEVICES'] == '':
+            gpus = None # CPU only
+        else:
+            # Specific GPUs
+            gpus = [int(i) for i in os.environ['CUDA_VISIBLE_DEVICES'].split(",")]
+        config_gpu(gpus, allow_growth=True, log_device_placement=False)
     is_custom_output = args.outputs_tensor is not None
     graph = setup_graph(args)
 

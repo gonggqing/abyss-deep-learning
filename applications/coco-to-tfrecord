@@ -1,7 +1,6 @@
 #!/bin/bash
 
 set -e
-set -x
 
 SCRIPTNAME=$(basename $0)
 CLI_ARGS="$@"
@@ -52,24 +51,27 @@ fi
 #LABELSET_DIR=~/src/projects/anadarko/label-sets/example-test
 #IMAGE_SOURCE_DIR="/mnt/rhino/processed/industry-data/anadarko/gunnison/r2s/sphericals/CD -/cubes"
 COCO_PATH="$1"
-LABELSET_DIR=$(dirname $COCO_PATH)
+COCO_DIR=$(dirname $COCO_PATH)
+LABELSET_DIR=$PWD
+VOC_DIR=$LABELSET_DIR/voc
 IMAGE_SOURCE_DIR="$2"
  
 #Make relevant VOC structures
-mkdir "$LABELSET_DIR/voc/JPEGImages" \
-      "$LABELSET_DIR/voc/SegmentationClassRaw" \
-      "$LABELSET_DIR/voc/ImageSets/Segmentation" \
+mkdir -p \
+      "$VOC_DIR/JPEGImages" \
+      "$VOC_DIR/SegmentationClassRaw" \
+      "$VOC_DIR/ImageSets/Segmentation" \
       "$LABELSET_DIR/tfrecord"
  
 cd "$LABELSET_DIR"
  
 # First create symlinks to relevant images
-jq '.images[].file_name'  "$COCO_PATH" | sed 's/"//g' > "$LABELSET_DIR/images.csv" # Extract image filenames from COCO
-cd "$LABELSET_DIR/JPEGImages"
-cat "$LABELSET_DIR/images.csv" | while IFS=$"\n" read -r filename; do ln -s "$IMAGE_SOURCE_DIR/$filename"; done
+jq '.images[].file_name'  "$COCO_PATH" | sed 's/"//g' > "$VOC_DIR/images.csv" # Extract image filenames from COCO
+cd "$VOC_DIR/JPEGImages"
+cat "$VOC_DIR/images.csv" | while IFS=$"\n" read -r filename; do ln -s "$IMAGE_SOURCE_DIR/$filename"; done
  
 #If needed, resize the dataset (e.g. labelbox we use smaller images, need to resize back to (4000, 4000)
-cd $LABELSET_DIR
+cd $VOC_DIR
 #coco-calc resize --size 4000,4000 <labels.coco.json >labels.big.coco.json
  
 # Create the VOC label images
@@ -100,10 +102,10 @@ fi
 ### Now run VOC to TfRecord
 
 # Execute from path tensorflow_models/research/deeplab/datasets
-DEEPLAB_DIR="~/src/tensorflow_models/research/deeplab/datasets" #TODO: Find a way to include this configurable 
+DEEPLAB_DIR="$HOME/src/tensorflow_models/research/deeplab/datasets" #TODO: Find a way to include this configurable 
 
 
-ls -ald $LABELSET_DIR/JPEGImages $LABELSET_DIR/ImageSets/Segmentation $LABELSET_DIR/SegmentationClassRaw $LABELSET_DIR/tfrecord 1>&2
+ls -ald $VOC_DIR/JPEGImages $VOC_DIR/ImageSets/Segmentation $VOC_DIR/SegmentationClassRaw $LABELSET_DIR/tfrecord 1>&2
 # Check all dirs exist
 if $? ; then
   info "iERROR: There is a dir in the VOC structure that does not exist."
@@ -111,11 +113,11 @@ if $? ; then
 fi
  
 python3 "$DEEPLAB_DIR/build_voc2012_data.py" \
-    --image_folder "$LABELSET_DIR/JPEGImages" \
-    --list_folder "$LABELSET_DIR/ImageSets/Segmentation" \
-    --semantic_segmentation_folder "$LABELSET_DIR/SegmentationClassRaw" \
+    --image_folder "$VOC_DIR/JPEGImages" \
+    --list_folder "$VOC_DIR/ImageSets/Segmentation" \
+    --semantic_segmentation_folder "$VOC_DIR/SegmentationClassRaw" \
     --output_dir "$LABELSET_DIR/tfrecord" \
-    --image_format jpg --label_format png
+    --image_format png --label_format png
  
 #If nothing happens above you have probably forgotten to make train/val .txt files.
 
