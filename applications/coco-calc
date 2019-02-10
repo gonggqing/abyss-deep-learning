@@ -245,53 +245,54 @@ def remap(coco: COCO) -> COCO:
     source_category_names = [category['name'] for category in source_categories]
     target_category_names = [category['name'] for category in target_categories]
     annotations = []
-    added_annotation_ids = set()
+    if len(coco.dataset['annotations']) > 0:
+        added_annotation_ids = set()
 
-    for old, new in mapping.items():
-        if isinstance(old, str) and old not in source_category_names:
-            say("cannot find source key {} in category names {}".format(old, source_category_names), verbose=True)
-            sys.exit(1)
+        for old, new in mapping.items():
+            if isinstance(old, str) and old not in source_category_names:
+                say("cannot find source key {} in category names {}".format(old, source_category_names), verbose=True)
+                sys.exit(1)
 
-        if isinstance(new, str) and new not in target_category_names:
-            say("cannot find target key {} in category names {}".format(new, target_category_names), verbose=True)
-            sys.exit(1)
+            if isinstance(new, str) and new not in target_category_names:
+                say("cannot find target key {} in category names {}".format(new, target_category_names), verbose=True)
+                sys.exit(1)
 
-        elif isinstance(old, int) and isinstance(new, int):
-            for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=old)):
-                ann_copy = copy.deepcopy(ann)
-                ann_copy['category_id'] = new
-                annotations.append(ann_copy)
-                added_annotation_ids.add(ann_copy)
-            category = coco.loadCats(ids=coco.getCatIds(catIds=old)).pop()
-            category['id'] = new
-
-        elif isinstance(old, int) and isinstance(new, str):
-            if new in new_name_2_id.keys():
+            elif isinstance(old, int) and isinstance(new, int):
                 for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=old)):
                     ann_copy = copy.deepcopy(ann)
-                    ann_copy['category_id'] = new_name_2_id[new]
+                    ann_copy['category_id'] = new
                     annotations.append(ann_copy)
-                    added_annotation_ids.add(ann_copy['id'])
+                    added_annotation_ids.add(ann_copy)
+                category = coco.loadCats(ids=coco.getCatIds(catIds=old)).pop()
+                category['id'] = new
 
-        elif isinstance(old, str) and isinstance(new, int):
-            for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=coco.getCatIds(catNms=old))):
-                ann_copy = copy.deepcopy(ann)
-                ann_copy['category_id'] = new
-                annotations.append(ann_copy)
-                added_annotation_ids.add(ann_copy['id'])
-            category = coco.loadCats(ids=coco.getCatIds(catNms=old)).pop()
-            category['id'] = new
+            elif isinstance(old, int) and isinstance(new, str):
+                if new in new_name_2_id.keys():
+                    for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=old)):
+                        ann_copy = copy.deepcopy(ann)
+                        ann_copy['category_id'] = new_name_2_id[new]
+                        annotations.append(ann_copy)
+                        added_annotation_ids.add(ann_copy['id'])
 
-        elif isinstance(old, str) and isinstance(new, str):
-            if new in new_name_2_id.keys():
+            elif isinstance(old, str) and isinstance(new, int):
                 for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=coco.getCatIds(catNms=old))):
                     ann_copy = copy.deepcopy(ann)
-                    ann_copy['category_id'] = new_name_2_id[new]
+                    ann_copy['category_id'] = new
                     annotations.append(ann_copy)
                     added_annotation_ids.add(ann_copy['id'])
+                category = coco.loadCats(ids=coco.getCatIds(catNms=old)).pop()
+                category['id'] = new
 
-    to_add_annotation_ids = set(coco.getAnnIds()) - added_annotation_ids
-    annotations.extend(coco.loadAnns(ids=to_add_annotation_ids))
+            elif isinstance(old, str) and isinstance(new, str):
+                if new in new_name_2_id.keys():
+                    for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=coco.getCatIds(catNms=old))):
+                        ann_copy = copy.deepcopy(ann)
+                        ann_copy['category_id'] = new_name_2_id[new]
+                        annotations.append(ann_copy)
+                        added_annotation_ids.add(ann_copy['id'])
+
+        to_add_annotation_ids = set(coco.getAnnIds()) - added_annotation_ids
+        annotations.extend(coco.loadAnns(ids=to_add_annotation_ids))
 
     coco.dataset['annotations'] = annotations
 

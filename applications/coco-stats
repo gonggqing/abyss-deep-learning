@@ -3,120 +3,84 @@ import argparse
 import json
 import os
 import sys
+import time
 from collections import defaultdict
-from operator import itemgetter
+from contextlib import redirect_stdout
 
-DESCRIPTION = \
+from pycocotools.coco import COCO
+
+_DESCRIPTION = \
     """
-	Read coco file from stdin and count all unique category/caption instances.
-	
-	Output coco json contents in stdout.
-	
-	examples:
-		cat coco.json | coco-stats count
-	"""
+Read coco file from stdin and count all unique category/caption instances. 
+
+Output coco json contents in stdout. 
+
+examples: 
+    cat coco.json | coco-stats count
+"""
 
 
-def main():
-    global ARGS
-    ARGS = get_args()
-    say("loading dataset")
-    dataset = load_dataset(sys.stdin.read())
-    category_or_caption_count = ARGS.func(dataset)
-    json.dump(category_or_caption_count, sys.stdout, indent=4)
-    say("done")
-    sys.exit()
+def main(args=None):
+    start = time.perf_counter()
+    print_verbose("loading dataset", verbose=args.verbose)
+    coco = args.func(load_coco(sys.stdin.read(), args.verbose), args)
+    json.dump(coco.dataset, sys.stdout, indent=4)
+    print_verbose("done in {}s".format(time.perf_counter() - start), verbose=args.verbose)
+    sys.exit(0)
 
 
 def get_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(description=_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-v', '--verbose', action='store_true', help='More output to stderr')
-    subparsers = parser.add_subparsers(title="Actions", description="Actions to apply to all images in the dataset. "
-                                                                    "For more information on each "
-                                                                    "individual action, append -h",
-                                       help="Available actions")
-    parser_resize = subparsers.add_parser('count', help="Count all annotations in the dataset")
-    parser_resize.set_defaults(func=count)
-    parser_resize.add_argument('-m', '--multi-label', action='store_true', help="Treat multi-labels as unique")
-    parser_resize.add_argument('-p', '--percent', action='store_true', help="Output percentages of entire dataset")
+
+    subparsers = parser.add_subparsers(title="Actions", description="Actions to apply to all images in the dataset. For more information on each individual action, append -h", help="Available actions")
+    count_parser = subparsers.add_parser('count',       help="Count all annotations in the dataset")
+    count_parser.set_defaults(func=count)
 
     return parser.parse_args()
 
 
-def count_categories(dataset: dict) -> dict:
-    category_count = defaultdict(int)
-    anns = dataset['annotations']
-    anns.sort(key=itemgetter('image_id', 'id'))
-    cat_id_2_cat = {cat['id']: cat['name'] for cat in dataset['categories']}
-    curr_img_id = anns[0]['id']
-    categories = []
-    for ann in anns:
-        if ARGS.multi_label:
-            if curr_img_id != ann['image_id']:
-                category_count[",".join(categories)] += 1
-                curr_img_id = ann['image_id']
-                categories = []
-            categories.append(cat_id_2_cat[ann['category_id']])
-            if ann == anns[-1]:
-                category_count[",".join(categories)] += 1
-        else:
-            category_count[cat_id_2_cat[ann['category_id']]] += 1
-    return category_count
+def count(coco: COCO, args: argparse.Namespace) -> COCO:
+    for image in coco.loadImgs(ids=coco.getImgIds()):
+        category_count = defaultdict(int)
+        annotations = coco.loadAnns(ids=coco.getAnnIds(imgIds=image['id']))
+        for annotation in annotations:
+            category = coco.loadCats(ids=coco.getCatIds(catIds=annotation['category_id'])).pop()
+            category_count[category['name']] += 1
+        image.update(category_count)
+    for category in coco.loadCats(ids=coco.getCatIds()):
+        category_count = len(coco.loadAnns(ids=coco.getAnnIds(catIds=category['id'])))
+        category['count'] = category_count
+        print_verbose("{}: {}".format(category['name'], category_count), verbose=args.verbose)
+    return coco
 
 
-def count_captions(dataset: dict) -> dict:
-    caption_count = defaultdict(int)
-    anns = dataset['annotations']
-    anns.sort(key=itemgetter('image_id', 'id'))
-    curr_img_id = anns[0]['id']
-    captions = []
-    for ann in anns:
-        if ARGS.multi_label:
-            if curr_img_id != ann['image_id']:
-                caption_count[",".join(captions)] += 1
-                curr_img_id = ann['image_id']
-                captions = []
-            captions.append(ann['caption'])
-            if ann == anns[-1]:
-                caption_count[",".join(captions)] += 1
-        else:
-            caption_count[ann['caption']] += 1
-    return caption_count
+def load_coco(json_buffer: str, verbose: bool) -> COCO:
+    with redirect_stdout(Verbose(verbose)):
+        coco = COCO()
+        coco.dataset = json.loads(json_buffer)
+        coco.createIndex()
+    return coco
 
 
-def count(dataset: dict) -> dict:
-    if 'categories' in dataset:
-        say("counting categories")
-        category_or_caption_count = count_categories(dataset)
-    else:
-        say("counting captions")
-        category_or_caption_count = count_captions(dataset)
-    category_or_caption_count['total_images'] = len(dataset['images'])
-    if ARGS.percent:
-        total_count = sum(category_or_caption_count.values()) - len(dataset['images'])
-        for category_or_caption, category_or_caption_count in category_or_caption_count.items():
-            if category_or_caption != 'total_images':
-                category_or_caption_count[category_or_caption] = {
-                    'count'     : category_or_caption_count,
-                    'percentage': category_or_caption_count / total_count * 100,
-                }
-    return category_or_caption_count
-
-
-def load_dataset(json_file_path_or_buffer: str) -> dict:
-    in_dataset = json.loads(json_file_path_or_buffer)
-    return in_dataset
-
-
-def say(*args, verbose=False, **kwargs):
-    if ARGS.verbose or verbose:
+def print_verbose(*args, verbose=False, **kwargs):
+    if verbose:
         print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
 
 
-def die(*args, **kwargs):
-    say(*args, verbose=True, **kwargs)
+def print_and_die(*args, **kwargs):
+    print_verbose(*args, verbose=True, **kwargs)
     sys.exit(1)
 
 
+class Verbose:
+    def __init__(self, verbose: bool):
+        self._verbose = verbose
+
+    def write(self, line: str):
+        if line:
+            print_verbose(line.strip(), verbose=self._verbose)
+
+
 if __name__ == '__main__':
-    main()
+    main(args=get_args())
