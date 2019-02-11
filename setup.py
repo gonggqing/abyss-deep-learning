@@ -26,6 +26,7 @@ setup(
         "applications/coco-extract-masks",
         "applications/coco-from-video",
         "applications/coco-from-csv",
+        "applications/coco-from-segmentation",
         "applications/coco-select",
         "applications/coco-merge",
         "applications/coco-metrics",
