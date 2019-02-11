@@ -141,7 +141,7 @@ def get_args():
 
 if __name__ == '__main__':
     # Put ahead to make --help faster
-    ARGS = get_args()
+    args = get_args()
 
 from abyss_deep_learning.abyss_dataset import CocoDataset as dataset_model
 from mrcnn.config import Config as DefaultConfig
@@ -150,4 +150,4 @@ import mrcnn.utils as utils
 import mrcnn.visualize as visualize
 
 if __name__ == '__main__':
-    main(ARGS)
+    main(args)

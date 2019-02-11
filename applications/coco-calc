@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 import argparse
+import itertools
 import json
 import os
 import sys
-import itertools
-
+import copy
 from contextlib import redirect_stdout
+from operator import itemgetter
+
 from pycocotools.coco import COCO
 
-IMG_DIR = os.path.join(os.getcwd(), 'images')
-
-SCRIPT_NAME = os.path.basename(__file__)
-
-DESCRIPTION = \
-"""
+DESCRIPTION = """
 Read COCO json file piped in from stdin or a list of COCO json files and apply image manipulation and 
 processing. Output new COCO json file with relevant changes to the data and if output images is specified, 
 output an image directory in the current working directory with all modified images.
@@ -22,52 +19,332 @@ RLE not currently supported for segmentation resizing
 tile action is currently dummy action for demonstration purposes
 
 examples:
-    cat coco.json | coco-calc --apply-to-images tile --tiles 4,5
-    cat coco.json | coco-calc resize --scale 0.3
-    cat coco.json | coco-calc --verbose resize --image-size 480,640
+    remap
+        cat pf.json | coco-calc remap "{1:1,2:1,3:1,4:1}" --categories '{ "id": 1, "name": "PF" }'
+        cat pf.json | coco-calc remap "{'PF-G':'PF','PF-L':'PF','PF-M':'PF','PF-H':'PF'}"
+
+    resize
+        cat coco.json | coco-calc resize --factor 0.3
+        cat coco.json | coco-calc --verbose resize --size 480,640
+
+    tile
+        cat coco.json | coco-calc --apply-to-images tile --tiles 4,5
 """
+
+REMAP_DESCRIPTION = """
+Remap categories and/or category id to categories and/or category id.
+
+A JSON string can be passed in or another COCO JSON file that contains categories can be passed in.
+
+If a COCO JSON is passed, as many categories will be matched with the existing COCO JSON and new ids will be assigned 
+from category names that are matched. It is possible, consequently for duplicate ids to occur depending on how the 
+categories are formatted in either COCO file. 
+
+5 use cases:
+    old id to new id
+        "{1:1,2:1,3:1,4:1}" collapses all category ids to one id
+        "{1:0,2:1,3:2,4:3}" change starting index of all categories
+    
+    old id to new category
+        "{1: 'PF', 2:'PF', 3:'PF', 4:'PF'}"                         collapses all categories to a single category
+        "{1: 'PF-L'}"                                               combine category id 1 with PF-L category
+    
+    old category to new id
+        "{'PF-G': 1,'PF-L': 2,'PF-M': 3,'PF-H': 4}"                 change category ordering
+    
+    old category to new category
+        "{'PF-G': 'PF', 'PF-L':'PF', 'PF-M':'PF', 'PF-H':'PF'}"     collapses all categories to a single category
+        "{'PF-G': 'PF-L'}"                                          combine PF-G with PF-L
+
+    a COCO JSON file can also be passed as an argument to [mapping] where the categories list will be used in place 
+    as the mapping.
+
+examples
+    cat pf.json | coco-calc remap "{1:1,2:1,3:1,4:1}"
+    cat pf.json | coco-calc remap "{'PF-G':'PF','PF-L':'PF','PF-M':'PF','PF-H':'PF'}" --categories "[{'name':'PF',
+    'id':5}]" 
+    cat predictions.json | coco-calc remap validation.json
+"""
+
+RESIZE_DESCRIPTION = """
+Resize images in a given coco json file. Image dimensions can be specified by [width],[height] or by a 
+scaling factor to enlarge or reduce. Specify -o/--output-images with an output image directory which 
+will write the new directory, if not created, in the current directory with the new images.
+
+examples
+    cat coco.json | coco-calc resize --factor 0.3
+    cat coco.json | coco-calc --verbose resize --size 480,640
+"""
+
+CROP_DESCRIPTION = """
+Crop images and labels; currently supports only cropping images
+
+example
+    cat crop.json | applications/coco-calc -v crop --size 513,513 --point --apply-to-images --fit
+    
+"""
+
+REPATH_DESCRIPTION = """
+Read coco file from stdin and re-path all images.
+
+Output coco json contents in stdout.
+
+examples:
+    cat coco.json | {script} repath images
+    cat coco.json | {script} repath /mnt/rhino/processed/industry-data/anadarko/images
+""".format(script=os.path.basename(__file__))
 
 
 def main():
-    if ARGS.apply_to_images:
-        os.makedirs(IMG_DIR, exist_ok=True)
-
+    global ARGS
+    ARGS = get_args()
     say("creating coco object")
     coco = ARGS.func(load_coco(sys.stdin.read()))
-    json.dump(coco.dataset, sys.stdout, indent=4)
-
+    if coco is None:
+        say("warning: output coco is empty; nothing will be output to stdout")
+    else:
+        json.dump(coco.dataset, sys.stdout, indent=ARGS.indent)
     say("done")
-    sys.exit(0)
+    sys.exit()
+
+
+def crop(coco: COCO) -> COCO:
+    say("cropping images")
+    if ARGS.keep_partial:
+        print('coco-calc crop --keep-partial: todo', file=sys.stderr); sys.exit(1)
+    width, height = map(int, ARGS.size.split(','))
+    if ARGS.apply_to_images:
+        import cv2
+        os.makedirs(os.path.join(os.getcwd(), ARGS.image_output_dir), exist_ok=True)
+    output_images = []
+    output_annotations = []
+    for image_data in coco.loadImgs(coco.getImgIds()):
+        path = None
+        basenames = set()
+        if os.path.isfile(image_data['path']):
+            path = image_data['path']
+        elif os.path.isfile(os.path.abspath(image_data['path'])):
+            path = image_data['path']
+        else:
+            say("file not found: [{}]".format(image_data['path'])); sys.exit(1)
+        basename = os.path.basename(image_data['path'])
+        stubname = os.path.join(os.getcwd(), ARGS.image_output_dir, '.'.join(basename.split('.')[:-1]))
+        do_crop = False
+        if ARGS.point:
+            annotations = coco.loadAnns(coco.getAnnIds(image_data['id']))
+            for a in annotations:
+                if a['annotation_type'] == 'point':
+                    do_crop = True; break
+        if not do_crop:
+            continue
+        image = cv2.imread(image_data['path'])
+        if ARGS.point:
+            annotations = coco.loadAnns(coco.getAnnIds(image_data['id']))
+            for a in annotations:
+                if a['annotation_type'] != 'point':
+                    continue  # todo: point selection quick and dirty for now; implement better usage semantics
+                x = int(a['bbox'][0]) - int(width / 2)
+                y = int(a['bbox'][1]) - int(height / 2)
+                if ARGS.fit:
+                    x = min(max(x, 0), image_data['width'] - width)
+                    y = min(max(y, 0), image_data['height'] - height)
+                elif x < 0 or y < 0 or x >= image_data['width'] - width or y >= image_data['height'] - height:
+                    print(
+                        "coco-calc: crop: discarded annotation with patch beyond image dimensions (or please use --fit): annotation id:",
+                        a['id'], "image:", image_data['path'])
+                    continue
+                cropped = image[y: y + height, x: x + width]
+                path = stubname + '.' + str(a['id']) + '.png'
+                i = copy.deepcopy(image_data)
+                i['file_name'] = os.path.basename(path)
+                i['path'] = path
+                i['id'] = len(output_images)
+                i['height'] = height
+                i['width'] = width
+                output_images.append(i)
+                for a in annotations:
+                    if a['annotation_type'] == 'point':
+                        continue  # todo: better semantics
+                    b = copy.deepcopy(a)
+                    if 'bbox' in a:
+                        x0 = a['bbox'][0] - x
+                        y0 = a['bbox'][1] - y
+                        x1 = x0 + a['bbox'][2]
+                        y1 = y0 + a['bbox'][3]
+                        if x0 < 0 or y0 < 0 or x1 > (width - 1) or y1 > (height - 1):
+                            continue
+                        b['bbox'] = [x0, y0, a['bbox'][2], a['bbox'][3]]
+                    if 'segmentation' in a:
+                        if isinstance(a['segmentation'], dict):
+                            print('coco-calc crop: RLE: todo; discarded', file=sys.stderr); continue
+                        if isinstance(a['segmentation'], list):
+                            fits_into_crop = True
+                            u = []
+                            for s in a['segmentation']:
+                                t = []
+                                for xs, ys in grouper(s, 2):
+                                    xs -= x
+                                    ys -= y
+                                    if xs < 0 or ys < 0 or xs > (width - 1) or ys > (height - 1):
+                                        fits_into_crop = False; break
+                                    t += [xs, ys]
+                                if not fits_into_crop:
+                                    break
+                                u.append(t)
+                            if not fits_into_crop:
+                                continue
+                            b['segmentation'] = u
+                    b['id'] = len(output_annotations)
+                    b['image_id'] = i['id']
+                    output_annotations.append(b)
+                if ARGS.apply_to_images:
+                    cv2.imwrite(path, cropped)
+    coco.dataset['images'] = output_images
+    coco.dataset['annotations'] = output_annotations
+    return coco
+
+
+def remap(coco: COCO) -> COCO:
+    # literal_eval allows usage of either single quote (') or double quote(") to interpret a json string
+    from ast import literal_eval
+    say("remapping categories")
+    if os.path.isfile(ARGS.mapping):
+        with open(ARGS.mapping) as f:
+            mapping = {category['name']: category['id'] for category in json.load(f)['categories']}
+    else:
+        mapping = literal_eval(ARGS.mapping)
+
+    source_categories = coco.loadCats(ids=coco.getCatIds())
+    if not source_categories:
+        return coco
+    for category in source_categories:
+        if not(category['id'] in mapping or category['name'] in mapping):
+            mapping[category['name']] = category['name']
+
+    output_categories = copy.deepcopy(coco.loadCats(ids=coco.getCatIds()))
+    for category in output_categories:
+        if category['name'] in mapping.keys():
+            category_id = mapping[category['name']]
+            if isinstance(category_id, int):
+                category['id'] = category_id
+
+    target_categories = source_categories
+    if ARGS.target_categories:
+        ARGS.target_categories = literal_eval(ARGS.target_categories)
+        if ARGS.keep_source_categories:
+            source_category_ids = set([category['id'] for category in output_categories])
+            target_category_ids = set([category['id'] for category in ARGS.target_categories])
+            for idx in target_category_ids:
+                if idx in source_category_ids:
+                    say("duplicate id {} found between source and target categories".format(idx), verbose=True)
+                    say("taken ids are {}".format(", ".join((str(i) for i in source_category_ids))), verbose=True)
+                    sys.exit(1)
+        target_categories = ARGS.target_categories
+
+    new_name_2_id = {category['name']: category['id'] for category in target_categories}
+    source_category_names = [category['name'] for category in source_categories]
+    target_category_names = [category['name'] for category in target_categories]
+    annotations = []
+    if len(coco.dataset['annotations']) > 0:
+        added_annotation_ids = set()
+
+        for old, new in mapping.items():
+            if isinstance(old, str) and old not in source_category_names:
+                say("cannot find source key {} in category names {}".format(old, source_category_names), verbose=True)
+                sys.exit(1)
+
+            if isinstance(new, str) and new not in target_category_names:
+                say("cannot find target key {} in category names {}".format(new, target_category_names), verbose=True)
+                sys.exit(1)
+
+            elif isinstance(old, int) and isinstance(new, int):
+                for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=old)):
+                    ann_copy = copy.deepcopy(ann)
+                    ann_copy['category_id'] = new
+                    annotations.append(ann_copy)
+                    added_annotation_ids.add(ann_copy)
+                category = coco.loadCats(ids=coco.getCatIds(catIds=old)).pop()
+                category['id'] = new
+
+            elif isinstance(old, int) and isinstance(new, str):
+                if new in new_name_2_id.keys():
+                    for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=old)):
+                        ann_copy = copy.deepcopy(ann)
+                        ann_copy['category_id'] = new_name_2_id[new]
+                        annotations.append(ann_copy)
+                        added_annotation_ids.add(ann_copy['id'])
+
+            elif isinstance(old, str) and isinstance(new, int):
+                for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=coco.getCatIds(catNms=old))):
+                    ann_copy = copy.deepcopy(ann)
+                    ann_copy['category_id'] = new
+                    annotations.append(ann_copy)
+                    added_annotation_ids.add(ann_copy['id'])
+                category = coco.loadCats(ids=coco.getCatIds(catNms=old)).pop()
+                category['id'] = new
+
+            elif isinstance(old, str) and isinstance(new, str):
+                if new in new_name_2_id.keys():
+                    for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=coco.getCatIds(catNms=old))):
+                        ann_copy = copy.deepcopy(ann)
+                        ann_copy['category_id'] = new_name_2_id[new]
+                        annotations.append(ann_copy)
+                        added_annotation_ids.add(ann_copy['id'])
+
+        to_add_annotation_ids = set(coco.getAnnIds()) - added_annotation_ids
+        annotations.extend(coco.loadAnns(ids=to_add_annotation_ids))
+
+    coco.dataset['annotations'] = annotations
+
+    categories = target_categories
+    if ARGS.keep_source_categories:
+        categories.extend(source_categories)
+
+    coco.dataset['categories'] = sorted(drop_duplicates(categories), key=itemgetter('id'))
+    category_ids = coco.getCatIds()
+    if len(set(category_ids)) != len(category_ids):
+        say('warning, there are duplicate ids in the coco dataset')
+
+    return coco
 
 
 def resize(coco: COCO) -> COCO:
     say("resizing images")
+    if ARGS.apply_to_images:
+        os.makedirs(os.path.join(os.getcwd(), ARGS.image_output_dir), exist_ok=True)
     for img_data in coco.loadImgs(coco.getImgIds()):
-        if ARGS.scale is not None:
-            h_scale = v_scale = ARGS.scale
-        elif ARGS.image_size is not None:
-            dims = ARGS.image_size.split(',')
-            h_scale = int(dims[0]) / img_data['width']
-            v_scale = int(dims[1]) / img_data['height']
-        img_data['height'] = int(img_data['height'] * v_scale)
-        img_data['width'] = int(img_data['width'] * h_scale)
+        if ARGS.factor is not None:
+            ARGS.factor = abs(ARGS.factor)
+            h_scale = v_scale = ARGS.factor
+        else:
+            dims = ARGS.size.split(',')
+            h_scale = float(dims[0]) / img_data['width']
+            v_scale = float(dims[1]) / img_data['height']
+        img_data['height'] = round(img_data['height'] * v_scale, None)
+        img_data['width'] = round(img_data['width'] * h_scale, None)
 
         if ARGS.apply_to_images:
             import cv2
             path = None
-            if os.path.exists(img_data['path']):
+            basenames = set()
+            if os.path.isfile(img_data['path']):
                 path = img_data['path']
-            elif os.path.exists(os.path.abspath(img_data['path'])):
+            elif os.path.isfile(os.path.abspath(img_data['path'])):
                 path = img_data['path']
             else:
                 say("cannot find path to image [{}]".format(img_data['path']))
 
             if path is not None:
                 img = cv2.imread(img_data['path'])
-                new_path = os.path.join(IMG_DIR, os.path.basename(img_data['path']))
+                new_path = os.path.join(os.getcwd(), ARGS.image_output_dir, os.path.basename(img_data['path']))
+                if new_path in basenames:
+                    print('coco-calc: resize: expected unique image filenames, got duplicated "{}"'.format(new_path),
+                          file=sys.stderr)
+                    sys.exit(1)
                 img_data['path'] = new_path
                 img_size = (img_data['width'], img_data['height'])
                 resized_img = cv2.resize(img, img_size)
+                # os.makedirs( new_path, exist_ok = True )
                 say("writing image to {}".format(new_path))
                 cv2.imwrite(new_path, resized_img)
 
@@ -76,49 +353,66 @@ def resize(coco: COCO) -> COCO:
         # format is [x, y, width, height]
         # Rescaled area value i.e. new_width * new_height
         for ann in anns:
-            x = int(ann['bbox'][0] * h_scale)
-            y = int(ann['bbox'][1] * v_scale)
-            width = int(ann['bbox'][2] * h_scale)
-            height = int(ann['bbox'][3] * v_scale)
+            x = round(ann['bbox'][0] * h_scale, ARGS.digits)
+            y = round(ann['bbox'][1] * v_scale, ARGS.digits)
+            width = round(ann['bbox'][2] * h_scale, ARGS.digits)
+            height = round(ann['bbox'][3] * v_scale, ARGS.digits)
             ann['bbox'] = [x, y, width, height]
             ann['area'] = width * height
 
-            tmp = ann['segmentation']
-            if type(tmp) is list:
-                segmentation = []
-                for segment in tmp:
-                    new_segment = [(int(x * h_scale), int(y * v_scale)) for x, y in grouper(segment, 2)]
-                    # Flatten the list of tuples
-                    new_segment = list(itertools.chain(*new_segment))
-                    segmentation.append(new_segment)
-                ann['segmentation'] = segmentation
-            elif type(tmp) is dict:
-                say("rle is not yet supported")
+            if 'segmentation' in ann:
+                tmp = ann['segmentation']
+                if type(tmp) is list:
+                    segmentation = []
+                    for segment in tmp:
+                        new_segment = [(round(x * h_scale, ARGS.digits), round(y * v_scale, ARGS.digits)) for x, y in
+                                       grouper(segment, 2)]
+                        # Flatten the list of tuples
+                        new_segment = list(itertools.chain(*new_segment))
+                        segmentation.append(new_segment)
+                    ann['segmentation'] = segmentation
+                elif type(tmp) is dict:
+                    say("rle is not yet supported")
+                else:
+                    say("unknown data type [{}]".format(type(tmp)))
             else:
-                say("unknown data type [{}]".format(type(tmp)))
+                say("warning: annotation with id", ann['id'], "does not have 'segmentation'; ignored")
     return coco
 
 
-# Placeholder for demonstration purposes
-def tile(coco: COCO) -> COCO:
-    say("tiling images")
+def repath(coco: COCO) -> COCO:
+    say("re-pathing images with {}".format(ARGS.path))
+    for image in coco.dataset['images']:
+        try:
+            image['path'] = os.path.join(ARGS.path, os.path.basename(image['path']))
+        except KeyError:
+            try:
+                image['path'] = os.path.join(ARGS.path, os.path.basename(image['file_name']))
+            except KeyError:
+                say("unable to find valid file name for image {}".format(image))
     return coco
 
 
-def load_coco(json_file_path_or_buffer: str) -> COCO:
+def drop_duplicates(lst: list):
+    def to_tuple(lst_entry: list):
+        return tuple(to_tuple(i) if isinstance(i, list) else i for i in lst_entry)
+    return [dict(item) for item in set(to_tuple([list(i) for i in sorted(entry.items())]) for entry in lst)]
+
+
+def load_coco(json_buffer: str) -> COCO:
     with redirect_stdout(Verbose):
         coco = COCO()
-        coco.dataset = json.loads(json_file_path_or_buffer)
+        coco.dataset = json.loads(json_buffer)
         coco.createIndex()
     return coco
 
 
-def say(*args, **kwargs):
-    if ARGS.verbose:
-        print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
+def say(*args, verbose=False, **kwargs):
+    if ARGS.verbose or verbose:
+        print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
 
 
-def grouper(iterable, n, fillvalue=None):
+def grouper(iterable, n: int, fillvalue=None):
     args = [iter(iterable)] * n
     return itertools.zip_longest(*args, fillvalue=fillvalue)
 
@@ -126,28 +420,81 @@ def grouper(iterable, n, fillvalue=None):
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     subparsers = parser.add_subparsers(title="Actions", description="Actions apply to all images in the dataset. "
-                                                                    "Append -h for further information on each "
-                                                                    "individual action",
+                                                                    "For more information on each "
+                                                                    "individual action, append -h",
                                        help="Available actions")
 
+    apply_to_images = ['--apply-to-images']
+    apply_to_images_args = {'action': 'store_true',
+                            'help'  : 'Apply action to images, output to directory specified by --images-output-dir'}
+    image_output_dir = ['--image-output-dir', '-o']
+    image_output_dir_args = {'type': str, 'default': 'images', 'help': 'Image output directory; default %(default)s'}
+
+    parser_crop = subparsers.add_parser('crop', help="Crop images and labels; currently supports only cropping images",
+                                        description=CROP_DESCRIPTION,
+                                        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser_crop.set_defaults(func=crop)
+    parser_crop.add_argument('--fit', action='store_true',
+                             help="if centre of cropped area to close to border, shift cropped area to fit inside image")
+    parser_crop.add_argument('--keep-partial', action='store_true', help="keep partially cropped annotations: todo")
+    parser_crop.add_argument('--point', action='store_true',
+                             help="centre of cropped area identified by annotation_type 'point'")
+    parser_crop.add_argument('-s', '--size', type=str, help="<width>,<height> crop size")
+    parser_crop.add_argument(*apply_to_images, **apply_to_images_args)
+    parser_crop.add_argument(*image_output_dir, **image_output_dir_args)
+
     parser_resize = subparsers.add_parser('resize', help="Resize all images and their respective annotations by a "
-                                                         "scaling factor or to specified width and height")
+                                                         "scaling factor or to specified width and height",
+                                          formatter_class=argparse.RawDescriptionHelpFormatter,
+                                          description=RESIZE_DESCRIPTION)
     parser_resize.set_defaults(func=resize)
-    resize_args = parser_resize.add_mutually_exclusive_group(required=True)
-    resize_args.add_argument('-s', '--scale', type=float, help="Scale images by a percentage")
-    resize_args.add_argument('-d', '--image-size', type=str, help="[width],[height] to resize images to")
+    parser_resize.add_argument('-d', '--digits', type=int, default=None,
+                               help="Number of decimal digits in bbox and segmentation coordinates; default: %(default)s")
+    mutually_exclusive_resize_args = parser_resize.add_mutually_exclusive_group(required=True)
+    mutually_exclusive_resize_args.add_argument('-f', '--factor', type=float, help="Scale images by a percentage. If "
+                                                                                   "value is negative, it will take "
+                                                                                   "the absolute value")
+    mutually_exclusive_resize_args.add_argument('-s', '--size', type=str, help="[width],[height] to resize images to")
+    parser_resize.add_argument(*apply_to_images, **apply_to_images_args)
+    parser_resize.add_argument(*image_output_dir, **image_output_dir_args)
 
-    parser_tile = subparsers.add_parser('tile', help="For testing purposes, no functionality currently")
-    parser_tile.set_defaults(func=tile)
-    tile_args = parser_tile.add_mutually_exclusive_group(required=True)
-    tile_args.add_argument('-n', '--num-tiles', type=int, help="Number of tiles to generate from image")
-    tile_args.add_argument('-dum', '--dummy', help="dummy option")
+    parser_remap = subparsers.add_parser('remap', help="Remap categories and/or category id",
+                                         formatter_class=argparse.RawDescriptionHelpFormatter,
+                                         description=REMAP_DESCRIPTION)
+    parser_remap.set_defaults(func=remap)
+    parser_remap.add_argument('mapping',
+                              type=str,
+                              help="Dict style string for remapping of either category id/category name to category id/category name")
+    parser_remap.add_argument('-c', '--target-categories',
+                              type=str,
+                              help="Target categories to be used for re-mapping. Same format as default COCO "
+                                   "categories list. Default categories is taken from input COCO JSON file")
+    parser_remap.add_argument('--keep-source-categories',
+                              action='store_true',
+                              help="If target categories is specified, append target to input categories")
 
-    parser.add_argument('-o', '--output-images', action='store_true', help="Apply action to images and output in "
-                                                                           "current working directory [image] "
-                                                                           "folder that contains new images")
-    parser.add_argument('-v', '--verbose', action='store_true', help="more output to stderr")
-    return parser.parse_args()
+    parser_repath = subparsers.add_parser('repath',
+                                          help="Re-path key value pairs for path for every image in COCO JSON.",
+                                          formatter_class=argparse.RawDescriptionHelpFormatter,
+                                          description=REPATH_DESCRIPTION)
+    parser_repath.set_defaults(func=repath)
+    parser_repath.add_argument('path',
+                               type=str,
+                               help="New path to prepend to each image in data set",
+                               )
+
+    parser.add_argument('-m', '--minified',
+                        action='store_const',
+                        help="Disable JSON pretty print",
+                        const=None,
+                        default=4,
+                        dest='indent',
+                        )
+    parser.add_argument('-v', '--verbose',
+                        action='store_true',
+                        help="More output to stderr")
+    args = parser.parse_args()
+    return args
 
 
 class Verbose:
@@ -157,8 +504,6 @@ class Verbose:
         if line:
             say(line)
 
-
-ARGS = get_args()
 
 if __name__ == '__main__':
     main()

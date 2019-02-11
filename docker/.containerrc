@@ -1,0 +1,11 @@
+#!/bin/bash
+
+function load_repo(){
+  REPO=$1
+  pip3 install "/scratch/$REPO"
+}
+
+export QT_X11_NO_MITSHM=1 # X11 bugfix
+export PYTHONPATH=/home/docker/python:$PYTHONPATH
+export PATH=/home/docker/bin:/home/docker/.local/bin:$PATH
+export -f load_repo

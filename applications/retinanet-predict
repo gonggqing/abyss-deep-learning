@@ -1,0 +1,581 @@
+#!/usr/bin/env python3
+
+"""
+Initiated on 2019-01-10
+
+
+"""
+
+import argparse
+import os
+import sys
+import time
+
+import keras
+import keras.models
+import numpy as np
+import tensorflow as tf
+from keras_retinanet import layers
+# Change these to absolute imports if you copy this script outside the keras_retinanet package.
+from keras_retinanet import models
+from keras_retinanet.models import assert_training_model
+from keras_retinanet.models.retinanet import __build_anchors, retinanet
+from keras_retinanet.utils.anchors import AnchorParameters
+from keras_retinanet.utils.config import read_config_file, parse_anchor_parameters
+from keras_retinanet.utils.image import read_image_bgr, preprocess_image, resize_image
+from keras_retinanet.utils.keras_version import check_keras_version
+from keras_retinanet.utils.visualization import draw_box, draw_caption
+
+from abyss_deep_learning.utils import tile_gen
+
+_DESCRIPTION = """
+Evaluation script for a RetinaNet network.
+
+examples
+    A 4000x4000 image is tiled into 9 2000x2000 images that are then resized into 1000x1000 images before feeding into the network
+    retinanet-predict images.csv --weights ../20190131/snapshots/resnet50_csv_100.h5 --convert-model --backbone resnet50 --image-min-side 1000 --image-max-side 1000 --tile-size 2000,2000 --stride 1000,1000 --remove --save-path csv-predictions
+    
+    Images are resized to dimensions 1000x1000 before being fed into the network
+    retinanet-predict images.csv --weights ../20190131/snapshots/resnet50_csv_100.h5 --convert-model --backbone resnet50 --image-min-side 1000 --image-max-side 1000  --remove --save-path csv-predictions
+"""
+
+# Allow relative imports when being executed as script.
+if __name__ == "__main__" and __package__ is None:
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+    __package__ = "keras_retinanet.bin"
+
+
+def get_session():
+    """ Construct a modified tf session.
+    """
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    return tf.Session(config=config)
+
+
+def retinanet_bbox(
+        model=None,
+        nms=True,
+        class_specific_filter=True,
+        nms_threshold=0.5,
+        name='retinanet-bbox',
+        anchor_params=None,
+        **kwargs
+):
+    """ Construct a RetinaNet model on top of a backbone and adds convenience functions to output boxes directly.
+
+    This model uses the minimum retinanet model and appends a few layers to compute boxes within the graph.
+    These layers include applying the regression values to the anchors and performing NMS.
+
+    Args
+        model                 : RetinaNet model to append bbox layers to. If None, it will create a RetinaNet model using **kwargs.
+        nms                   : Whether to use non-maximum suppression for the filtering step.
+        class_specific_filter : Whether to use class specific filtering or filter for the best scoring class only.
+        name                  : Name of the model.
+        anchor_params         : Struct containing anchor parameters. If None, default values are used.
+        *kwargs               : Additional kwargs to pass to the minimal retinanet model.
+
+    Returns
+        A keras.models.Model which takes an image as input and outputs the detections on the image.
+
+        The order is defined as follows:
+        ```
+        [
+            boxes, scores, labels, other[0], other[1], ...
+        ]
+        ```
+
+    NOTE
+    This function was pulled from keras_retinanet.models.retinanet.retinant_bbox
+    Edited here to allow passthrough of nms_threshold
+    """
+
+    # if no anchor parameters are passed, use default values
+    if anchor_params is None:
+        anchor_params = AnchorParameters.default
+
+    # create RetinaNet model
+    if model is None:
+        model = retinanet(num_anchors=anchor_params.num_anchors(), **kwargs)
+    else:
+        assert_training_model(model)
+
+    # compute the anchors
+    features = [model.get_layer(p_name).output for p_name in ['P3', 'P4', 'P5', 'P6', 'P7']]
+    anchors = __build_anchors(anchor_params, features)
+
+    # we expect the anchors, regression and classification values as first output
+    regression = model.outputs[0]
+    classification = model.outputs[1]
+
+    # "other" can be any additional output from custom submodels, by default this will be []
+    other = model.outputs[2:]
+
+    # apply predicted regression to anchors
+    boxes = layers.RegressBoxes(name='boxes')([anchors, regression])
+    boxes = layers.ClipBoxes(name='clipped_boxes')([model.inputs[0], boxes])
+
+    # filter detections (apply NMS / score threshold / select top-k)
+    detections = layers.FilterDetections(
+        nms=nms,
+        nms_threshold=nms_threshold,
+        class_specific_filter=class_specific_filter,
+        name='filtered_detections'
+    )([boxes, classification] + other)
+
+    # construct the model
+    return keras.models.Model(inputs=model.inputs, outputs=detections, name=name)
+
+
+def get_args():
+    """ Parse the arguments.
+    """
+    parser = argparse.ArgumentParser(description=_DESCRIPTION)
+    parser.add_argument('images',
+                        help='Text file of image paths')
+    parser.add_argument('--weights',
+                        help='Path to RetinaNet model weights.')
+    parser.add_argument('--convert-model',
+                        help='Convert the model to an inference model (ie. the input is a training model).',
+                        action='store_true')
+    parser.add_argument('--backbone',
+                        help='The backbone of the model. Default is %(default)s',
+                        default='resnet50')
+    parser.add_argument('--gpu',
+                        help='Id of the GPU to use (as reported by nvidia-smi).')
+    parser.add_argument('--score-threshold',
+                        help='Threshold on score to filter detections with. Default is %(default)s',
+                        default=0.05,
+                        type=float)
+    parser.add_argument('--nms-threshold',
+                        help='IoU threshold for non-maximum supression for outputs. Default is %(default)s',
+                        default=0.1,
+                        type=float)
+    parser.add_argument('--max-detections',
+                        help='Max Detections per image. Default is %(default)s.',
+                        default=300,
+                        type=int)
+    parser.add_argument('--output-directory-per-image',
+                        help='Directory for saving images with detections. Individual CSV files will be produced for '
+                             'each image that has detections. If no detections are found in the image then the CSV '
+                             'file will be empty. If not specified, detections are output to stdout.')
+    parser.add_argument('--show',
+                        help='Show per-image examples in matplotlib',
+                        action='store_true')
+    parser.add_argument('--batch-size',
+                        help="Number of images to run predictions in a batch at once. Default is %(default)s",
+                        default=1,
+                        type=int)
+    parser.add_argument('--image-min-side',
+                        help='Rescale the image so the smallest side is min_side. If omitted, the min value of the '
+                             'first images height and width will be used. In this case, '
+                             'if the rest of the given images do not have the same dimension, the script will stop.',
+                        type=int,
+                        required=True)
+    parser.add_argument('--image-max-side',
+                        help='Rescale the image if the largest side is larger than max_side. If omitted, '
+                             'the max value of the first images height and width will be used. In this case, '
+                             'if the rest of the given images do not have the same dimension, the script will stop.',
+                        type=int,
+                        required=True)
+    parser.add_argument('--tile-size',
+                        help='Comma separated values for [height],[width] of tiles to crop from each image')
+    parser.add_argument('--stride',
+                        help='Comma separated values for [height],[width] of strides to take when tiling the image. '
+                             'Used on conjuction with tiling')
+    parser.add_argument('--filter-overlaps',
+                        help='Filter out overlapping bounding boxes on the same detection from different tiles',
+                        action='store_true')
+    parser.add_argument('--config',
+                        help='Path to a configuration parameters .ini file (only used with --convert-model).')
+    parser.add_argument('--remove',
+                        help='Remove negative category detections from output as the network outputs fixed size '
+                             'detections',
+                        action='store_true')
+    parser.add_argument('-v', '--verbose',
+                        help='More verbose output to stderr',
+                        action='store_true')
+    args = parser.parse_args()
+
+    try:
+        args.tile_size = [int(num) for num in args.tile_size.split(',')]
+    except AttributeError:
+        pass
+
+    try:
+        args.stride = [int(num) for num in args.stride.split(',')]
+    except AttributeError:
+        pass
+
+    with open(args.images) as f:
+        args.images = f.read().split("\n")
+
+    return args
+
+
+def draw_result(boxes, scores, labels, image):
+    import webcolors
+    import matplotlib.pyplot as plt
+
+    color_strings = ['green', 'blue', 'yellow', 'red']
+    color_rgb_list = []
+    for color_string in color_strings:
+        color_rgb_list.append(tuple(webcolors.name_to_rgb(color_string)))
+
+    labels_to_names = {0: 'PF-G', 1: 'PF-L', 2: 'PF-M', 3: 'PF-H'}
+    names_to_labels = {}
+    for k, v in labels_to_names.items():
+        names_to_labels[v] = k
+
+    # visualize detections
+    for box, score, label in zip(boxes[0], scores[0], labels[0]):
+        # scores are sorted so we can break
+        if score < 0.5:
+            break
+
+        #         color = label_color(label)
+        b = box.astype(int)
+        draw_box(image, b, color=color_rgb_list[label])
+
+        caption = "{} {:.3f}".format(labels_to_names[label], score)
+        draw_caption(image, b, caption)
+
+    fig, ax = plt.subplots(1, 1, figsize=(15, 15))
+
+    ax.imshow(image)
+    ax.axis('off')
+    plt.show()
+
+
+def main(args=None):
+    script_time = time.perf_counter()
+    # make sure keras is the minimum required version
+    check_keras_version()
+
+    # optionally choose specific GPU
+    if args.gpu:
+        os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
+    keras.backend.tensorflow_backend.set_session(get_session())
+
+    # make save path
+    try:
+        os.makedirs(args.output_directory_per_image, exist_ok=True)
+    except TypeError:
+        pass
+
+    # optionally load config parameters
+    if args.config:
+        args.config = read_config_file(args.config)
+
+    # # create the generator
+    # generator = create_generator(args)
+
+    # optionally load anchor parameters
+    anchor_params = None
+    if args.config and 'anchor_parameters' in args.config:
+        anchor_params = parse_anchor_parameters(args.config)
+
+    # load the model
+    print_verbose('Loading model, this may take a second...', verbose=True)
+    model = models.load_model(args.weights, backbone_name=args.backbone)
+
+    # optionally convert the model
+    if args.convert_model:
+        model = retinanet_bbox(model=model, nms=True, nms_threshold=args.nms_threshold, anchor_params=anchor_params)
+
+    # start evaluation
+
+    output_path = "stdout"
+    max_detections = args.max_detections
+
+    if args.tile_size is not None:
+        # Calculate required values for producing tiles
+        print_verbose("Tiling option has been selected", verbose=True)
+
+        if args.stride is None:
+            print_verbose("Stride value has not been given. Set equal to tile_size so that tiled images do not overlap",
+                          verbose=True)
+            args.stride = args.tile_size
+
+        # Values used for cropping tile from the image
+        tile_height, tile_width = args.tile_size
+        stride_height, stride_width = args.stride
+
+    image_batch_size = args.batch_size if args.tile_size is None else 1
+    for image_num, image_batch in enumerate(batch_from_images(args.images, image_batch_size)):
+        image_time = time.perf_counter()
+
+        num_batches = len(image_batch)
+        image_nums = tuple(range(image_num * image_batch_size, image_num * image_batch_size + num_batches))
+        image_paths = [args.images[image_num] for image_num in image_nums]
+        assert len(image_paths) == len(image_nums), "Number of image paths do not match the number of images evaluated"
+        for image_num_, image_path in zip(image_nums, image_paths):
+            print_verbose("Processing image {image_num} at {image_path}"
+                          .format(image_num=image_num_, image_path=image_path),
+                          verbose=True)
+
+        # Batching on images
+        if args.tile_size is None:
+            if args.show:
+                import cv2
+                image_draw = cv2.cvtColor(image_batch[0].copy(), cv2.COLOR_BGR2RGB)
+
+            # Preprocess image for network
+            image_batch, scales = preprocess_group(image_batch, args.image_min_side, args.image_max_side)
+            image_batch = compute_inputs(image_batch, num_batches)
+
+            # Run image through network
+            boxes, scores, category_id = model.predict_on_batch(image_batch)
+
+            # Apply scaling to bboxes after resizing
+            boxes = (boxes.T / scales).T
+            scores = np.expand_dims(scores, axis=2)
+            category_id = np.expand_dims(category_id, axis=2)
+            image_paths_ = np.repeat(image_paths, max_detections).reshape(num_batches, max_detections, 1)
+            annotation_ids = np.repeat(np.expand_dims(np.arange(max_detections), axis=0), num_batches, axis=0).reshape(num_batches, max_detections, 1)
+
+            if args.show:
+                draw_result(boxes, scores, category_id, image_draw)
+
+            # Join detections, score, and category id together
+            bbox_score_category_output = np.dstack((image_paths_, annotation_ids, boxes, scores, category_id))
+            num_columns = bbox_score_category_output.shape[2]
+
+            # Select the first n rows specified by --max-detections argument. Default is 300
+            bbox_score_category_output = bbox_score_category_output[:, :max_detections, :]
+
+            # Flatten from 3d to 2d array
+            bbox_score_category_output = bbox_score_category_output.reshape(num_batches * max_detections, num_columns)
+
+            # Filter out negative category detections as predictions are fixed size
+            if args.remove:
+                bbox_score_category_output = bbox_score_category_output[bbox_score_category_output[:, -1].astype(int) >= 0]
+
+            annotations = bbox_score_category_output
+
+        # Batching on tiles from images
+        else:
+            assert len(image_batch) == 1, "More than one image is being tiled."
+            image = image_batch[0]
+            image_height, image_width = image.shape[:2]
+
+            # Generator of tiled images
+            tiled_images = tile_gen(image, (tile_height, tile_width), (stride_height, stride_width))
+
+            num_tiles_y = int(np.floor((image_height - tile_height) / stride_height + 1))
+            num_tiles_x = int(np.floor((image_width - tile_width) / stride_width + 1))
+
+            assert args.batch_size <= (num_tiles_x * num_tiles_y), "Batching can only be performed on tiles from an image, not across tiles from different images"
+
+            # Calculations for centroids used to evaluate overlapping bboxes for different tiles
+            centroids = []
+            tile_indexes = []
+            for i in range(num_tiles_x * num_tiles_y):
+                col = i % num_tiles_x
+                row = i // num_tiles_x
+                tile_indexes.append((col, row))
+                centroid_x = col * stride_width + tile_width / 2
+                centroid_y = row * stride_height + tile_height / 2
+                centroids.append((centroid_y, centroid_x))
+            centroids = np.asarray(centroids)
+
+            for idx, tile_batch in enumerate(batch_from_tiles(tiled_images, args.batch_size)):
+                # print_verbose(tile_num, tile.shape, verbose=True)
+                tile_time = time.perf_counter()
+
+                num_tiles = len(tile_batch)
+                tile_nums = tuple(range(idx * args.batch_size, idx * args.batch_size + num_tiles))
+
+                offsets = []
+                for tile_num in tile_nums:
+                    col, row = tile_indexes[tile_num]
+
+                    # bbox offsets of tile in regards to starting pixel of original image_
+                    offset_x = stride_width * col
+                    offset_y = stride_height * row
+
+                    offsets.append((offset_x, offset_y, offset_x, offset_y))
+                offsets = np.asarray(offsets)
+
+                # Preprocess image for network
+                tile_batch, scales = preprocess_group(tile_batch, args.image_min_side, args.image_max_side)
+                tile_batch = compute_inputs(tile_batch, num_tiles)
+
+                # Run image through network
+                boxes, scores, category_id = model.predict_on_batch(tile_batch)
+
+                # Apply scaling to bboxes after resizing
+                boxes = (boxes.T / scales).T
+                scores = np.expand_dims(scores, axis=2)
+                category_id = np.expand_dims(category_id, axis=2)
+
+                # Join detections, score, and category id together
+                bbox_score_category_output = np.dstack((boxes, scores, category_id))
+                num_columns = bbox_score_category_output.shape[2]
+
+                # Filter out negative category detections as predictions are fixed size
+                if args.remove:
+                    # Default value of max_detections is args.max_detections
+                    # Integer representing max detection of all batched tiles
+                    max_detections = np.argmin(bbox_score_category_output[:, :, -1] >= 0, axis=1).max()
+
+                bbox_score_category_output = bbox_score_category_output[:, :max_detections, :]
+
+                # Reshape from 3d to 2d array
+                bbox_score_category_output = bbox_score_category_output.reshape(num_tiles * max_detections, num_columns)
+
+                # Offset bboxes for this tile with respect to starting index of first tile of image_
+                bbox_score_category_output[:, :4] += np.repeat(offsets, [max_detections] * num_tiles, axis=0)
+
+                if args.filter_overlaps:
+                    # Calculate bbox centroid by averaging x1, x2 and y1, y2
+                    centroid_x = np.expand_dims(np.mean(bbox_score_category_output[:, 0:3:2], axis=1), axis=-1)
+                    centroid_y = np.expand_dims(np.mean(bbox_score_category_output[:, 1:4:2], axis=1), axis=-1)
+                    bbox_centroids = np.hstack((centroid_y, centroid_x))
+
+                    # Expand 2d array of centroids to 3d array for broadcasting of values
+                    centroids_repeated = np.repeat(np.expand_dims(centroids, axis=1), bbox_centroids.shape[0], axis=1)
+
+                    # Calculate distances between tile centroid and detection centroids for current tile
+                    distances = np.linalg.norm(centroids_repeated - bbox_centroids, axis=2)
+
+                    # Find the closest tile which is essentially the smallest distance
+                    closest_tiles = np.argmin(distances, axis=0)
+
+                    # Find indexes of where the closest tile is the current tile
+                    filtered_detection_ids = np.where(closest_tiles == np.repeat(tile_nums, [max_detections] * num_tiles))[0]
+
+                    # Index the valid output annotations
+                    bbox_score_category_output = bbox_score_category_output[filtered_detection_ids, :]
+
+                # Filter out negative category detections as predictions are fixed size
+                if args.remove:
+                    bbox_score_category_output = bbox_score_category_output[bbox_score_category_output[:, -1] >= 0]
+
+                num_annotations = bbox_score_category_output.shape[0]
+                image_paths_ = np.repeat(image_paths, num_annotations).reshape(num_annotations, 1)
+                annotation_ids = np.arange(num_annotations).reshape(num_annotations, 1)
+                annotations = np.hstack((image_paths_, annotation_ids, bbox_score_category_output))
+
+        for image_path in image_paths:
+            if args.output_directory_per_image:
+                output_path = os.path.join(args.output_directory_per_image,
+                                           os.path.splitext(os.path.basename(image_path))[0] + '.predictions.csv')
+                output_stream = open(output_path, 'w')
+            else:
+                output_stream = sys.stdout
+            print_verbose("writing to {}".format(output_path), verbose=True)
+            if annotations.shape[0] > 0:
+                image_annotations = annotations[annotations[:, 0] == image_path]
+                if image_annotations.shape[0] > 0:
+                    np.savetxt(output_stream, image_annotations, delimiter=',', fmt='%s')
+            if args.output_directory_per_image:
+                output_stream.close()
+
+        print_verbose("processing time for batch {}: {}h {}m {}s"
+                      .format(image_path, *pretty_time(time.perf_counter() - image_time)),
+                      verbose=args.verbose)
+    print_verbose("processing time for script: {}h {}m {}s"
+                  .format(*pretty_time(time.perf_counter() - script_time)),
+                  verbose=True)
+    sys.exit(0)
+
+
+def batch_from_images(image_paths: list, batch_size: int):
+    """ Group elements from a list of images into individual groups of """
+    batch = []
+    passes = 1
+    for idx, image_path in enumerate(image_paths):
+        if not image_path:
+            continue
+        if idx >= batch_size * passes:
+            yield batch
+            batch = []
+            passes += 1
+        batch.append(read_image_bgr(image_path))
+    yield batch
+
+
+def batch_from_tiles(tiles, batch_size: int):
+    """ Group elements from an iterable into individual groups of size batch_size
+    """
+    batch = []
+    passes = 1
+    for idx, tile in enumerate(tiles):
+        if idx >= batch_size * passes:
+            yield batch
+            batch = []
+            passes += 1
+        batch.append(tile)
+    yield batch
+
+
+def compute_inputs(image_group, batch_size):
+    """ Compute inputs for the network using an image_group.
+    """
+    # get the max image shape
+    max_shape = tuple(max(image.shape[x] for image in image_group) for x in range(3))
+
+    # construct an image batch object
+    image_batch = np.zeros((batch_size,) + max_shape, dtype=keras.backend.floatx())
+
+    # copy all images to the upper left part of the image batch object
+    for image_index, image in enumerate(image_group):
+        image_batch[image_index, :image.shape[0], :image.shape[1], :image.shape[2]] = image
+
+    if keras.backend.image_data_format() == 'channels_first':
+        image_batch = image_batch.transpose((0, 3, 1, 2))
+
+    return image_batch
+
+
+def preprocess_group_entry(image, image_min_side, image_max_side):
+    """ Preprocess image
+    """
+    # preprocess the image_
+    image = preprocess_image(image)
+
+    # resize image_
+    image, image_scale = resize_image(image, min_side=image_min_side, max_side=image_max_side)
+
+    # convert to the wanted keras floatx
+    image = keras.backend.cast_to_floatx(image)
+
+    return image, image_scale
+
+
+def preprocess_group(image_group, image_min_side, image_max_side):
+    """ Preprocess each image
+    """
+    scales = []
+    for idx, image in enumerate(image_group):
+        # pre-process a single group entry
+        image_group[idx], scale = preprocess_group_entry(image, image_min_side, image_max_side)
+        scales.append(scale)
+    return image_group, np.asarray(scales)
+
+
+def print_and_die(*args, **kwargs):
+    """ Print to stderr then exit program with exit code 1
+    """
+    print_verbose(*args, verbose=True, **kwargs)
+    sys.exit(1)
+
+
+def print_verbose(*args, verbose=False, **kwargs):
+    """ Print to stderr
+    """
+    if verbose:
+        print(os.path.basename(__file__) + ':', *args, **kwargs, file=sys.stderr)
+
+
+def pretty_time(seconds: float):
+    """ Return seconds as hours minute seconds
+    """
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    return int(hours), int(minutes), seconds
+
+
+if __name__ == '__main__':
+    main(args=get_args())

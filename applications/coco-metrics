@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+import argparse
+import copy
+import itertools
+import json
+import numpy as np
+import sys
+from datetime import datetime
+
+from abyss_deep_learning import metrics
+
+description = """
+
+calculate metrics on predictions vs labels
+
+run coco-metrics <operation> --help for operation option
+"""
+
+tfpn_description = """
+
+take predictions.json, truth.json, output to stdout coco annotations labeled as TP, FP, TN
+
+usage: cat predictions.json | coco-metrics confusion-matrix --truth truth.json --bounding-boxes > confusion_matrix.csv
+
+limitations:
+    - categories in predictions.json and truth.json should be the same, no checks performed
+    - output annotation ids do NOT match the prediction or ground thruth ids, since there is
+      no way to make them unique across output; todo: work out required semantics (e.g.
+      optionally output one category, e.g. TP, only)
+"""
+
+confusion_matrix_description = """
+
+take predictions.json, truth.json, output to stdout confusion matrix as csv
+
+usage: cat predictions.json | coco-metrics confusion-matrix --truth truth.json -b > confusion-matrix.csv
+
+"""
+
+confusion_description = """
+
+take predictions.json, truth.json, output to stdout coco annotations labeled as confusions among categories with iou as score
+
+usage: cat predictions.json | coco-metrics confusion --truth truth.json -b > confusion.json
+
+"""
+
+def load_annotations( predicted, truth, category_ids, bounding_boxes = False, score = None ):
+    images = {}
+    if bounding_boxes:
+        for i in range(len(predicted['annotations'])):
+            annotation = predicted['annotations'][i]
+            if not score is None and 'score' in annotation and annotation['score'] < score: continue
+            image_id = annotation['image_id']
+            category_id = annotation['category_id']
+            if not category_id in category_ids:
+                print( 'coco-metrics: expected category id in', category_ids, '; got:', category_id, '; discarded', file = sys.stderr )
+                continue
+            if not image_id in images: images[image_id] = {}
+            if not category_id in images[image_id]: images[image_id][category_id] = ( [], [], [], [] )
+            bbox = annotation['bbox']
+            images[image_id][category_id][0].append( [ bbox[1], bbox[0], bbox[1] + bbox[3], bbox[0] + bbox[2] ] )
+            images[image_id][category_id][1].append(i) # quick and dirty
+        for i in range(len(truth['annotations'])):
+            annotation = truth['annotations'][i]
+            if not score is None and 'score' in annotation and annotation['score'] < score: continue
+            image_id = annotation['image_id']
+            if image_id not in images: images[image_id] = {}
+            category_id = annotation['category_id']
+            if not category_id in images[image_id]: images[image_id][category_id] = ( [], [], [], [] )
+            bbox = annotation['bbox']
+            images[image_id][category_id][2].append( [ bbox[1], bbox[0], bbox[1] + bbox[3], bbox[0] + bbox[2] ] )
+            images[image_id][category_id][3].append(i) # quick and dirty
+        return images
+    print( 'coco-metrics: only loading bounding boxes implemented; for bounding boxes, please specify --bounding-boxes', file = sys.stderr )
+    sys.exit( 1 )
+
+def plot_confusion_matrix(m, classes, normalized = False):
+    import matplotlib.pyplot as plt
+    plt.imshow(m, interpolation='nearest', cmap=plt.cm.Blues)
+    plt.title('confusion matrix')
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+    fmt = '.2f' if normalized else 'd'
+    thresh = m.max() / 2.
+    for i, j in itertools.product(range(m.shape[0]), range(m.shape[1])):
+        plt.text(j, i, format(m[i, j], fmt), horizontalalignment="center", color="white" if m[i, j] > thresh else "black")
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+    plt.show()
+
+def bbox_to_segmentation( box ): return [[ box[0], box[1], box[0], box[1] + box[3], box[0] + box[2], box[1] + box[3], box[0] + box[2], box[1] ]]
+    
+def confusion(args):
+    predicted = json.loads(sys.stdin.read())
+    f = open(args.truth)
+    truth = json.loads(f.read())
+    category_ids = []
+    for c in truth['categories']: category_ids.append(c['id'])
+    background_id = max(category_ids) + 1
+    images = load_annotations( predicted, truth, category_ids, score = args.score_threshold, bounding_boxes = args.bounding_boxes )
+    #for k, v in images.items(): print("--> k:", k, v, file = sys.stderr );
+    iou_matrix = metrics.bbox_iou_matrix if args.bounding_boxes else None
+    result = {}
+    result['categories'] = []
+    confusion_category_ids = {}
+    i = 0
+    for t in [{ 'name': 'BG', 'supercategory': '', 'id': background_id }] + truth['categories']:
+        for p in [{ 'name': 'BG', 'supercategory': '', 'id': background_id }] + truth['categories']:
+            result['categories'].append( { 'id': i, 'name': t['name'] + ',' + p['name'], 'supercategory': t['name'] } )
+            confusion_category_ids[(t['id'], p['id'])] = i
+            #print( '--> A:', 'i:', i, '(', (t['id'], p['id']), ')', '->', confusion_category_ids[(t['id'], p['id'])], file = sys.stderr )
+            i += 1       
+    #print( '--> B: fp: categories:', confusion_category_ids, file = sys.stderr )
+    result['annotations'] = []
+    for image_id, image in images.items():
+        p = []
+        pi = []
+        t = []
+        ti = []
+        for category_id, annotations in image.items(): # quick and dirty
+            p += annotations[0]
+            pi += annotations[1]
+            t += annotations[2]
+            ti += annotations[3]
+        fp = []
+        fn = []
+        if len( ti ) == 0:
+            fp = pi
+        elif len( pi ) == 0:
+            fn = ti
+        else:
+            ious = iou_matrix( p, t )
+            m = ( ious > args.iou_threshold ) * 1
+            indices = np.nonzero( m )
+            for i in range(len(indices[0])):
+                a = copy.deepcopy( predicted['annotations'][pi[indices[0][i]]] )
+                a['id'] = len(result['annotations'])
+                if args.iou_as_score: a['score'] = ious[indices[0][i],indices[1][i]]
+                a['category_id'] = confusion_category_ids[ ( truth['annotations'][ti[indices[1][i]]]['category_id'], a['category_id'] ) ]
+                if not 'segmentation' in a or a['segmentation'] is None: a['segmentation'] = bbox_to_segmentation( a['bbox'] )
+                result['annotations'].append( a )                
+            fp = np.array(pi)[np.nonzero( np.max( m, axis = 1 ) == 0 )[0]]
+            fn = np.array(ti)[np.nonzero( np.max( m, axis = 0 ) == 0 )[0]]
+        for i in fp:
+            a = copy.deepcopy( predicted['annotations'][i] )
+            a['id'] = len(result['annotations'])
+            if args.iou_as_score: a['score'] = 0
+            a['category_id'] = confusion_category_ids[ ( background_id, a['category_id'] ) ]
+            if not 'segmentation' in a or a['segmentation'] is None: a['segmentation'] = bbox_to_segmentation( a['bbox'] )
+            result['annotations'].append( a )
+        for i in fn:
+            a = copy.deepcopy( truth['annotations'][i] )
+            a['id'] = len(result['annotations'])
+            if args.iou_as_score: a['score'] = 0
+            a['category_id'] = confusion_category_ids[ ( a['category_id'], background_id ) ]
+            if not 'segmentation' in a or a['segmentation'] is None: a['segmentation'] = bbox_to_segmentation( a['bbox'] )
+            result['annotations'].append( a )
+    #print("--> len(truth['images']):", len(truth['images']), file = sys.stderr)
+    result['images'] = copy.deepcopy(truth['images'])
+    result['licenses'] = [{
+        'id': 1,
+        'url': 'http://creativecommons.org/licenses/by-nc-sa/2.0/',
+        'name': 'Attribution-NonCommercial-ShareAlike License'
+    }]
+    result['info'] = {
+        'contributor': 'Abyss Solutions',
+        'total_time': '00h00m00s',
+        'year': 2019,
+        'date_created': datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'),
+        'description': 'This is a dataset configured by Abyss Solutions.',
+        'version': '1.0',
+        'url': 'http://www.abysssolutions.com.au',
+    }
+    json.dump(result, sys.stdout, indent=4)
+    
+def confusion_matrix(args):
+    predicted = json.loads(sys.stdin.read())
+    f = open(args.truth)
+    truth = json.loads(f.read())
+    category_ids = []
+    for c in truth['categories']: category_ids.append(c['id'])
+    images = load_annotations( predicted, truth, category_ids, score = args.score_threshold, bounding_boxes = args.bounding_boxes )
+    iou_matrix = metrics.bbox_iou_matrix if args.bounding_boxes else None
+    predicted_labels = [] # quick and dirty, watch performance
+    truth_labels = [] # quick and dirty, watch performance
+    background_id = np.max( category_ids ) + 1
+    for image_id, image in images.items():
+        p = []
+        t = []
+        pc = []
+        tc = []
+        for category_id, annotations in image.items():
+            p += annotations[0]
+            t += annotations[2]
+            pc += [category_id]*len(annotations[0])
+            tc += [category_id]*len(annotations[2])
+        if len( pc ) == 0:
+            pr = [background_id]*len( tc )
+            tr = tc
+        elif len( tc ) == 0:
+            pr = pc
+            tr = [background_id]*len( pc )
+        else:
+            tr, pr = metrics.ious_to_sklearn_pred_true( iou_matrix( p, t ), tc, pc, iou_threshold = args.iou_threshold, blank_id = background_id )
+        predicted_labels = np.append( predicted_labels, pr )
+        truth_labels = np.append( truth_labels, tr )
+    from sklearn import metrics as skm
+    m = skm.confusion_matrix( truth_labels, predicted_labels, [background_id] + category_ids )
+    # if args.normalize: m = m.astype('float') / cm.sum(axis=1)[:, np.newaxis]  # Not working???
+    if args.normalize: # normalize per class
+        m = m.astype(np.float32)
+        m = (m.T  / np.sum(m, axis=1)).T  # Normalise across rows
+    if args.plot:
+        classes = ['BG']
+        for c in truth['categories']: classes.append(c['name'])
+        plot_confusion_matrix( m, classes, args.normalize )
+    fmt = '%.2f' if args.normalize else '%d'
+    np.savetxt( sys.stdout, m, delimiter=',', fmt=fmt )
+
+def tfpn(args):
+    predicted = json.loads(sys.stdin.read())
+    f = open(args.truth)
+    truth = json.loads(f.read())
+    category_ids = []
+    for c in truth['categories']: category_ids.append(c['id'])
+    images = load_annotations( predicted, truth, category_ids, score = args.score_threshold, bounding_boxes = args.bounding_boxes )
+    iou_matrix = metrics.bbox_iou_matrix if args.bounding_boxes else None
+    match = eval( 'metrics.' + args.match ) # quick and dirty
+    result = {}
+    result['annotations'] = []
+    for image_id, image in images.items():
+        for category_id, annotations in image.items():
+            category_id_offset = 0 if args.flat_categories else ( category_id - 1 ) * 4
+            tp = [[], []]
+            fp = []
+            tn = []
+            fn = []
+            if len( annotations[0] ) == 0:
+                fn = [ *range( len( annotations[2] ) ) ]
+            else:
+                if len( annotations[2] ) == 0:
+                    fp = [ *range( len( annotations[0] ) ) ]
+                else:
+                    ious = iou_matrix( annotations[0], annotations[2] ) # todo: if too slow, remove; used only to calculate score as iou
+                    tp, fp, tn, fn = metrics.tp_fp_tn_fn( annotations[0], annotations[2], args.iou_threshold, match )
+            for k in range( len( tp[0] ) ):
+                a = copy.deepcopy( predicted['annotations'][annotations[1][tp[0][k]]] )
+                a['id'] = len(result['annotations'])
+                a['score'] = ious[tp[0][k],tp[1][k]]
+                a['category_id'] = 1 + category_id_offset
+                if not 'segmentation' in a or a['segmentation'] is None: a['segmentation'] = bbox_to_segmentation( a['bbox'] )
+                result['annotations'].append( a )
+            for j in fp:
+                a = copy.deepcopy( predicted['annotations'][annotations[1][j]] )
+                a['id'] = len(result['annotations'])
+                a['score'] = 0
+                a['category_id'] = 2 + category_id_offset
+                if not 'segmentation' in a or a['segmentation'] is None: a['segmentation'] = bbox_to_segmentation( a['bbox'] )
+                result['annotations'].append( a )
+            for j in tn:
+                a = copy.deepcopy( truth['annotations'][annotations[3][j]] )
+                a['id'] = len(result['annotations'])
+                a['score'] = 0
+                a['category_id'] = 3 + category_id_offset
+                if not 'segmentation' in a or a['segmentation'] is None: a['segmentation'] = bbox_to_segmentation( a['bbox'] )
+                result['annotations'].append( a )
+            for j in fn:
+                a = copy.deepcopy( truth['annotations'][annotations[3][j]] )
+                a['id'] = len(result['annotations'])
+                a['score'] = 0
+                a['category_id'] = 4 + category_id_offset
+                if not 'segmentation' in a or a['segmentation'] is None: a['segmentation'] = bbox_to_segmentation( a['bbox'] )
+                result['annotations'].append( a )
+    result['categories'] = []
+    if args.flat_categories:
+        result['categories'] += [ { 'name': 'TP', 'supercategory': '', 'id': 1 }
+                                , { 'name': 'FP', 'supercategory': '', 'id': 2 }
+                                , { 'name': 'TN', 'supercategory': '', 'id': 3 }
+                                , { 'name': 'FN', 'supercategory': '', 'id': 4 } ]
+    else:
+        for c in truth['categories']:
+            category_id_offset = ( c['id'] - 1 ) * 4
+            result['categories'] += [ { 'name': c['name'] + ',TP', 'supercategory': c['name'], 'id': category_id_offset + 1 }
+                                    , { 'name': c['name'] + ',FP', 'supercategory': c['name'], 'id': category_id_offset + 2 }
+                                    , { 'name': c['name'] + ',TN', 'supercategory': c['name'], 'id': category_id_offset + 3 }
+                                    , { 'name': c['name'] + ',FN', 'supercategory': c['name'], 'id': category_id_offset + 4 } ]
+    result['images'] = truth['images']
+    result['licenses'] = [{
+        'id': 1,
+        'url': 'http://creativecommons.org/licenses/by-nc-sa/2.0/',
+        'name': 'Attribution-NonCommercial-ShareAlike License'
+    }]
+    result['info'] = {
+        'contributor': 'Abyss Solutions',
+        'total_time': '00h00m00s',
+        'year': 2019,
+        'date_created': datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'),
+        'description': 'This is a dataset configured by Abyss Solutions.',
+        'version': '1.0',
+        'url': 'http://www.abysssolutions.com.au',
+    }
+    json.dump(result, sys.stdout, indent=4)
+
+def get_args():
+    parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
+    subparsers = parser.add_subparsers(title="operations", help="available operations")
+
+    tfpn_parser = subparsers.add_parser('tfpn', description=tfpn_description, help="take predictions.json, truth.json, output to stdout coco annotations labeled as TP, FP, TN", formatter_class=argparse.RawDescriptionHelpFormatter)
+    tfpn_parser.set_defaults( func=tfpn )
+    tfpn_parser.add_argument( '--bounding-boxes', '--bbox', '-b', action='store_true', help="match bounding boxes" )
+    tfpn_parser.add_argument( '--flat-categories', '--flat', action='store_true', help="output just four categories: TP, FP, TN, and FN" )
+    tfpn_parser.add_argument( '--iou-threshold', default=0.5, type=float, help="iou threshold; default: %(default)s" )
+    tfpn_parser.add_argument( '--match', default='one_to_one', type=str, help="how to match, 'one_to_one' or 'one_to_many'; default: %(default)s" )
+    tfpn_parser.add_argument( '--polygons', '--poly', '-p', action='store_true', help="match polygons: todo" )
+    tfpn_parser.add_argument( '--score-threshold', default=0.5, type=float, help="score threshold: default: %(default)s" )
+    tfpn_parser.add_argument( '--truth', '-t', type=str, help="ground truth coco.json file" )
+
+    confusion_matrix_parser = subparsers.add_parser('confusion-matrix', description=confusion_matrix_description, help="take predictions.json, truth.json, output to stdout coco annotations labeled as TP, FP, TN", formatter_class=argparse.RawDescriptionHelpFormatter)
+    confusion_matrix_parser.set_defaults( func=confusion_matrix )
+    confusion_matrix_parser.add_argument( '--bounding-boxes', '--bbox', '-b', action='store_true', help="match bounding boxes" )
+    confusion_matrix_parser.add_argument( '--iou-threshold', default=0.5, type=float, help="iou threshold; default: %(default)s" )
+    confusion_matrix_parser.add_argument( '--normalize', action='store_true', help="normalize confusion matrix" )
+    confusion_matrix_parser.add_argument( '--plot', action='store_true', help="plot confusion matrix, convenience option" )
+    confusion_matrix_parser.add_argument( '--polygons', '--poly', '-p', action='store_true', help="match polygons: todo" )
+    confusion_matrix_parser.add_argument( '--score-threshold', default=0.5, type=float, help="score threshold: default: %(default)s" )
+    confusion_matrix_parser.add_argument( '--truth', '-t', type=str, help="ground truth coco.json file" )
+    
+    confusion_parser = subparsers.add_parser('confusion', description=confusion_description, help="take predictions.json, truth.json, output to stdout coco annotations labeled as confusion among categories with iou as score", formatter_class=argparse.RawDescriptionHelpFormatter)
+    confusion_parser.set_defaults( func=confusion )
+    confusion_parser.add_argument( '--bounding-boxes', '--bbox', '-b', action='store_true', help="match bounding boxes" )
+    confusion_parser.add_argument( '--iou-threshold', default=0.5, type=float, help="iou threshold; default: %(default)s" )
+    confusion_parser.add_argument( '--iou-as-score', action='store_true', help="set score to iou value; default: keep score from original annotation" )
+    confusion_parser.add_argument( '--polygons', '--poly', '-p', action='store_true', help="match polygons: todo" )
+    confusion_parser.add_argument( '--score-threshold', default=0.5, type=float, help="score threshold: default: %(default)s" )
+    confusion_parser.add_argument( '--truth', '-t', type=str, help="ground truth coco.json file" )
+    
+    return parser.parse_args()
+
+def main():
+    args = get_args()
+    args.func(args)
+
+if __name__ == '__main__':
+    main()

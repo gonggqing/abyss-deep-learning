@@ -1,89 +1,86 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import os
 import sys
-from argparse import ArgumentParser
+import time
 from collections import defaultdict
-from operator import itemgetter
+from contextlib import redirect_stdout
 
-SCRIPT_NAME = os.path.basename(__file__)
+from pycocotools.coco import COCO
 
+_DESCRIPTION = \
+    """
+Read coco file from stdin and count all unique category/caption instances. 
 
-def main():
-    category_count = defaultdict(int)
+Output coco json contents in stdout. 
 
-    if not sys.stdin.isatty():
-        stdin_string = sys.stdin.read()
-        if stdin_string:
-            ARGS.json_files.append(stdin_string)
-
-    for json_file_path_or_buffer in ARGS.json_files:
-        say("loading dataset")
-        in_ds = load_dataset(json_file_path_or_buffer)
-        say("counting categories")
-        category_count = count_categories(in_ds, category_count)
-
-        if ARGS.percent:
-            total_count = sum(category_count.values())
-            for caption, count in category_count.items():
-                category_count[caption] = {
-                    'count': count,
-                    'percentage': count / total_count * 100,
-                }
-
-        json.dump(category_count, sys.stdout, indent=4)
-    say("done")
-    sys.exit()
+examples: 
+    cat coco.json | coco-stats count
+"""
 
 
-def get_args():
-    parser = ArgumentParser(
-        description="Count all unique category instances in given coco files"
-    )
-    parser.add_argument('json_files', nargs='*', type=str, help='JSON files to caption count')
-    parser.add_argument('-m', '--multi-label', action='store_true', help='Option to treat multi-labels as unique')
-    parser.add_argument('-p', '--percent', action='store_true', help='Option to output percentage of entire data set')
+def main(args=None):
+    start = time.perf_counter()
+    print_verbose("loading dataset", verbose=args.verbose)
+    coco = args.func(load_coco(sys.stdin.read(), args.verbose), args)
+    json.dump(coco.dataset, sys.stdout, indent=4)
+    print_verbose("done in {}s".format(time.perf_counter() - start), verbose=args.verbose)
+    sys.exit(0)
+
+
+def get_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-v', '--verbose', action='store_true', help='More output to stderr')
+
+    subparsers = parser.add_subparsers(title="Actions", description="Actions to apply to all images in the dataset. For more information on each individual action, append -h", help="Available actions")
+    count_parser = subparsers.add_parser('count',       help="Count all annotations in the dataset")
+    count_parser.set_defaults(func=count)
+
     return parser.parse_args()
 
 
-def count_categories(data_set, category_count):
-    args = get_args()
-
-    anns = data_set['annotations']
-    anns.sort(key=itemgetter('image_id', 'id'))
-    cat_id_2_cat = {cat['id']: cat['name'] for cat in data_set['categories']}
-    curr_img_id = None
-    for ann in anns:
-        if args.multi_label:
-            categories = []
-            if curr_img_id != ann['image_id']:
-                category_count[categories] += 1
-                curr_img_id = ann['image_id']
-                categories.clear()
-            categories.append(cat_id_2_cat[ann['category_id']])
-        else:
-            category_count[cat_id_2_cat[ann['category_id']]] += 1
-    category_count['total_images'] += len(data_set['images'])
-    category_count['categories'] = data_set['categories']
-    return category_count
+def count(coco: COCO, args: argparse.Namespace) -> COCO:
+    for image in coco.loadImgs(ids=coco.getImgIds()):
+        category_count = defaultdict(int)
+        annotations = coco.loadAnns(ids=coco.getAnnIds(imgIds=image['id']))
+        for annotation in annotations:
+            category = coco.loadCats(ids=coco.getCatIds(catIds=annotation['category_id'])).pop()
+            category_count[category['name']] += 1
+        image.update(category_count)
+    for category in coco.loadCats(ids=coco.getCatIds()):
+        category_count = len(coco.loadAnns(ids=coco.getAnnIds(catIds=category['id'])))
+        category['count'] = category_count
+        print_verbose("{}: {}".format(category['name'], category_count), verbose=args.verbose)
+    return coco
 
 
-def load_dataset(json_file_path_or_buffer):
-    if os.path.exists(json_file_path_or_buffer):
-        with open(json_file_path_or_buffer, 'r') as file_handle:
-            in_dataset = json.load(file_handle)
-    else:
-        in_dataset = json.loads(json_file_path_or_buffer)
-    return in_dataset
+def load_coco(json_buffer: str, verbose: bool) -> COCO:
+    with redirect_stdout(Verbose(verbose)):
+        coco = COCO()
+        coco.dataset = json.loads(json_buffer)
+        coco.createIndex()
+    return coco
 
 
-def say(*args, **kwargs):
-    if ARGS.verbose:
-        print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
+def print_verbose(*args, verbose=False, **kwargs):
+    if verbose:
+        print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
 
 
-ARGS = get_args()
+def print_and_die(*args, **kwargs):
+    print_verbose(*args, verbose=True, **kwargs)
+    sys.exit(1)
+
+
+class Verbose:
+    def __init__(self, verbose: bool):
+        self._verbose = verbose
+
+    def write(self, line: str):
+        if line:
+            print_verbose(line.strip(), verbose=self._verbose)
+
 
 if __name__ == '__main__':
-    main()
+    main(args=get_args())

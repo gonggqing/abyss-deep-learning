@@ -4,88 +4,117 @@ import json
 import os
 import sys
 from operator import itemgetter
-from pathlib import Path
-
-import cv2
 
 DESCRIPTION = \
-"""
-Read coco.json file(s) defined on command line or piped in from another coco utility.
+    """
+Read coco.json file(s) defined on command line.
+
+Duplicate image file names are removed as well as duplicate annotations.
+
+Images are removed on a per image basis on the image name
+i.e. if dataset has two images that have file name 0001.jpeg and 0001.png, one will be discarded as
+     if dataset has two images that have file name 0001.jpeg and 0002.jpeg, none will be discarded
+     
+Annotations are removed on a per annotation basis on the annotation meta data excluding the unique identifier 'id'
+i.e. if dataset has two annotations -> 
+    first_ann = {                           |   second_ann = {    
+                    "id": 1,                |                   "id": 2,
+                    "category_id": 1,       |                   "category_id": 1, 
+                    "bbox": [0,0,0,0],      |                   "bbox": [0,0,0,0],
+                }                           |                }
+The second annotation will be removed as their exists duplicate category id and bbox 
 
 Output merged coco json contents in stdout.
 
 examples:
     coco-merge labelled/abc/coco.json labelled/def/coco.json
-    find . -name coco.json | coco-merge
 """
 
 
 def main():
-    args = get_args()
+    global ARGS
+    ARGS = get_args()
 
-    stdin_string = ""
-    if not sys.stdin.isatty():
-        for line in sys.stdin:
-            stdin_string += line.strip()
-
-    if stdin_string:
-        args.json_files.append(stdin_string)
-
+    info = None  # Grabs first available info segment if no specific json_file is given
     images = []  # Merged images
     annotations = []  # Merged annotations
-    img_count = {}  # Count occurrences of an image across all json files to be merged
+    categories = []  # Merged categories
+    licenses = []  # Merged licenses
     old_id_2_path = {}  # Mapping of old image id to the unique image path, many to one relationship
     path_2_new_id = {}  # Mapping of unique image path to new id, one to one relationship
+    category_old_id_2_name_and_super = {}
+    name_and_super_2_new_id = {}  # Mapping of old categories to new id
+    seen_categories = set()  # Filter out duplicate categories/supercategories
+    seen_images = set()  # Filter out duplicate images
 
-    for json_file_path_or_buffer in args.json_files:
-        say("loading dataset")
-        old_ds = load_dataset(json_file_path_or_buffer)
+    for json_file_path in ARGS.json_files:
+        say("loading {}".format(json_file_path))
+        old_ds = load_dataset(json_file_path)
+        if not old_ds:
+            continue
 
-        # Retrieve sub-directories if they exist between root video directory and video file path
-        path = Path(os.path.join(os.getcwd(), json_file_path_or_buffer))
-        rel_dir = path.relative_to(os.getcwd())
-        sub_dir, file_basename = os.path.split(rel_dir)
+        if info is None:
+            try:
+                info = old_ds['info']
+            except KeyError:
+                pass
 
-        say("merging dataset")
+        # Add new categories
+        try:
+            for category in old_ds['categories']:
+                # Check to see if category name and supercategory exists in merged categories
+                name = category['name']
+                supercategory = category['supercategory']
+                name_and_super = (name, supercategory)
+                if name_and_super not in seen_categories:
+                    new_id = len(categories) + 1
+                    category_old_id_2_name_and_super[category['id']] = name_and_super
+                    categories.append({
+                        'id': new_id,
+                        'name': name,
+                        'supercategory': supercategory,
+                    })
+                    name_and_super_2_new_id[name_and_super] = new_id
+                    seen_categories.add(name_and_super)
+        except KeyError:
+            pass
+
+        say("merging {}".format(json_file_path))
         for image in old_ds['images']:
             if 'path' not in image:
                 continue
 
-            img_path = os.path.join(os.getcwd(), sub_dir, image['path'])
-            if img_path in img_count:
-                img_count[img_path] += 1
-            else:
-                img_count[img_path] = 1
+            img_file_name, img_ext = os.path.splitext(os.path.basename(image['path']))
 
-            if img_count[img_path] == 1:
-                new_id = len(images)
-                if not ('height' in image or 'weight' in image):
-                    img = cv2.imread(img_path)
-
-                images.append({
-                    'id': new_id,
-                    'height': image['height'] if 'height' in image else img.shape[0],
-                    'width': image['width'] if 'width' in image else img.shape[1],
-                    'original_uri': image['original_uri'] if 'original_uri' in image else None,
-                    'path': img_path,
-                })
-                path_2_new_id[img_path] = new_id
-
-            # Keep note of any image ids even duplicates to map the annotations to the correct new id
             old_id = image['id']
-            old_id_2_path[old_id] = img_path
+            old_id_2_path[old_id] = img_file_name
+
+            if img_file_name not in seen_images:
+                seen_images.add(img_file_name)
+                new_id = len(images) + 1
+                path_2_new_id[img_file_name] = new_id
+                image['id'] = new_id
+                images.append(image)
 
         for ann in old_ds['annotations']:
             old_id = ann['image_id']
-            img_path = old_id_2_path[old_id]
-            new_id = path_2_new_id[img_path]
-            annotations.append({
-                'image_id': new_id,
-                'caption': ann['caption']
-            })
+            img_file_name = old_id_2_path[old_id]
+            new_id = path_2_new_id[img_file_name]
+            ann['image_id'] = new_id
+            ann['category_id'] = name_and_super_2_new_id[category_old_id_2_name_and_super[ann['category_id']]]
+            del ann['id']
+            annotations.append(ann)
+
+        try:
+            for license in old_ds['licenses']:
+                licenses.append(license)
+        except KeyError:
+            pass
 
     # Remove duplicate annotations
-    annotations = [dict(item) for item in set(tuple(ann.items()) for ann in annotations)]
+    annotations = [dict(item) for item in set(to_tuple([list(i) for i in sorted(ann.items())]) for ann in annotations)]
+    licenses = [dict(item) for item in set(to_tuple([list(i) for i in sorted(license.items())]) for license in
+                                           licenses)]
 
     # Sort annotations by image id
     annotations.sort(key=itemgetter('image_id'))
@@ -95,41 +124,57 @@ def main():
     annotations.clear()
 
     for idx, ann in enumerate(tmp_annotations):
-        ann = {
-            'id': idx,
-            'image_id': ann['image_id'],
-            'caption': ann['caption'],
-        }
+        ann['id'] = idx + 1
         annotations.append(ann)
 
+    if ARGS.file_name:
+        info = load_dataset(ARGS.file_name)['info']
+
     merged_data_set = {
+        'info': info,
         'images': images,
         'annotations': annotations,
+        'categories': categories,
+        'licenses': licenses,
     }
-
-    json.dump(merged_data_set, sys.stdout, indent=4)
+    json.dump(merged_data_set, sys.stdout, indent=ARGS.indent)
     say("done")
     sys.exit()
 
 
-def say(*arg, **kwargs):
-    print("{}:".format(os.path.basename(__file__)), *arg, file=sys.stderr, **kwargs)
+def say(*arg, verbose=False, **kwargs):
+    if ARGS.verbose or verbose:
+        print("{}:".format(os.path.basename(__file__)), *arg, file=sys.stderr, **kwargs)
 
 
-def load_dataset(json_file_path_or_buffer):
-    if os.path.exists(json_file_path_or_buffer):
-        with open(json_file_path_or_buffer, 'r') as file_handle:
+def die(*args, **kwargs):
+    say(*args, verbose=True, **kwargs)
+    sys.exit(1)
+
+
+def load_dataset(json_file_path):
+    try:
+        with open(json_file_path, 'r') as file_handle:
             in_dataset = json.load(file_handle)
-    else:
-        in_dataset = json.loads(json_file_path_or_buffer)
-    return in_dataset
+        return in_dataset
+    except IOError:
+        pass
 
 
 def get_args():
     """Get args from the command line args"""
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('json_files', nargs='*', type=str, help="JSON files to merge together into one json")
+    parser.add_argument('-f', '--file_name', nargs=1, type=str, help="COCO json file to copy info to new dataset, "
+                                                                     "default is the first json file")
+    parser.add_argument('-m', '--min', action='store_const', help="Output minimised json", const=None, default=4,
+                        dest='indent')
+    parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     return parser.parse_args()
+
+
+def to_tuple(lst: list):
+    return tuple(to_tuple(i) if isinstance(i, list) else i for i in lst)
 
 
 if __name__ == '__main__':

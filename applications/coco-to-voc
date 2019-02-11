@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+import argparse
+import sys
+import os
+import concurrent.futures
+
+from pycocotools.coco import COCO
+import pycocotools.mask as mask
+from skimage.io import imsave, imread
+
+import numpy as np
+import json
+
+def print_v(*args, level=1):
+    if print_v.verbose >= level:
+        print(*args, file=sys.stderr)
+print_v.verbose = 0
+
+def read_image(path):
+    extensions = ['png', 'jpg', 'jpeg', 'tiff']
+    for ext in extensions:
+        try:
+            parts = os.path.splitext(path)
+            return imread(parts[0] + "." + ext, plugin='imread')
+        except OSError:
+            if ext == extensions[-1]:
+                raise
+
+def pack_masks(masks, mask_classes, num_classes, dtype=np.uint8):
+    '''Pack a list of instance masks into a categorical mask.
+    Expects masks to be shape [height, width, num_instances] and mask_classes to be [num_instances].'''
+    num_shapes = len(mask_classes)
+    shape = masks.shape
+    packed = np.zeros(shape[0:2] + (num_classes,), dtype=dtype)
+    packed[..., 0] = 1
+    for i in range(num_shapes):
+        class_id = mask_classes[i]
+        mask = masks[..., i]
+        packed[..., class_id] |= mask
+        packed[..., 0] &= ~mask
+    return packed
+
+def convert_and_save(file_name, anns):
+    print_v("Processing", file_name, level=2)
+    #TODO: Workaround for anns == [] implemented, fill entire image with ignore pixel
+    file_name = os.path.splitext(file_name)[0] + ".png"
+    if anns:
+        classes = [ann['category_id'] for ann in anns]
+        masks = np.array([args.coco.annToMask(ann) for ann in anns
+            ]).transpose((1, 2, 0))
+        label_image = pack_masks(masks, classes, num_classes=args.num_classes)
+        label_image = label_image.argmax(-1).astype(np.uint8)
+    if args.ignore is not None or not anns:
+        rgb = read_image(os.path.join(args.image_dir, os.path.basename(file_name)))
+        if anns:
+            mask = rgb.sum(axis=-1) == 0 
+            label_image[mask] = args.ignore
+        else:
+            label_image = np.ones(rgb.shape[:2], dtype=np.uint8) * 255
+    imsave(os.path.join(args.output_dir, os.path.basename(file_name)), label_image)
+
+def coco_to_voc(args):
+    def valid_ann(ann):
+        return 'category_id' in ann and 'segmentation' in ann and len(ann['segmentation'][0]) > 3
+
+    assert os.path.exists(args.coco_path), "COCO file not found."
+    coco = COCO(args.coco_path)
+    args.coco = coco
+    args.num_classes = len(coco.cats) + 1
+    print_v("args.num_classes", args.num_classes, level=1)
+    
+    annotations = {
+        image['file_name']: [ann for ann in coco.loadAnns(coco.getAnnIds())
+               if ann['image_id'] == image['id'] and valid_ann(ann)]
+           for image in coco.imgs.values()}
+    with concurrent.futures.ProcessPoolExecutor(max_workers=args.workers) as executor:
+        for result in executor.map(convert_and_save, *zip(*annotations.items())):
+            pass
+
+def get_args():
+    parser = argparse.ArgumentParser(
+        description="Convert a COCO JSON into CSV"
+    )
+    parser.add_argument('coco_path', help="Path to the coco JSON.")
+    parser.add_argument('output_dir', help="Where to place the new dataset annotations.")
+    parser.add_argument('--ignore', help="Set black pixels to this label (typically 255)", default=None, type=int)
+    parser.add_argument('--image-dir', help="Image dir, needed when --ignore is used", type=str)
+    parser.add_argument('--workers', help="How many workers to use in the parallel process", default=8, type=int)
+    # parser.add_argument(
+    #     '--image-dir', default=None,
+    #     help="Set image dir for relative pathed images."
+    # )
+    parser.add_argument('--verbose', '-v', action='count',
+                        help="verbose output to stderr, use multiple for more verbosity")
+    args = parser.parse_args()
+    return args
+
+
+if __name__ == '__main__':
+    args = get_args()
+    print_v.verbose = args.verbose
+    coco_to_voc(args)

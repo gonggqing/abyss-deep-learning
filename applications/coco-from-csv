@@ -1,68 +1,191 @@
 #!/usr/bin/env python3
-import os
 import argparse
 import json
+import os
 import sys
+from datetime import datetime
 from io import StringIO
 
 import pandas as pd
-
-SCRIPT_NAME = os.path.basename(__file__)
+from PIL import Image
 
 DESCRIPTION = \
-    """
+"""
+Generate COCO JSON file from CSV file.
 
+Required CSV file fields are:
+    video frame classification: file_name,begin_frame,end_frame,caption
+    bounding boxes: file_name,image_id,x1,y1,x2,y2,score,category_id
+        image_id is an optional field
 """
 
 
+# todo
+# - check whether loaded df is valid, otherwise an obscure error down the line
+
 def main():
-    args = get_args()
+    global ARGS
+    ARGS = get_args()
+    csv = StringIO(sys.stdin.read())
+    try:
+        if ARGS.fields:
+            df = pd.read_csv(csv, names=ARGS.fields.split(','), header=None)
+        else:
+            df = pd.read_csv(csv)
+    except pd.errors.ParserError as e:
+        die(e, "mismatch in expected and received fields in csv")
+    # todo: check whether df is valid, otherwise an obscure error down the line
 
-    json_data = {
-        'file_name': args.file_name,
-        'segments': [],
-    }
-
-    stdin_string = ""
-    if not sys.stdin.isatty():
-        for line in sys.stdin:
-            stdin_string += line
-
-    if stdin_string:
-        csv = StringIO(stdin_string)
+    coco_json = {}
+    if all(field in df for field in ['file_name', 'x1', 'y1', 'x2', 'y2', 'score', 'category_id']):
+        coco_json = generate_from_bounding_boxes(df)
+    elif all(field in df for field in ['file_name', 'begin_frame', 'end_frame', 'caption']):
+        coco_json = generate_from_video_frames(df)
     else:
-        csv = args.csv
+        die("could not find required fields")
 
-    if not csv:
-        raise IOError("No CSV file given")
-
-    df = pd.read_csv(csv)
-    for idx, row in df.iterrows():
-        if 'file_name' in row:
-            json_data['file_name'] = row['file_name']
-        elif args.file_name is None:
-            raise RuntimeError("No file name can be found in CSV file and --file-name is not specified")
-        json_data['segments'].append({
-            'id': idx,
-            'begin_frame': row['begin_frame'],
-            'end_frame': row['end_frame'],
-            'caption': row['caption'],
-        })
-
-    json.dump(json_data, sys.stdout, indent=4)
+    json.dump(coco_json, sys.stdout, indent=ARGS.indent)
     say("done")
     sys.exit()
+
+def generate_from_bounding_boxes(df): #def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
+    say("generating from bounding boxes")
+    coco_json = {
+        'info'       : {
+            'year'        : int(datetime.now().year),
+            'version'     : '1.0',
+            'description' : 'This is a dataset configured by Abyss Solutions.',
+            'contributor' : 'Abyss Solutions',
+            'url'         : 'http://www.abysssolutions.com.au',
+            'date_created': datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'),
+        },
+        'images'     : [],
+        'annotations': [],
+        'licenses'   : [
+            {
+                "id": 0,
+                "name": "Attribution-NonCommercial-ShareAlike License",
+                "url": "http://creativecommons.org/licenses/by-nc-sa/2.0/",
+            }
+        ],
+    }
+
+    try:
+        file_name, file_ext = os.path.splitext(ARGS.map)
+        say("trying to open a {} file".format(file_ext))
+        if 'csv' in file_ext:
+            inverted_categories = pd.read_csv(ARGS.map, header=None, index_col=1).to_dict()[0]
+            categories = [{'id': k,
+                           'name': v,
+                           'supercategory': '',
+                           } for k, v in inverted_categories.items()]
+        else:
+            with open(ARGS.map, 'r') as f:
+                categories = json.load(f)['categories']
+        coco_json['categories'] = categories
+    except IOError as e:
+        say("could not read file [{}]; omit categories section in coco output".format(ARGS.map))
+        say(e)
+    except TypeError:
+        say("no mapping file given, received [{}]; omit categories section in coco output".format(ARGS.map))
+
+    seen_imgs = set()
+    img_file_name_2_img_id = {}
+    for idx, row in df.iterrows():
+        say("dumping annotation {}".format(idx))
+        category_id = int(row['category_id'])
+        if category_id < 0:
+            continue
+
+        img_path = row['file_name']
+        img_file_name = os.path.basename(img_path)
+
+        if img_file_name not in seen_imgs:
+            img_id = row['image_id'] if 'image_id' in row else (len(seen_imgs))
+            seen_imgs.add(img_file_name)
+
+            # PIL.Image.open does lazy loading so raster data will not be loaded in
+            try:
+                width, height = Image.open(img_path).size
+            except IOError:
+                say("img_path [{}] could not be found".format(img_path))
+                say("trying to use width and height values from command line argument --image-size")
+                if ARGS.image_size:
+                    width, height = ARGS.image_size.split(',')
+                else:
+                    width = height = None
+                    say("no width and height values supplied")
+                    say("width and height values will be omitted from image [{}]".format(img_id))
+
+            img = {
+                'id'           : img_id,
+                'file_name'    : img_file_name,
+                'license'      : 0,
+                'date_captured': '',
+                'path'         : img_path,
+            }
+            if width and height:
+                img['width'] = width
+                img['height'] = height
+            coco_json['images'].append(img)
+            img_file_name_2_img_id[img_file_name] = img_id
+
+        x = row['x1']
+        y = row['y1']
+        width = row['x2'] - x
+        height = row['y2'] - y
+        coco_json['annotations'].append({
+            'id'          : len(coco_json['annotations']),
+            'image_id'    : img_file_name_2_img_id[img_file_name],
+            'category_id' : category_id,
+            'segmentation': None,
+            'area'        : int(width * height),
+            'bbox'        : [int(x), int(y), int(width), int(height)],
+            'iscrowd'     : 0,
+            'score'       : row['score'],
+        })
+    return coco_json
+
+
+def generate_from_video_frames(df: pd.DataFrame) -> dict:
+    say("generating from video frames")
+    coco_json = {
+        'file_name': '',
+        'segments' : [],
+    }
+    for idx, row in df.iterrows():
+        if 'file_name' in row:
+            coco_json['file_name'] = row['file_name']
+        coco_json['segments'].append({
+            'id'         : idx,
+            'begin_frame': row['begin_frame'],
+            'end_frame'  : row['end_frame'],
+            'caption'    : row['caption'],
+        })
+    return coco_json
 
 
 def get_args():
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('-c', '--csv', type=str, help="Path to CSV file.")
-    parser.add_argument('-f', '--file-name', type=str, help="Path to file.")
+    parser.add_argument('fields', type=str, help="Comma separated field names for CSV file")
+    parser.add_argument('--map', '--categories',
+                        type=str,
+                        help="Path to original COCO json or category mapping csv file of category and category ids")
+    parser.add_argument('-s', '--image-size', type=str, help="<width>,<height> values to use to give to all images")
+    parser.add_argument('-m', '--min', action='store_const', help="Output minimised json", const=None, default=4,
+                        dest='indent')
+    parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     return parser.parse_args()
 
 
-def say(*args, **kwargs):
-    print("{}:".format(SCRIPT_NAME), *args, file=sys.stderr, **kwargs)
+def say(*args, verbose=False, **kwargs):
+    if verbose or ARGS.verbose:
+        print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
+
+
+def die(*args, **kwargs):
+    say(*args, verbose=True, **kwargs)
+    sys.exit(1)
 
 
 if __name__ == '__main__':

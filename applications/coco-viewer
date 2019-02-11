@@ -11,7 +11,7 @@ from matplotlib.collections import PatchCollection
 from matplotlib.patches import Polygon
 from pycocotools import mask as COCOmask
 from pycocotools.coco import COCO
-from skimage.io import imread
+from abyss_deep_learning.utils import imread
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -121,9 +121,8 @@ def calculate_rgb_means(dataset, image_dir=None):
         image_path = image['path'] if 'path' in image else os.path.join(
             image_dir, image['file_name'])
         print(image_path, file=sys.stderr)
-        rgb = imread(image_path)
-        if not isinstance(rgb, np.ndarray):
-            rgb = imread(image_path, plugin='matplotlib') * 255
+        output_size = (image['height'], image['width'])
+        rgb = imread(image_path, output_size=output_size)
         means.append(np.mean(rgb, axis=(0, 1)))
     foreach_coco_image(dataset, _calc_rgb)
     return np.mean(np.array(means), axis=0).tolist()
@@ -169,7 +168,8 @@ def main(args):
             args.image_dir, image['file_name'])
         if not os.path.exists(image_path):
             image_path = os.path.join(args.image_dir, image_path)
-        rgb = imread(image_path, plugin='matplotlib')
+        output_size = (image['height'], image['width'])
+        rgb = imread(image_path, output_size=output_size)
         ann_ids = coco_db.getAnnIds(imgIds=[image['id']], catIds=args.cats)
         annotations = coco_db.loadAnns(ids=ann_ids)
         if not annotations:

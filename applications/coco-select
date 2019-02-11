@@ -1,0 +1,210 @@
+#!/usr/bin/env python3
+import argparse
+import copy
+import json
+import os
+import sys
+import time
+from collections import namedtuple
+
+import pandas as pd
+
+DESCRIPTION = \
+    """
+Read COCO json file piped in from stdin and write to stdout COCO json output.
+
+Select on two keywords image or annotation:
+    if on == 'images':
+        evaluate the expression on a per image basis and select all their associated annotations
+        
+    elif on == 'annotations':
+        evaluate the expression on a per annotation basis and select the associated image
+
+Generate an expression based on existing fields in COCO format
+    annotations can be searched by
+        a.id    Search by id
+        a.bbox  Search by bbox
+        a.area  Search by area
+        etc
+        
+    images can be searched by
+        i.id    Search by id
+        i.path  Search by path
+        i.width Search by width
+        etc
+        
+    categories can be searched by
+        c.id    Search by id
+        c.name  Search by name
+
+examples:
+    cat pf.json | coco-select annotations "a.id == 4"
+    cat pf.json | coco-select annotations "c.id == 4"
+    cat pf.json | coco-select annotations "c.name == 'PF-H'"
+    
+    cat pf.json | coco-select images "c.name == 'PF-H'"
+    cat pf.json | coco-select images "c.id == 4"   
+"""
+
+
+def main(args: argparse.Namespace = None):
+    pd.set_option('display.expand_frame_repr', False)
+    start = time.perf_counter()
+    say("search expressions is [{}]".format(args.expression), verbose=args.verbose)
+
+    data = json.loads(sys.stdin.read())
+    if args.on == 'annotations' and len(data['annotations']) == 0:
+        say("warning: got empty annotations, just pass input through", verbose=args.verbose)
+        json.dump(data, sys.stdout, indent=args.indent)
+        sys.exit(0)
+
+    for annotation in data['annotations']:
+        annotation['annotation_id'] = annotation.pop('id')
+
+    if args.keep_images: original_images = copy.deepcopy(data['images']) # quick and dirty, ugly
+    
+    for image in data['images']:
+        image['image_id'] = image.pop('id')
+
+    for category in data['categories']:
+        category['category_id'] = category.pop('id')
+
+    df_annotations = create_data_frame(data['annotations'])
+    df_images = create_data_frame(data['images'])
+    df_categories = create_data_frame(data['categories'])
+
+    annotation_keys = df_annotations.keys()
+    image_keys = df_images.keys()
+    category_keys = df_categories.keys()
+
+    say("joining sections", verbose=args.verbose)
+    df = pd.merge(left=df_annotations, right=df_categories, on='category_id')
+    df: pd.DataFrame = pd.merge(left=df, right=df_images, on='image_id')
+
+    Keys = namedtuple("Keys", ['ann_keys', 'img_keys', 'cat_keys'])
+    keys = Keys(ann_keys=annotation_keys, img_keys=image_keys, cat_keys=category_keys)
+
+    say("evaluating on {}".format(args.on), verbose=args.verbose)
+    if args.on == 'images':
+        df: pd.DataFrame = eval_on(df, args, keys, 'image_id')
+    elif args.on == 'annotations':
+        df: pd.DataFrame = eval_on(df, args, keys, 'annotation_id')
+
+    images = []
+    for record in df[image_keys].itertuples():
+        images.append(record_to_dict(record, 'image_id'))
+
+    annotations = []
+    for record in df[annotation_keys].itertuples():
+        annotations.append(record_to_dict(record, 'annotation_id'))
+
+    categories = []
+    for record in df[category_keys].itertuples():
+        categories.append(record_to_dict(record, 'category_id'))
+
+    data['annotations'] = drop_duplicates(annotations)
+    data['images'] = original_images if args.keep_images else drop_duplicates(images)
+
+    if args.keep_categories:
+        for category in data['categories']:
+            category['id'] = category.pop('category_id')
+    else:
+        data['categories'] = drop_duplicates(categories)
+
+    say("dumping to stdout", verbose=args.verbose)
+    json.dump(data, sys.stdout, indent=args.indent)
+    say("done in {elapsed_time}s".format(elapsed_time=time.perf_counter() - start), verbose=args.verbose)
+    sys.exit()
+
+
+def create_data_frame(data):
+    df = pd.DataFrame(data)
+    values = {}
+    invalid_values = []
+    for column_name in df:
+        try:
+            say("most common key is {}".format(df[column_name].mode()[0]))
+            values[column_name] = df[column_name].mode()[0]
+        except IndexError:
+            invalid_values.append(column_name)
+        except TypeError:
+            invalid_values.append(column_name)
+    df.fillna(value=values, inplace=True)
+    df.loc[:, invalid_values].fillna(method='pad')
+    return df
+
+
+def drop_duplicates(lst: list):
+    def to_tuple(lst_entry: list):
+        return tuple(to_tuple(i) if isinstance(i, list) else i for i in lst_entry)
+    return [dict(item) for item in set(to_tuple([list(i) for i in sorted(entry.items())]) for entry in lst)]
+
+
+def record_to_dict(record: namedtuple, re_id: str) -> dict:
+    dct = record._asdict()
+    dct['id'] = dct.pop(re_id)
+    dct.pop('Index')
+    return dct
+
+
+def eval_on(df: pd.DataFrame, args: argparse.Namespace, keys: namedtuple, on_id: str) -> pd.DataFrame:
+    df_images = df[keys.img_keys].rename(index=str, columns={'image_id': 'id'})
+    df_annotations = df[keys.ann_keys].rename(index=str, columns={'annotation_id': 'id'})
+    df_categories = df[keys.cat_keys].rename(index=str, columns={'category_id': 'id'})
+    ids = set()
+    for a, i, c in zip(df_annotations.itertuples(), df_images.itertuples(), df_categories.itertuples()):
+        idx = int(a.Index)
+        if eval(args.expression):
+            #say("selecting record", df.iloc[idx], verbose=args.verbose)
+            ids.add(df.iloc[idx][on_id])
+
+    # Index later so that indexing into list doesn't go out of bounds as df shrinks
+    df = df.loc[df[on_id].isin(ids)]
+    return df
+
+
+def say(*args, verbose=False, **kwargs):
+    if verbose:
+        print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
+
+
+def die(*args, **kwargs):
+    say(*args, verbose=True, **kwargs)
+    sys.exit(1)
+
+
+def get_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=DESCRIPTION,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter,)
+    parser.add_argument('on',
+                        type=str,
+                        choices={'images', 'annotations'},
+                        help="How to search and select images and annotations. If on is 'image', then evaluate the "
+                             "expression on a per image basis and for images that satisfy the expression, select all "
+                             "associated annotations. If on is 'annotation', then evaluate the expression on a per "
+                             "annotation basis and for annotations that satisfy the expression, select all associated "
+                             "images.")
+    parser.add_argument('expression',
+                        type=str,
+                        help="General expression to search for images.",)
+    parser.add_argument('-m', '--min',
+                        action='store_const',
+                        const=None,
+                        default=4,
+                        dest='indent',
+                        help="Disable JSON pretty print.",)
+    parser.add_argument('--keep-categories',
+                        action='store_true',
+                        help='Carry over all categories from original COCO JSON file.')
+    parser.add_argument('--keep-images',
+                        action='store_true',
+                        help='Carry over all images from original COCO JSON file.')
+    parser.add_argument('-v', '--verbose',
+                        action='store_true',
+                        help="More output to stderr.",)
+    return parser.parse_args()
+
+
+if __name__ == '__main__':
+    main(get_args())
+

@@ -19,8 +19,10 @@ RUN chmod 644 /home/docker/.ssh/*.pub
 COPY post-install.sh /home/docker
 COPY git-deployment-clone /home/docker/bin
 COPY git-deployment-pull /home/docker/bin
-RUN bash /tmp/setup.sh local-packages
+COPY load-repo /home/docker/bin
+COPY .containerrc /home/docker/.containerrc
 
+RUN bash /tmp/setup.sh local-packages
 RUN bash /tmp/setup.sh configure
 RUN bash /tmp/setup.sh clean
 
