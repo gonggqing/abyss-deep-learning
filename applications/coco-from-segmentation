@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 from argparse import ArgumentParser
+from skimage import io,measure
+from pycocotools import mask
 import sys
 import json
-from skimage import io,measure
-import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib
-from pycocotools import mask
 import math
+import os
 def main():
     
     command_line_args = pasrse_cli()
@@ -30,13 +30,11 @@ def main():
         for original_entry in original_json['images']:
             if mask_entry['id'] == original_entry['id']:
 
-                mask_img = io.imread(mask_entry['path'])
-                mask_img_strechback = mask_img/255.0
-                mask_img_strechback *= (mask_img_strechback > command_line_args.threshold if command_line_args.threshold  else 0)
-                contours = measure.find_contours(mask_img_strechback, 0.5)
+                mask_img = load_input(mask_entry['path'])
+                mask_img *= (mask_img > command_line_args.threshold if command_line_args.threshold  else 0)
+                contours = measure.find_contours(mask_img, 0.5)
 
                 for contour in contours:
-
                     contour = np.flip(contour, axis=1)
                     segmentation = contour.ravel().tolist()
                     seg_to_points = [segmentation[n:n+2] for n in range(0, len(segmentation), 2)]
@@ -46,16 +44,24 @@ def main():
                         "iscrowd": 0,
                         "image_id": original_entry['id'],
                         "bbox": bounding_box(seg_to_points),
-                        "score":get_score(mask_img_strechback,seg_to_points), 
+                        "score":get_score(mask_img,seg_to_points), 
                         "category_id": int(command_line_args.category_id),
                         "id": annotation_id
                     })
                     annotation_id+=1
-            # print(annotation)
-
 
     print(json.dumps({'categories':original_json['categories'],'annotations':output_annoations,'images':original_json['images']}))
     
+
+def load_input(path):
+
+    if os.path.splitext(path)[1] == '.bin':
+        return np.fromfile(path)
+
+    else:
+        img = io.imread(path)
+        img =  img/255.0
+        return img
 
 
 def area_polygon(polygon):
@@ -65,19 +71,14 @@ def area_polygon(polygon):
                               np.dot(y, np.roll(x, 1))))
 
 
-
 def get_score(image,poly):
     x, y = np.meshgrid(np.arange(image.shape[0]), np.arange(image.shape[1]))
     x, y = x.flatten(), y.flatten()
-    points = np.vstack((x,y)).T 
-
+    points = np.vstack((x,y)).T
     p = matplotlib.path.Path(poly)
     grid = p.contains_points(points)
     mask = grid.reshape(image.shape[0],image.shape[1])
-    
-
     return np.sum((mask*image))/np.sum(mask)
-
 
 
 def bounding_box(polygon,w=None, h=None):
@@ -93,18 +94,12 @@ def bounding_box(polygon,w=None, h=None):
     return [min_x, min_y, max_x - min_x, max_y - min_y]
 
 
-
-
-
 def pasrse_cli():
     parser = ArgumentParser(description="The utility takes in a mask coco file and applies the segementations to the original file provided in stdin")
     parser.add_argument('mask_file', nargs=1, type=str, help="Mask JSON File")
     parser.add_argument('-c', '--category-id', type=str, help="the id of the category to set the mask can be an int or from-mask", required=True)
     parser.add_argument('-t', '--threshold','--thresh', type=float, help="The number to threshold the image by")
-
     return parser.parse_args()
-
-
 
 
 if __name__ == '__main__':
