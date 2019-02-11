@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+from argparse import ArgumentParser
+import sys
+import json
+from skimage import io,measure
+import matplotlib.pyplot as plt
+import numpy as np
+from pycocotools import mask
+
+def main():
+    
+    command_line_args = pasrse_cli()
+
+    if command_line_args.category_id == 'from-mask':
+        raise Exception("the from-mask param has not yet been implemented")
+
+    text_buffer = ""
+    # Read Until EOF
+    for line in sys.stdin:
+        text_buffer += line
+
+
+    original_json = json.loads(text_buffer)
+    mask_json = json.loads(open(command_line_args.mask_file[0]).read())
+    output_annoations = []
+    annotation_id = 0
+
+    for mask_entry in mask_json['images']:        
+        for original_entry in original_json['images']:
+            if mask_entry['id'] == original_entry['id']:
+
+                mask_img = io.imread(mask_entry['path'])
+                mask_img_strechback = mask_img/255.0
+                mask_img_strechback *= (mask_img_strechback > command_line_args.threshold if command_line_args.threshold  else 0)
+                contours = measure.find_contours(mask_img_strechback, 0.5)
+
+                for contour in contours:
+
+
+
+                    contour = np.flip(contour, axis=1)
+                    segmentation = contour.ravel().tolist()
+                    seg_to_points = [segmentation[n:n+2] for n in range(0, len(segmentation), 2)]
+
+                    output_annoations.append({"segmentation": [segmentation],
+                        "area": area_polygon(seg_to_points),
+                        "iscrowd": 0,
+                        "image_id": original_entry['id'],
+                        "bbox": bounding_box(seg_to_points),
+                        "category_id": int(command_line_args.category_id),
+                        "id": annotation_id
+                    })
+                    annotation_id+=1
+            # print(annotation)
+
+
+    print(json.dumps({'categories':original_json['categories'],'annotations':output_annoations,'images':original_json['images']}))
+    
+
+
+def area_polygon(polygon):
+    x = [i[0] for i in polygon]
+    y = [i[1] for i in polygon]
+    return float(0.5 * np.abs(np.dot(x, np.roll(y, 1)) -
+                              np.dot(y, np.roll(x, 1))))
+
+
+def bounding_box(polygon,w=None, h=None):
+    'return the bounding box of a given polygon'
+    min_x, min_y = np.min(polygon, axis=0)
+    max_x, max_y = np.max(polygon, axis=0)
+    if w is not None and h is not None:
+        min_x = max(0,min_x)
+        min_y = max(0,min_y)
+        max_x = min(w,max_x)
+        max_y = min(h,max_y)
+
+    return [min_x, min_y, max_x - min_x, max_y - min_y]
+
+def pasrse_cli():
+    parser = ArgumentParser(description="The utility takes in a mask coco file and applies the segementations to the original file provided in stdin")
+    parser.add_argument('mask_file', nargs=1, type=str, help="Mask JSON File")
+    parser.add_argument('-c', '--category-id', type=str, help="the id of the category to set the mask can be an int or from-mask", required=True)
+    parser.add_argument('-t', '--threshold','--thresh', type=float, help="The number to threshold the image by")
+
+    return parser.parse_args()
+
+
+
+
+if __name__ == '__main__':
+    main()
