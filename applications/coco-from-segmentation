@@ -30,21 +30,22 @@ def main():
         for original_entry in original_json['images']:
             if mask_entry['id'] == original_entry['id']:
 
-                mask_img = load_input(mask_entry['path'])
+                mask_img = load_input(mask_entry)
                 mask_img *= (mask_img > command_line_args.threshold if command_line_args.threshold  else 0)
                 contours = measure.find_contours(mask_img, 0.5)
+                print("--> Processing Image", mask_entry['path'],file=sys.stderr)
 
                 for contour in contours:
                     contour = np.flip(contour, axis=1)
                     segmentation = contour.ravel().tolist()
                     seg_to_points = [segmentation[n:n+2] for n in range(0, len(segmentation), 2)]
-                    
+
                     output_annotations.append({"segmentation": [segmentation],
                         "area": area_polygon(seg_to_points),
                         "iscrowd": 0,
                         "image_id": original_entry['id'],
                         "bbox": bounding_box(seg_to_points),
-                        "score":get_score(mask_img,seg_to_points), 
+                        "score": get_score(mask_img,seg_to_points), 
                         "category_id": int(command_line_args.category_id),
                         "id": annotation_id
                     })
@@ -54,13 +55,19 @@ def main():
 
     
 
-def load_input(path):
+def load_input(mask_entry):
 
-    if os.path.splitext(path)[1] == '.bin':
-        return np.fromfile(path)
+    if os.path.splitext(mask_entry['path'])[1] == '.bin':
+        # print(mask_entry['path'])
+        # a = np.fromfile(mask_entry['path'],dtype=np.float32)
+        # print( "--> a.shape:", a.shape )
+        # print( "--> int(mask_entry['width']):",(mask_entry['width']))
+        # b = np.reshape(a,(int(mask_entry['width']),2))
+        # return b    
+        return np.reshape(np.fromfile(mask_entry['path'],dtype=np.float32),(int(mask_entry['width']),int(mask_entry['height'])))
 
     else:
-        img = io.imread(path)
+        img = io.imread(mask_entry['path'])
         img =  img/255.0
         return img
 
