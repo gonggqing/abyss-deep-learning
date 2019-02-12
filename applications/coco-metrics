@@ -68,7 +68,7 @@ def load_annotations( predicted, truth, category_ids, args ):
             if len( segmentation ) == 0: continue
             if len( segmentation ) > 1: print( 'coco-metrics: on annotation id ' + str(annotation['id']) + ': segmentation has more than one polygon; not implemented' ); sys.exit( 1 )
             if len( segmentation[0] ) == 0: continue # quick and dirty
-            images[image_id][category_id][0].append( np.reshape( segmentation[0], ( len( segmentation[0] ), 2 ) ) )
+            images[image_id][category_id][0].append( np.reshape( segmentation[0], ( int( len( segmentation[0] ) / 2 ), 2 ) ) )
     for i in range(len(truth['annotations'])):
         annotation = truth['annotations'][i]
         if not args.score_threshold is None and 'score' in annotation and annotation['score'] < args.score_threshold: continue
@@ -85,7 +85,7 @@ def load_annotations( predicted, truth, category_ids, args ):
             if len( segmentation ) == 0: continue
             if len( segmentation ) > 1: print( 'coco-metrics: on annotation id ' + str(annotation['id']) + ': segmentation has more than one polygon; not implemented' ); sys.exit( 1 )
             if len( segmentation[0] ) == 0: continue # quick and dirty
-            images[image_id][category_id][0].append( np.reshape( segmentation[0], ( len( segmentation[0] ), 2 ) ) )
+            images[image_id][category_id][2].append( np.reshape( segmentation[0], ( int( len( segmentation[0] ) / 2 ), 2 ) ) )
     return images
 
 def plot_confusion_matrix(m, classes, normalized = False):
