@@ -47,33 +47,46 @@ usage: cat predictions.json | coco-metrics confusion --truth truth.json -b > con
 
 def load_annotations( predicted, truth, category_ids, args ):
     images = {}
-    if args.bounding_boxes:
-        for i in range(len(predicted['annotations'])):
-            annotation = predicted['annotations'][i]
-            if not args.score_threshold is None and 'score' in annotation and annotation['score'] < args.score_threshold: continue
-            image_id = annotation['image_id']
-            category_id = annotation['category_id']
-            if not category_id in category_ids:
-                print( 'coco-metrics: expected category id in', category_ids, '; got:', category_id, '; discarded', file = sys.stderr )
-                continue
-            if not image_id in images: images[image_id] = {}
-            if not category_id in images[image_id]: images[image_id][category_id] = ( [], [], [], [] )
+    if args.bounding_boxes and args.polygons: print( 'coco-metrics: mutually exclusive: --bounding-boxes or --polygons', file = sys.stderr ); sys.exit( 1 )
+    if not args.bounding_boxes and not args.polygons: print( 'coco-metrics: please specify either --bounding-boxes or --polygons', file = sys.stderr ); sys.exit( 1 )
+    for i in range(len(predicted['annotations'])):
+        annotation = predicted['annotations'][i]
+        if not args.score_threshold is None and 'score' in annotation and annotation['score'] < args.score_threshold: continue
+        image_id = annotation['image_id']
+        category_id = annotation['category_id']
+        if not category_id in category_ids:
+            print( 'coco-metrics: expected category id in', category_ids, '; got:', category_id, '; discarded', file = sys.stderr )
+            continue
+        if not image_id in images: images[image_id] = {}
+        if not category_id in images[image_id]: images[image_id][category_id] = ( [], [], [], [] )
+        images[image_id][category_id][1].append(i) # quick and dirty
+        if args.bounding_boxes:
             bbox = annotation['bbox']
             images[image_id][category_id][0].append( [ bbox[1], bbox[0], bbox[1] + bbox[3], bbox[0] + bbox[2] ] )
-            images[image_id][category_id][1].append(i) # quick and dirty
-        for i in range(len(truth['annotations'])):
-            annotation = truth['annotations'][i]
-            if not args.score_threshold is None and 'score' in annotation and annotation['score'] < args.score_threshold: continue
-            image_id = annotation['image_id']
-            if image_id not in images: images[image_id] = {}
-            category_id = annotation['category_id']
-            if not category_id in images[image_id]: images[image_id][category_id] = ( [], [], [], [] )
+        else:
+            segmentation = annotation['segmentation']
+            if len( segmentation ) == 0: continue
+            if len( segmentation ) > 1: print( 'coco-metrics: on annotation id ' + str(annotation['id']) + ': segmentation has more than one polygon; not implemented' ); sys.exit( 1 )
+            if len( segmentation[0] ) == 0: continue # quick and dirty
+            images[image_id][category_id][0].append( np.reshape( segmentation[0], ( len( segmentation[0] ), 2 ) ) )
+    for i in range(len(truth['annotations'])):
+        annotation = truth['annotations'][i]
+        if not args.score_threshold is None and 'score' in annotation and annotation['score'] < args.score_threshold: continue
+        image_id = annotation['image_id']
+        if image_id not in images: images[image_id] = {}
+        category_id = annotation['category_id']
+        if not category_id in images[image_id]: images[image_id][category_id] = ( [], [], [], [] )
+        images[image_id][category_id][3].append(i) # quick and dirty
+        if args.bounding_boxes:
             bbox = annotation['bbox']
             images[image_id][category_id][2].append( [ bbox[1], bbox[0], bbox[1] + bbox[3], bbox[0] + bbox[2] ] )
-            images[image_id][category_id][3].append(i) # quick and dirty
-        return images
-    print( 'coco-metrics: only loading bounding boxes implemented; for bounding boxes, please specify --bounding-boxes', file = sys.stderr )
-    sys.exit( 1 )
+        else:
+            segmentation = annotation['segmentation']
+            if len( segmentation ) == 0: continue
+            if len( segmentation ) > 1: print( 'coco-metrics: on annotation id ' + str(annotation['id']) + ': segmentation has more than one polygon; not implemented' ); sys.exit( 1 )
+            if len( segmentation[0] ) == 0: continue # quick and dirty
+            images[image_id][category_id][0].append( np.reshape( segmentation[0], ( len( segmentation[0] ), 2 ) ) )
+    return images
 
 def plot_confusion_matrix(m, classes, normalized = False):
     import matplotlib.pyplot as plt
