@@ -38,9 +38,9 @@ def main():
                 print("--> Processing Image", mask_entry['path'],file=sys.stderr)
 
                 for contour in contours:
-                    # contour = np.flip(contour, axis=1)
-                    segmentation = contour.ravel().tolist()
-                    seg_to_points = [segmentation[n:n+2] for n in range(0, len(segmentation), 2)]            
+                    contour_flipped = np.flip(contour, axis=1)
+                    segmentation = contour_flipped.ravel().tolist()
+                    seg_to_points = [segmentation[n:n+2] for n in range(0, len(segmentation), 2)]
                     output_annotations.append({"segmentation": [segmentation],
                         "area": area_polygon(seg_to_points),
                         "iscrowd": 0,
