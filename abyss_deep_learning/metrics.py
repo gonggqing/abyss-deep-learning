@@ -38,25 +38,22 @@ def bbox_iou_matrix( a, b ):
     return intersections / ( a_areas + b_areas - intersections )
 
 def poly_iou_matrix( a, b ):
-   print(len(a))
-   print(len(b))
+   precompute_a = []
+   precompute_b = []
+   for element in a:
+      precompute_a.append(skimage.measure.grid_points_in_poly((513,513),element))
+   for element in b:
+      precompute_b.append(skimage.measure.grid_points_in_poly((513,513),element))
    result = []
    for i in range(len(a)):
       sub_result = []
       for j in range(len(b)):
-         max_x = int(max(np.max(a[i][::2]), np.max(b[i][::2])))+1
-         max_y = int(max(np.max(a[i][1::2]), np.max(b[i][1::2])))+1
-
-         print("max_x", max_x, "max_y", max_y)
-         a_points = skimage.measure.grid_points_in_poly((max_x,max_y),a[i])
-         b_points = skimage.measure.grid_points_in_poly((max_x,max_y),b[i])
-         union = np.logical_or(a_points,b_points)
-         intersection = np.logical_and(a_points,b_points)
+         union = np.logical_or(precompute_a[i],precompute_b[i])
+         intersection = np.logical_and(precompute_a[i],precompute_b[i])
          if np.count_nonzero(union):
             sub_result.append(np.count_nonzero(intersection)/np.count_nonzero(union))
          else:
             sub_result.append(0)
-
       result.append(sub_result)
    return np.array(result)
 
