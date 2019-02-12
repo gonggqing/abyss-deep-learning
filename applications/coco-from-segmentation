@@ -39,15 +39,16 @@ def main():
 
                 for contour in contours:
                     # contour = np.flip(contour, axis=1)
-                    contour = measure.approximate_polygon( contour, command_line_args.polygon_tolerance )
+                    #contour = measure.approximate_polygon( contour, command_line_args.polygon_tolerance )
                     segmentation = contour.ravel().tolist()
                     seg_to_points = [segmentation[n:n+2] for n in range(0, len(segmentation), 2)]            
+                    area, score = get_area_and_score(original_img,contour)
                     output_annotations.append({"segmentation": [segmentation],
-                        "area": area_polygon(seg_to_points),
+                        "area": area,
                         "iscrowd": 0,
                         "image_id": original_entry['id'],
                         "bbox": bounding_box(seg_to_points),
-                        "score": get_score(original_img,contour), 
+                        "score": score, 
                         "category_id": int(command_line_args.category_id),
                         "id": annotation_id
                     })
@@ -68,18 +69,20 @@ def load_input(mask_entry):
         return img
 
 
-def area_polygon(polygon):
-    x = [i[0] for i in polygon]
-    y = [i[1] for i in polygon]
-    return float(0.5 * np.abs(np.dot(x, np.roll(y, 1)) -
-                              np.dot(y, np.roll(x, 1))))
+#def area_polygon(polygon):
+#    x = [i[0] for i in polygon]
+#    y = [i[1] for i in polygon]
+#    return float(0.5 * np.abs(np.dot(x, np.roll(y, 1)) -
+#                              np.dot(y, np.roll(x, 1))))
 
 
 
-def get_score(image,poly):
+def get_area_and_score(image,poly):
     mask = measure.grid_points_in_poly((image.shape[0],image.shape[1]),poly)
     poly = np.flip(poly,axis=1)
-    return np.sum((mask*image))/np.count_nonzero(mask)
+    area = np.count_nonzero(mask)
+    if area == 0: return 0, 0
+    return area, np.sum((mask*image))/area
 
 
 
