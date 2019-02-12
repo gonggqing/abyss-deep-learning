@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 from argparse import ArgumentParser
-from skimage import io,measure
+from skimage import io
+from skimage import measure
 from pycocotools import mask
 import sys
 import json
 import numpy as np
-import matplotlib
 import math
 import os
 # np.set_printoptions(threshold=sys.maxsize)
+
 def main():
     
     command_line_args = pasrse_cli()
@@ -35,10 +36,10 @@ def main():
                 original_img = np.array(mask_img)
                 mask_img = mask_img * (mask_img > (command_line_args.threshold))
                 contours = measure.find_contours(mask_img, 0.5)
-                print("--> Processing Image", mask_entry['path'],file=sys.stderr)
 
                 for contour in contours:
                     # contour = np.flip(contour, axis=1)
+                    contour = measure.approximate_polygon( contour, args.polygon_tolerance )
                     segmentation = contour.ravel().tolist()
                     seg_to_points = [segmentation[n:n+2] for n in range(0, len(segmentation), 2)]            
                     output_annotations.append({"segmentation": [segmentation],
@@ -100,6 +101,7 @@ def pasrse_cli():
     parser.add_argument('mask_file', nargs=1, type=str, help="Mask JSON File")
     parser.add_argument('-c', '--category-id', type=str, help="the id of the category to set the mask can be an int or from-mask", required=True)
     parser.add_argument('-t', '--threshold','--thresh', type=float, default=0, help="The number to threshold the image by, default: %(default)s")
+    parser.add_argument('--polygon-tolerance', '--tolerance', type=float, default=0, help="threshold tolerance for polygon precision (see skimage.metrics.approximate_polygon(), default: %(default)s")
     return parser.parse_args()
 
 
