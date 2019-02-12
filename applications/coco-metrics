@@ -45,12 +45,12 @@ usage: cat predictions.json | coco-metrics confusion --truth truth.json -b > con
 
 """
 
-def load_annotations( predicted, truth, category_ids, bounding_boxes = False, score = None ):
+def load_annotations( predicted, truth, category_ids, args ):
     images = {}
-    if bounding_boxes:
+    if args.bounding_boxes:
         for i in range(len(predicted['annotations'])):
             annotation = predicted['annotations'][i]
-            if not score is None and 'score' in annotation and annotation['score'] < score: continue
+            if not args.score_threshold is None and 'score' in annotation and annotation['score'] < args.score_threshold: continue
             image_id = annotation['image_id']
             category_id = annotation['category_id']
             if not category_id in category_ids:
@@ -63,7 +63,7 @@ def load_annotations( predicted, truth, category_ids, bounding_boxes = False, sc
             images[image_id][category_id][1].append(i) # quick and dirty
         for i in range(len(truth['annotations'])):
             annotation = truth['annotations'][i]
-            if not score is None and 'score' in annotation and annotation['score'] < score: continue
+            if not args.score_threshold is None and 'score' in annotation and annotation['score'] < args.score_threshold: continue
             image_id = annotation['image_id']
             if image_id not in images: images[image_id] = {}
             category_id = annotation['category_id']
@@ -101,9 +101,11 @@ def confusion(args):
     category_ids = []
     for c in truth['categories']: category_ids.append(c['id'])
     background_id = max(category_ids) + 1
-    images = load_annotations( predicted, truth, category_ids, score = args.score_threshold, bounding_boxes = args.bounding_boxes )
+    images = load_annotations( predicted, truth, category_ids, args )
     #for k, v in images.items(): print("--> k:", k, v, file = sys.stderr );
-    iou_matrix = metrics.bbox_iou_matrix if args.bounding_boxes else None
+    if args.bounding_boxes: iou_matrix = metrics.bbox_iou_matrix
+    elif args.polygons: iou_matrix = metrics.poly_iou_matrix
+    else: None
     result = {}
     result['categories'] = []
     confusion_category_ids = {}
@@ -183,8 +185,10 @@ def confusion_matrix(args):
     truth = json.loads(f.read())
     category_ids = []
     for c in truth['categories']: category_ids.append(c['id'])
-    images = load_annotations( predicted, truth, category_ids, score = args.score_threshold, bounding_boxes = args.bounding_boxes )
-    iou_matrix = metrics.bbox_iou_matrix if args.bounding_boxes else None
+    images = load_annotations( predicted, truth, category_ids, args )
+    if args.bounding_boxes: iou_matrix = metrics.bbox_iou_matrix
+    elif args.polygons: iou_matrix = metrics.poly_iou_matrix
+    else: None
     predicted_labels = [] # quick and dirty, watch performance
     truth_labels = [] # quick and dirty, watch performance
     background_id = np.max( category_ids ) + 1
@@ -227,8 +231,10 @@ def tfpn(args):
     truth = json.loads(f.read())
     category_ids = []
     for c in truth['categories']: category_ids.append(c['id'])
-    images = load_annotations( predicted, truth, category_ids, score = args.score_threshold, bounding_boxes = args.bounding_boxes )
-    iou_matrix = metrics.bbox_iou_matrix if args.bounding_boxes else None
+    images = load_annotations( predicted, truth, category_ids, args )
+    if args.bounding_boxes: iou_matrix = metrics.bbox_iou_matrix
+    elif args.polygons: iou_matrix = metrics.poly_iou_matrix
+    else: None
     match = eval( 'metrics.' + args.match ) # quick and dirty
     result = {}
     result['annotations'] = []
