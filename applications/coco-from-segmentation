@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib
 import math
 import os
+# np.set_printoptions(threshold=sys.maxsize)
 def main():
     
     command_line_args = pasrse_cli()
@@ -31,21 +32,21 @@ def main():
             if mask_entry['id'] == original_entry['id']:
 
                 mask_img = load_input(mask_entry)
-                mask_img *= (mask_img > command_line_args.threshold if command_line_args.threshold  else 0)
+                original_img = np.array(mask_img)
+                mask_img = mask_img * (mask_img > (command_line_args.threshold))
                 contours = measure.find_contours(mask_img, 0.5)
                 print("--> Processing Image", mask_entry['path'],file=sys.stderr)
 
                 for contour in contours:
-                    contour = np.flip(contour, axis=1)
+                    # contour = np.flip(contour, axis=1)
                     segmentation = contour.ravel().tolist()
-                    seg_to_points = [segmentation[n:n+2] for n in range(0, len(segmentation), 2)]
-
+                    seg_to_points = [segmentation[n:n+2] for n in range(0, len(segmentation), 2)]            
                     output_annotations.append({"segmentation": [segmentation],
                         "area": area_polygon(seg_to_points),
                         "iscrowd": 0,
                         "image_id": original_entry['id'],
                         "bbox": bounding_box(seg_to_points),
-                        "score": get_score(mask_img,seg_to_points), 
+                        "score": get_score(original_img,contour), 
                         "category_id": int(command_line_args.category_id),
                         "id": annotation_id
                     })
@@ -58,12 +59,6 @@ def main():
 def load_input(mask_entry):
 
     if os.path.splitext(mask_entry['path'])[1] == '.bin':
-        # print(mask_entry['path'])
-        # a = np.fromfile(mask_entry['path'],dtype=np.float32)
-        # print( "--> a.shape:", a.shape )
-        # print( "--> int(mask_entry['width']):",(mask_entry['width']))
-        # b = np.reshape(a,(int(mask_entry['width']),2))
-        # return b    
         return np.reshape(np.fromfile(mask_entry['path'],dtype=np.float32),(int(mask_entry['width']),int(mask_entry['height'])))
 
     else:
@@ -79,14 +74,12 @@ def area_polygon(polygon):
                               np.dot(y, np.roll(x, 1))))
 
 
+
 def get_score(image,poly):
-    x, y = np.meshgrid(np.arange(image.shape[0]), np.arange(image.shape[1]))
-    x, y = x.flatten(), y.flatten()
-    points = np.vstack((x,y)).T
-    p = matplotlib.path.Path(poly)
-    grid = p.contains_points(points)
-    mask = grid.reshape(image.shape[0],image.shape[1])
-    return np.sum((mask*image))/np.sum(mask)
+    mask = measure.grid_points_in_poly((image.shape[0],image.shape[1]),poly)
+    poly = np.flip(poly,axis=1)
+    return np.sum((mask*image))/np.count_nonzero(mask)
+
 
 
 def bounding_box(polygon,w=None, h=None):
@@ -106,7 +99,7 @@ def pasrse_cli():
     parser = ArgumentParser(description="The utility takes in a mask coco file and applies the segementations to the original file provided in stdin")
     parser.add_argument('mask_file', nargs=1, type=str, help="Mask JSON File")
     parser.add_argument('-c', '--category-id', type=str, help="the id of the category to set the mask can be an int or from-mask", required=True)
-    parser.add_argument('-t', '--threshold','--thresh', type=float, help="The number to threshold the image by")
+    parser.add_argument('-t', '--threshold','--thresh', type=float, default=0, help="The number to threshold the image by, default: %(default)s")
     return parser.parse_args()
 
 
