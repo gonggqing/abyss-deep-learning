@@ -67,7 +67,8 @@ def main():
                 supercategory = category['supercategory']
                 name_and_super = (name, supercategory)
                 if name_and_super not in seen_categories:
-                    new_id = len(categories) # new_id = len(categories) + 1 # todo? coco-calc: add operations to offset various ids? don't hack it here!
+                    # new_id = len(categories) + 1 # todo? coco-calc: add operations to offset various ids? don't hack it here!
+                    new_id = category['id'] if ARGS.keep_category_ids else len(categories)
                     category_old_id_2_name_and_super[category['id']] = name_and_super
                     categories.append({
                         'id': new_id,
@@ -167,6 +168,7 @@ def get_args():
     parser.add_argument('json_files', nargs='*', type=str, help="JSON files to merge together into one json")
     parser.add_argument('-f', '--file_name', nargs=1, type=str, help="COCO json file to copy info to new dataset, "
                                                                      "default is the first json file")
+    parser.add_argument('--keep-category-ids', '--keep-categories', '-k', action='store_true', help="keep categories as in input files, i.e. expect that all files to merge have the same set of categories")
     parser.add_argument('-m', '--min', action='store_const', help="Output minimised json", const=None, default=4,
                         dest='indent')
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
