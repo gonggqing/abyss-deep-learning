@@ -67,7 +67,7 @@ def main():
                 supercategory = category['supercategory']
                 name_and_super = (name, supercategory)
                 if name_and_super not in seen_categories:
-                    new_id = len(categories) + 1
+                    new_id = len(categories) # new_id = len(categories) + 1 # todo? coco-calc: add operations to offset various ids? don't hack it here!
                     category_old_id_2_name_and_super[category['id']] = name_and_super
                     categories.append({
                         'id': new_id,
@@ -91,7 +91,7 @@ def main():
 
             if img_file_name not in seen_images:
                 seen_images.add(img_file_name)
-                new_id = len(images) + 1
+                new_id = len(images) # new_id = len(images) + 1 # todo? coco-calc: add operations to offset various ids? don't hack it here!
                 path_2_new_id[img_file_name] = new_id
                 image['id'] = new_id
                 images.append(image)
@@ -124,19 +124,19 @@ def main():
     annotations.clear()
 
     for idx, ann in enumerate(tmp_annotations):
-        ann['id'] = idx + 1
+        ann['id'] = idx # ann['id'] = idx + 1 # todo? coco-calc: add operations to offset various ids? don't hack it here!
         annotations.append(ann)
 
     if ARGS.file_name:
         info = load_dataset(ARGS.file_name)['info']
 
     merged_data_set = {
-        'info': info,
         'images': images,
         'annotations': annotations,
-        'categories': categories,
-        'licenses': licenses,
+        'categories': categories
     }
+    if not info is None: merged_data_set['info'] = info
+    if not licenses is None: merged_data_set['licenses'] = licenses
     json.dump(merged_data_set, sys.stdout, indent=ARGS.indent)
     say("done")
     sys.exit()
