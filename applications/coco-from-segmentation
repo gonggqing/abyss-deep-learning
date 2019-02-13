@@ -8,30 +8,53 @@ import json
 import numpy as np
 import math
 import os
+from datetime import datetime
+
+
 # np.set_printoptions(threshold=sys.maxsize)
+PADDING = 2
+
 
 def main():
-    
     command_line_args = parse_cli()
 
     if command_line_args.category_id == 'from-mask':
-        raise Exception("the from-mask param has not yet been implemented")
+        raise NotImplementedError("the from-mask param has not yet been implemented")
 
     original_json = json.load(sys.stdin)
     with open(command_line_args.mask_file) as f:
         mask_json = json.load(f)
-    output_annotations = []
-    annotation_id = 0
 
-    for mask_entry in mask_json['images']:        
+    coco_json = {
+        'info':        {
+            'year':         int(datetime.now().year),
+            'version':      '1.0',
+            'description':  'This is a dataset configured by Abyss Solutions.',
+            'contributor':  'Abyss Solutions',
+            'url':          'http://www.abysssolutions.com.au',
+            'date_created': datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'),
+            },
+        'images':      original_json.get('images', []),
+        'annotations': [],
+        'categories':  original_json.get('categories', []),
+        'licenses':    [
+            {
+                "id":   0,
+                "name": "Attribution-NonCommercial-ShareAlike License",
+                "url":  "http://creativecommons.org/licenses/by-nc-sa/2.0/",
+                }
+            ],
+        }
+    output_annotations = coco_json['annotations']
+
+    for mask_entry in mask_json['images']:
         for original_entry in original_json['images']:
             if mask_entry['id'] == original_entry['id']:
 
                 mask_img = load_input(mask_entry)
                 original_img = np.array(mask_img)
-                mask_img = mask_img * (mask_img > (command_line_args.threshold))
-                
-                
+                # mask_img = mask_img * (mask_img > (command_line_args.threshold))
+
                 # todo
                 # - level
                 #   - currently hardcoded to 0.5
@@ -43,79 +66,82 @@ def main():
                 #   - expose as --fully-connected with default 'low' (to be able to experiment)
                 # - Suchet's solution:
                 #   - if 'high' does not work as we want, pad mask_img with 1 black pixel on each side, run contours on padded image, offset contour coordinates by 1
-                
-                
-                contours = measure.find_contours(mask_img, 0.5)
-                
+
+                contours = measure.find_contours(mask_img, command_line_args.threshold, command_line_args.level)
 
                 for contour in contours:
-                    approximated = measure.approximate_polygon( contour, command_line_args.polygon_tolerance )
+                    contour -= PADDING // 2
+                    approximated = measure.approximate_polygon(contour, command_line_args.polygon_tolerance)
                     contour_flipped = np.flip(approximated, axis=1)
                     segmentation = contour_flipped.ravel().tolist()
-                    seg_to_points = [segmentation[n:n+2] for n in range(0, len(segmentation), 2)]            
-                    area, score = get_area_and_score(original_img,approximated)
+                    seg_to_points = [segmentation[n:n + 2] for n in range(0, len(segmentation), 2)]
+                    area, score = get_area_and_score(original_img, approximated)
                     output_annotations.append({"segmentation": [segmentation],
-                        "area": area,
-                        "iscrowd": 0,
-                        "image_id": original_entry['id'],
-                        "bbox": bounding_box(seg_to_points),
-                        "score": score, 
-                        "category_id": int(command_line_args.category_id),
-                        "id": annotation_id
-                    })
-                    annotation_id+=1
-    
-    print(json.dumps({'categories':original_json['categories'] if 'categories' in original_json else [], 'annotations':output_annotations,'images':original_json['images']}))
+                                               "area":         area,
+                                               "iscrowd":      0,
+                                               "image_id":     original_entry['id'],
+                                               "bbox":         bounding_box(seg_to_points),
+                                               "score":        score,
+                                               "category_id":  int(command_line_args.category_id),
+                                               "id":           len(output_annotations)
+                                               })
+    json.dump(coco_json, sys.stdout, indent=4)
+    sys.exit(0)
 
-    
 
 def load_input(mask_entry):
+    width = int(mask_entry['width'])
+    height = int(mask_entry['height'])
+    img = np.zeros((width + PADDING, height + PADDING))
+    _, ext = os.path.splitext(mask_entry['path'])
+    if 'bin' in ext:
+        img_buf = np.fromfile(mask_entry['path'], dtype=np.float32)
+        img_buf = np.reshape(img_buf, (width, height))
+    elif ext in ['png', 'jpg']:
+        img_buf = io.imread(mask_entry['path']) / 255.0
+    img[PADDING // PADDING: PADDING // PADDING + height, PADDING // PADDING: PADDING // PADDING + width] = img_buf[:, :]
+    return img
 
-    if os.path.splitext(mask_entry['path'])[1] == '.bin':
-        return np.reshape(np.fromfile(mask_entry['path'],dtype=np.float32),(int(mask_entry['width']),int(mask_entry['height'])))
 
-    else:
-        img = io.imread(mask_entry['path'])
-        img =  img/255.0
-        return img
-
-
-#def area_polygon(polygon):
+# def area_polygon(polygon):
 #    x = [i[0] for i in polygon]
 #    y = [i[1] for i in polygon]
 #    return float(0.5 * np.abs(np.dot(x, np.roll(y, 1)) -
 #                              np.dot(y, np.roll(x, 1))))
 
 
-
-def get_area_and_score(image,poly):
-    mask = measure.grid_points_in_poly((image.shape[0],image.shape[1]),poly)
-    poly = np.flip(poly,axis=1)
+def get_area_and_score(image, poly):
+    mask = measure.grid_points_in_poly((image.shape[0], image.shape[1]), poly)
+    poly = np.flip(poly, axis=1)
     area = np.count_nonzero(mask)
-    if area == 0: return 0, 0
-    return area, np.sum((mask*image))/area
+    if area == 0:
+        return 0, 0
+    return area, np.sum((mask * image)) / area
 
 
-
-def bounding_box(polygon,w=None, h=None):
+def bounding_box(polygon, w=None, h=None):
     'return the bounding box of a given polygon'
     min_x, min_y = np.min(polygon, axis=0)
     max_x, max_y = np.max(polygon, axis=0)
     if w is not None and h is not None:
-        min_x = max(0,min_x)
-        min_y = max(0,min_y)
-        max_x = min(w,max_x)
-        max_y = min(h,max_y)
-
+        min_x = max(0, min_x)
+        min_y = max(0, min_y)
+        max_x = min(w, max_x)
+        max_y = min(h, max_y)
     return [min_x, min_y, max_x - min_x, max_y - min_y]
 
 
 def parse_cli():
-    parser = ArgumentParser(description="The utility takes in a mask coco file and applies the segementations to the original file provided in stdin")
+    parser = ArgumentParser(
+        description="The utility takes in a mask coco file and applies the segementations to the original file provided in stdin")
     parser.add_argument('mask_file', type=str, help="Mask JSON File")
-    parser.add_argument('-c', '--category-id', type=str, help="the id of the category to set the mask can be an int or from-mask", required=True)
-    parser.add_argument('-t', '--threshold','--thresh', type=float, default=0, help="The number to threshold the image by, default: %(default)s")
-    parser.add_argument('--polygon-tolerance', '--tolerance', type=float, default=0, help="threshold tolerance for polygon precision (see skimage.metrics.approximate_polygon(), default: %(default)s")
+    parser.add_argument('-c', '--category-id', type=str,
+                        help="the id of the category to set the mask can be an int or from-mask", required=True)
+    parser.add_argument('-t', '--threshold', '--thresh', type=float, default=0.0,
+                        help="The number to threshold the image by, default: %(default)s")
+    parser.add_argument('--polygon-tolerance', '--tolerance', type=float, default=0.0,
+                        help="threshold tolerance for polygon precision (see skimage.metrics.approximate_polygon(), default: %(default)s")
+    parser.add_argument('--level', help="Passed to skimage.measure.find_contours", type=str, default='low')
     return parser.parse_args()
 
 
