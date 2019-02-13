@@ -27,7 +27,7 @@ def main(command_line_args=None):
             'description':  'This is a dataset configured by Abyss Solutions.',
             'contributor':  'Abyss Solutions',
             'url':          'http://www.abysssolutions.com.au',
-            'date_created': datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'),
+            'date_created': datetime.now(),
             }),
         'images':      original_json.get('images', []),
         'annotations': [],
@@ -64,7 +64,7 @@ def main(command_line_args=None):
                 contours = measure.find_contours(mask_img, command_line_args.threshold, command_line_args.level)
 
                 for contour in contours:
-                    contour -= PADDING // 2
+                    contour -= PADDING // PADDING
                     approximated = measure.approximate_polygon(contour, command_line_args.polygon_tolerance)
                     contour_flipped = np.flip(approximated, axis=1)
                     segmentation = contour_flipped.ravel().tolist()
@@ -93,6 +93,9 @@ def load_input(mask_entry):
         img_buf = np.reshape(img_buf, (width, height))
     elif ext in ['png', 'jpg']:
         img_buf = io.imread(mask_entry['path']) / 255.0
+    else:
+        print("{}: file type {} unsupported".format(os.path.basename(__file__), ext))
+        sys.exit(1)
     img[PADDING // PADDING: PADDING // PADDING + height, PADDING // PADDING: PADDING // PADDING + width] = img_buf[:, :]
     return img
 
