@@ -12,19 +12,14 @@ import os
 
 def main():
     
-    command_line_args = pasrse_cli()
+    command_line_args = parse_cli()
 
     if command_line_args.category_id == 'from-mask':
         raise Exception("the from-mask param has not yet been implemented")
 
-    text_buffer = ""
-    # Read Until EOF
-    for line in sys.stdin:
-        text_buffer += line
-
-
-    original_json = json.loads(text_buffer)
-    mask_json = json.loads(open(command_line_args.mask_file[0]).read())
+    original_json = json.load(sys.stdin)
+    with open(command_line_args.mask_file) as f:
+        mask_json = json.load(f)
     output_annotations = []
     annotation_id = 0
 
@@ -115,9 +110,9 @@ def bounding_box(polygon,w=None, h=None):
     return [min_x, min_y, max_x - min_x, max_y - min_y]
 
 
-def pasrse_cli():
+def parse_cli():
     parser = ArgumentParser(description="The utility takes in a mask coco file and applies the segementations to the original file provided in stdin")
-    parser.add_argument('mask_file', nargs=1, type=str, help="Mask JSON File")
+    parser.add_argument('mask_file', type=str, help="Mask JSON File")
     parser.add_argument('-c', '--category-id', type=str, help="the id of the category to set the mask can be an int or from-mask", required=True)
     parser.add_argument('-t', '--threshold','--thresh', type=float, default=0, help="The number to threshold the image by, default: %(default)s")
     parser.add_argument('--polygon-tolerance', '--tolerance', type=float, default=0, help="threshold tolerance for polygon precision (see skimage.metrics.approximate_polygon(), default: %(default)s")
