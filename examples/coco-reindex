@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+
+import json
+import copy 
+def main():
+    
+    with open("/home/j/src/preds_ana/all_2class.json") as f:
+        full_set = json.loads(f.read())
+    with open("/home/j/src/preds_ana/predictions/validation.json") as f:
+        image_only_set = json.loads(f.read())
+
+    
+    final_images = []
+    final_annotations = []
+    for image in image_only_set['images']:
+        for matching_image in full_set['images']:
+            if image['file_name'] == matching_image['file_name']:
+                final_images.append(image)
+
+                for annotation in full_set['annotations']:
+                    if annotation['image_id'] == matching_image['id']:
+                        new_annotation = copy.deepcopy(annotation)
+                        new_annotation['image_id'] = image['id']
+                        final_annotations.append(new_annotation)
+
+    # for cat in full_set['categories']:
+    #     cat['id'] -= 1
+
+    print(json.dumps({"images":final_images,"annotations":final_annotations,"categories":full_set['categories']}))
+                        
+ 
+
+
+
+
+
+
+if __name__ == '__main__':
+    main()
