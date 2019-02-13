@@ -91,7 +91,7 @@ def load_input(mask_entry):
     if 'bin' in ext:
         img_buf = np.fromfile(mask_entry['path'], dtype=np.float32)
         img_buf = np.reshape(img_buf, (width, height))
-    elif ext in ['png', 'jpg']:
+    elif ext in set(['png', 'jpg']):
         img_buf = io.imread(mask_entry['path']) / 255.0
     else:
         print("{}: file type {} unsupported".format(os.path.basename(__file__), ext))
