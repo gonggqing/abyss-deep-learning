@@ -35,7 +35,21 @@ def main():
                 mask_img = load_input(mask_entry)
                 original_img = np.array(mask_img)
                 mask_img = mask_img * (mask_img > (command_line_args.threshold))
+                
+                
+                # todo
+                # - level
+                #   - currently hardcoded to 0.5
+                #   - almost certainly should be set to score threshold (i.e. set to arg.score_threshold)
+                #   - confirm it works as expected (i.e. is equivalent to something like: threhold image by a given threshold and then set level to 0.000001)
+                #   - if it works, remove image thresholding step
+                # - fully_connected
+                #   - set to 'high', observe that unclosed contours disappear, if not, regroup
+                #   - expose as --fully-connected with default 'low' (to be able to experiment)
+                
+                
                 contours = measure.find_contours(mask_img, 0.5)
+                
 
                 for contour in contours:
                     approximated = measure.approximate_polygon( contour, command_line_args.polygon_tolerance )
