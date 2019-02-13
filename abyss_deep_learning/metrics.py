@@ -40,16 +40,30 @@ def bbox_iou_matrix( a, b ):
 def poly_iou_matrix( a, b ):
    precompute_a = []
    precompute_b = []
+
+
+   # Todo completely re-write me to take in to account lower
+   grid_max_x = 0
+   grid_max_y = 0
+   for elements in zip(a,b):
+      upper_val_x = max(np.max(elements[0][::2]),np.max(elements[1][::2])) # Gets Max of X in each poly start at zero jump by two
+      upper_val_y = max(np.max(elements[0][1::2]),np.max(elements[1][1::2])) # Gets max of Y in each poly start at 1 jump by two
+      if upper_val_x > grid_max_x:
+         grid_max_x = int(upper_val_x)+1
+      if upper_val_y > grid_max_y:
+         grid_max_y = int(upper_val_y)+1
+         
    for element in a:
-      precompute_a.append(skimage.measure.grid_points_in_poly((513,513),element))
+      precompute_a.append(skimage.measure.grid_points_in_poly((grid_max_x,grid_max_y),element))
    for element in b:
-      precompute_b.append(skimage.measure.grid_points_in_poly((513,513),element))
+      precompute_b.append(skimage.measure.grid_points_in_poly((grid_max_x,grid_max_y),element))
+
    result = []
    for i in range(len(a)):
       sub_result = []
       for j in range(len(b)):
-         union = np.logical_or(precompute_a[i],precompute_b[i])
-         intersection = np.logical_and(precompute_a[i],precompute_b[i])
+         union = np.logical_or(precompute_a[i],precompute_b[j])
+         intersection = np.logical_and(precompute_a[i],precompute_b[j])
          if np.count_nonzero(union):
             sub_result.append(np.count_nonzero(intersection)/np.count_nonzero(union))
          else:
