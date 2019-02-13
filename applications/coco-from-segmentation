@@ -46,6 +46,8 @@ def main():
                 # - fully_connected
                 #   - set to 'high', observe that unclosed contours disappear, if not, regroup
                 #   - expose as --fully-connected with default 'low' (to be able to experiment)
+                # - Suchet's solution:
+                #   - if 'high' does not work as we want, pad mask_img with 1 black pixel on each side, run contours on padded image, offset contour coordinates by 1
                 
                 
                 contours = measure.find_contours(mask_img, 0.5)
