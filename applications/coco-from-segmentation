@@ -6,10 +6,11 @@ from argparse import ArgumentParser
 from datetime import datetime
 
 import numpy as np
+from multiprocessing.dummy import Pool as ThreadPool
 from skimage import io, measure
 
 # np.set_printoptions(threshold=sys.maxsize)
-PADDING = 2
+PADDING = 1
 
 
 def main(command_line_args=None):
@@ -41,44 +42,32 @@ def main(command_line_args=None):
     output_annotations = coco_json['annotations']
 
     # TODO: pre-process both images list by sorting on id
+    id_2_original = {entry['id']: entry for entry in original_json['images']}
     for mask_entry in mask_json['images']:
-        for original_entry in original_json['images']:
-            if mask_entry['id'] == original_entry['id']:
+        curr_id = mask_entry['id']
+        original_entry = id_2_original.get(curr_id, None)
+        if original_entry is None:
+            continue
+        mask_img = load_input(mask_entry)
+        original_img = np.array(mask_img)
+        contours = measure.find_contours(mask_img, command_line_args.threshold, command_line_args.level)
+        for contour in contours:
+            contour -= PADDING
+            approximated = measure.approximate_polygon(contour, command_line_args.polygon_tolerance)
+            contour_flipped = np.flip(approximated, axis=1)
+            segmentation = contour_flipped.ravel().tolist()
+            seg_to_points = [segmentation[n:n + 2] for n in range(0, len(segmentation), 2)]
+            area, score = get_area_and_score(original_img, approximated)
+            output_annotations.append({"segmentation": [segmentation],
+                                       "area":         area,
+                                       "iscrowd":      0,
+                                       "image_id":     original_entry['id'],
+                                       "bbox":         bounding_box(seg_to_points),
+                                       "score":        score,
+                                       "category_id":  int(command_line_args.category_id),
+                                       "id":           len(output_annotations)
+                                       })
 
-                mask_img = load_input(mask_entry)
-                original_img = np.array(mask_img)
-                # mask_img = mask_img * (mask_img > (command_line_args.threshold))
-
-                # todo
-                # - level
-                #   - currently hardcoded to 0.5
-                #   - almost certainly should be set to score threshold (i.e. set to arg.score_threshold)
-                #   - confirm it works as expected (i.e. is equivalent to something like: threhold image by a given threshold and then set level to 0.000001)
-                #   - if it works, remove image thresholding step
-                # - fully_connected
-                #   - set to 'high', observe that unclosed contours disappear, if not, regroup
-                #   - expose as --fully-connected with default 'low' (to be able to experiment)
-                # - Suchet's solution:
-                #   - if 'high' does not work as we want, pad mask_img with 1 black pixel on each side, run contours on padded image, offset contour coordinates by 1
-
-                contours = measure.find_contours(mask_img, command_line_args.threshold, command_line_args.level)
-
-                for contour in contours:
-                    contour -= PADDING // PADDING
-                    approximated = measure.approximate_polygon(contour, command_line_args.polygon_tolerance)
-                    contour_flipped = np.flip(approximated, axis=1)
-                    segmentation = contour_flipped.ravel().tolist()
-                    seg_to_points = [segmentation[n:n + 2] for n in range(0, len(segmentation), 2)]
-                    area, score = get_area_and_score(original_img, approximated)
-                    output_annotations.append({"segmentation": [segmentation],
-                                               "area":         area,
-                                               "iscrowd":      0,
-                                               "image_id":     original_entry['id'],
-                                               "bbox":         bounding_box(seg_to_points),
-                                               "score":        score,
-                                               "category_id":  int(command_line_args.category_id),
-                                               "id":           len(output_annotations)
-                                               })
     json.dump(coco_json, sys.stdout, indent=4)
     sys.exit(0)
 
@@ -86,17 +75,17 @@ def main(command_line_args=None):
 def load_input(mask_entry):
     width = int(mask_entry['width'])
     height = int(mask_entry['height'])
-    img = np.zeros((width + PADDING, height + PADDING))
+    img = np.zeros((width + PADDING * 2, height + PADDING * 2))
     _, ext = os.path.splitext(mask_entry['path'])
     if 'bin' in ext:
         img_buf = np.fromfile(mask_entry['path'], dtype=np.float32)
         img_buf = np.reshape(img_buf, (width, height))
-    elif ext in set(['png', 'jpg']):
+    elif ext in {'png', 'jpg'}:
         img_buf = io.imread(mask_entry['path']) / 255.0
     else:
         print("{}: file type {} unsupported".format(os.path.basename(__file__), ext))
         sys.exit(1)
-    img[PADDING // PADDING: PADDING // PADDING + height, PADDING // PADDING: PADDING // PADDING + width] = img_buf[:, :]
+    img[PADDING: PADDING + height, PADDING: PADDING + width] = img_buf[:, :]
     return img
 
 
@@ -136,9 +125,9 @@ def parse_cli():
                         help="the id of the category to set the mask can be an int or from-mask", required=True)
     parser.add_argument('-t', '--threshold', '--thresh', type=float, default=0.0,
                         help="The number to threshold the image by, default: %(default)s")
-    parser.add_argument('--polygon-tolerance', '--tolerance', type=float, default=0.5,
+    parser.add_argument('--polygon-tolerance', '--tolerance', type=float, default=0.0,
                         help="threshold tolerance for polygon precision (see skimage.metrics.approximate_polygon(), default: %(default)s")
-    parser.add_argument('--level', help="Passed to skimage.measure.find_contours", type=str, default='low')
+    parser.add_argument('--level', help="Passed to skimage.measure.find_contours, default: %(default)s", type=str, default='low')
     return parser.parse_args()
 
 
