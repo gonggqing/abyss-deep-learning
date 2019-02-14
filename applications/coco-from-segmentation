@@ -109,10 +109,9 @@ def load_input(mask_entry):
 
 def get_area_and_score(image, poly):
     mask = measure.grid_points_in_poly((image.shape[0], image.shape[1]), poly)
-    poly = np.flip(poly, axis=1)
+    #poly = np.flip(poly, axis=1)
     area = np.count_nonzero(mask)
-    if area == 0:
-        return 0, 0
+    if area == 0: return 0, 0
     return area, np.sum((mask * image)) / area
 
 
@@ -134,7 +133,7 @@ def parse_cli():
     parser.add_argument('mask_file', type=str, help="Mask JSON File")
     parser.add_argument('-c', '--category-id', type=str,
                         help="the id of the category to set the mask can be an int or from-mask", required=True)
-    parser.add_argument('-t', '--threshold', '--thresh', type=float, default=0.0,
+    parser.add_argument('-t', '--threshold', '--thresh', '--score-threshold', type=float, default=0.0,
                         help="The number to threshold the image by, default: %(default)s")
     parser.add_argument('--polygon-tolerance', '--tolerance', type=float, default=0.5,
                         help="threshold tolerance for polygon precision (see skimage.metrics.approximate_polygon(), default: %(default)s")
