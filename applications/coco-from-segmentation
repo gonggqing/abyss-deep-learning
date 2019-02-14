@@ -50,8 +50,8 @@ def main(command_line_args=None):
             continue
         mask_img = load_input(mask_entry)
         original_img = np.array(mask_img)
-        if args.fill_above:
-            mask_img = 1.0*mask_img > args.threshold
+        if command_line_args.fill_above_thresh:
+            mask_img = 1.0*mask_img > command_line_args.threshold
 
         contours = measure.find_contours(mask_img, command_line_args.threshold, command_line_args.level)
         for contour in contours:
@@ -128,7 +128,7 @@ def parse_cli():
                         help="the id of the category to set the mask can be an int or from-mask", required=True)
     parser.add_argument('-t', '--threshold', '--thresh', type=float, default=0.0,
                         help="The number to threshold the image by, default: %(default)s")
-    parser.add_argument('-b', '--fill-above-tresh', '--fill_above',  action='store_true' ,
+    parser.add_argument('-b', '--fill-above-thresh', '--fill_above',  action='store_true' ,
                         help="this argument will fill the mask with 1 values if the pixel is above the threshold")
     parser.add_argument('--polygon-tolerance', '--tolerance', type=float, default=0.0,
                         help="threshold tolerance for polygon precision (see skimage.metrics.approximate_polygon(), default: %(default)s")
