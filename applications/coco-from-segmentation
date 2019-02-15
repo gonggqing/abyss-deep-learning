@@ -6,7 +6,6 @@ from argparse import ArgumentParser
 from datetime import datetime
 
 import numpy as np
-from multiprocessing.dummy import Pool as ThreadPool
 from skimage import io, measure
 
 # np.set_printoptions(threshold=sys.maxsize)
