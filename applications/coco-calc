@@ -250,7 +250,7 @@ def remap(coco: COCO) -> COCO:
 
         for old, new in mapping.items():
             if isinstance(old, str) and old not in source_category_names:
-                say("cannot find source key {} in category names {}".format(old, source_category_names), verbose=True)
+                say("cannot find source key {} in category names {/mnt/rhino/processed/industry-data/anadarko/gunnison/segmentation/validation/validation.annotated.json}".format(old, source_category_names), verbose=True)
                 sys.exit(1)
 
             if isinstance(new, str) and new not in target_category_names:
@@ -262,7 +262,7 @@ def remap(coco: COCO) -> COCO:
                     ann_copy = copy.deepcopy(ann)
                     ann_copy['category_id'] = new
                     annotations.append(ann_copy)
-                    added_annotation_ids.add(ann_copy)
+                    added_annotation_ids.add(ann_copy['id'])
                 category = coco.loadCats(ids=coco.getCatIds(catIds=old)).pop()
                 category['id'] = new
 
