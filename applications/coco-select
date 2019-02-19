@@ -62,7 +62,7 @@ def main(args: argparse.Namespace = None):
         annotation['annotation_id'] = annotation.pop('id')
 
     if args.keep_images: original_images = copy.deepcopy(data['images']) # quick and dirty, ugly
-    
+
     for image in data['images']:
         image['image_id'] = image.pop('id')
 
@@ -148,14 +148,17 @@ def record_to_dict(record: namedtuple, re_id: str) -> dict:
 
 
 def eval_on(df: pd.DataFrame, args: argparse.Namespace, keys: namedtuple, on_id: str) -> pd.DataFrame:
-    df_images = df[keys.img_keys].rename(index=str, columns={'image_id': 'id'})
-    df_annotations = df[keys.ann_keys].rename(index=str, columns={'annotation_id': 'id'})
-    df_categories = df[keys.cat_keys].rename(index=str, columns={'category_id': 'id'})
     ids = set()
+    df_images = df[keys.img_keys].rename(index=str, columns={'image_id': 'id'})
+    df_categories = df[keys.cat_keys].rename(index=str, columns={'category_id': 'id'})
+    df_annotations = df[keys.ann_keys].rename(index=str, columns={'annotation_id': 'id'})
+
+    if args.init is not None:
+        eval(args.init)
+
     for a, i, c in zip(df_annotations.itertuples(), df_images.itertuples(), df_categories.itertuples()):
         idx = int(a.Index)
         if eval(args.expression):
-            #say("selecting record", df.iloc[idx], verbose=args.verbose)
             ids.add(df.iloc[idx][on_id])
 
     # Index later so that indexing into list doesn't go out of bounds as df shrinks
@@ -184,24 +187,12 @@ def get_args() -> argparse.Namespace:
                              "associated annotations. If on is 'annotation', then evaluate the expression on a per "
                              "annotation basis and for annotations that satisfy the expression, select all associated "
                              "images.")
-    parser.add_argument('expression',
-                        type=str,
-                        help="General expression to search for images.",)
-    parser.add_argument('-m', '--min',
-                        action='store_const',
-                        const=None,
-                        default=4,
-                        dest='indent',
-                        help="Disable JSON pretty print.",)
-    parser.add_argument('--keep-categories',
-                        action='store_true',
-                        help='Carry over all categories from original COCO JSON file.')
-    parser.add_argument('--keep-images',
-                        action='store_true',
-                        help='Carry over all images from original COCO JSON file.')
-    parser.add_argument('-v', '--verbose',
-                        action='store_true',
-                        help="More output to stderr.",)
+    parser.add_argument('expression', type=str, help="General expression to search for images.",)
+    parser.add_argument('-i', '--init', type=str, help="General python code to run at the start of the script")
+    parser.add_argument('-m', '--min', action='store_const', const=None, default=4, dest='indent', help="Disable JSON pretty print.")
+    parser.add_argument('--keep-categories', action='store_true', help='Carry over all categories from original COCO JSON file.')
+    parser.add_argument('--keep-images', action='store_true', help='Carry over all images from original COCO JSON file.')
+    parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr.",)
     return parser.parse_args()
 
 
