@@ -5,9 +5,12 @@ import sys
 from argparse import ArgumentParser
 
 import numpy as np
-from skimage import io, measure
+from skimage import measure
+
+from abyss_deep_learning.utils import imread
 
 np.set_printoptions(threshold=np.inf)
+
 
 def main(command_line_args=None):
     if command_line_args.category_id == 'from-mask':
@@ -67,7 +70,7 @@ def load_input(mask_entry, padding=0):
         img_buf = np.fromfile(mask_entry['path'], dtype=np.float32)
         img_buf = np.reshape(img_buf, (width, height))
     elif ext in {'png', 'jpg'}:
-        img_buf = io.imread(mask_entry['path']) / 255.0
+        img_buf = imread(mask_entry['path']) / 255.0
     else:
         print("{}: file type {} unsupported".format(os.path.basename(__file__), ext), file=sys.stderr)
         sys.exit(1)
