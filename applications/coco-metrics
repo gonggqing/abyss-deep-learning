@@ -109,7 +109,7 @@ def load_annotations( predicted, truth, category_ids, args ):
             images[image_id][category_id][2].append(np.reshape(segmentation[0], (int(len(segmentation[0]) / 2), 2)))
     return images
 
-def plot_confusion_matrix(m, classes, normalized = False):
+def plot_confusion_matrix(m, classes, normalized=False):
     import matplotlib.pyplot as plt
     plt.imshow(m, interpolation='nearest', cmap=plt.cm.Blues)
     plt.title('confusion matrix')
@@ -237,8 +237,13 @@ def confusion_matrix(args):
     truth_labels = []  # quick and dirty, watch performance
     background_id = np.max(category_ids) + 1
     category_ids = [background_id] + category_ids
-    matrix = np.zeros((len(category_ids), len(category_ids)), dtype=np.float32)
-    fmt = '%.2f' if args.normalize else '%d'
+    if args.normalize:
+        fmt = '%.2f'
+        dtype = np.float32
+    else:
+        fmt = '%d'
+        dtype = np.uint32
+    matrix = np.zeros((len(category_ids), len(category_ids)), dtype=dtype)
     if not args.pixels:
         if args.bounding_boxes:
             iou_matrix = metrics.bbox_iou_matrix
@@ -278,6 +283,8 @@ def confusion_matrix(args):
             image_id_2_shape[image['id']] = shape
             image_id_2_path[image['id']] = image['path']
         for image_id, image in images.items():
+            if image_id not in image_id_2_shape:
+                continue
             shape = image_id_2_shape[image_id]
             image_array_truth = np.ones(shape, dtype=np.uint8) * background_id
             image_array_pred = np.ones(shape, dtype=np.uint8) * background_id
@@ -438,7 +445,7 @@ def get_args():
     confusion_matrix_parser.add_argument('--plot', action='store_true', help="plot confusion matrix, convenience option")
     confusion_matrix_parser.add_argument('--suppress-background', action='store_true', help="Set BG,BG predictions to 0 in output confusion")
     confusion_matrix_parser.add_argument('--score-threshold', default=0.5, type=float, help="score threshold: default: %(default)s")
-    confusion_matrix_parser.add_argument('--truth', '-t', type=str, help="ground truth coco.json file")
+    confusion_matrix_parser.add_argument('--truth', '-t', type=str, help="ground truth coco.json file", required=True)
 
     confusion_matrix_parser.add_argument('--csv-output-per-image', action='store_true', help="output to stdout the confusion values on a per image basis")
     confusion_matrix_parser.add_argument('--header', '--head', action='store_true', help="output csv header for each column")
