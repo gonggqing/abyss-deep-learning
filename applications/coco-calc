@@ -109,12 +109,12 @@ def main():
 
 
 def crop(coco: COCO) -> COCO:
+    from abyss_deep_learning.utils import imread
     say("cropping images")
     if ARGS.keep_partial:
         print('coco-calc crop --keep-partial: todo', file=sys.stderr); sys.exit(1)
     width, height = map(int, ARGS.size.split(','))
     if ARGS.apply_to_images:
-        import cv2
         os.makedirs(os.path.join(os.getcwd(), ARGS.image_output_dir), exist_ok=True)
     output_images = []
     output_annotations = []
@@ -137,7 +137,7 @@ def crop(coco: COCO) -> COCO:
                     do_crop = True; break
         if not do_crop:
             continue
-        image = cv2.imread(image_data['path'])
+        image = imread(image_data['path'])
         if ARGS.point:
             annotations = coco.loadAnns(coco.getAnnIds(image_data['id']))
             for a in annotations:
@@ -186,7 +186,8 @@ def crop(coco: COCO) -> COCO:
                                     xs -= x
                                     ys -= y
                                     if xs < 0 or ys < 0 or xs > (width - 1) or ys > (height - 1):
-                                        fits_into_crop = False; break
+                                        fits_into_crop = False
+                                        break
                                     t += [xs, ys]
                                 if not fits_into_crop:
                                     break
@@ -198,7 +199,8 @@ def crop(coco: COCO) -> COCO:
                     b['image_id'] = i['id']
                     output_annotations.append(b)
                 if ARGS.apply_to_images:
-                    cv2.imwrite(path, cropped)
+                    from PIL import Image
+                    Image.fromarray(cropped).save(path)
     coco.dataset['images'] = output_images
     coco.dataset['annotations'] = output_annotations
     return coco
@@ -250,7 +252,7 @@ def remap(coco: COCO) -> COCO:
 
         for old, new in mapping.items():
             if isinstance(old, str) and old not in source_category_names:
-                say("cannot find source key {} in category names {/mnt/rhino/processed/industry-data/anadarko/gunnison/segmentation/validation/validation.annotated.json}".format(old, source_category_names), verbose=True)
+                say("cannot find source key {} in category names {}".format(old, source_category_names), verbose=True)
                 sys.exit(1)
 
             if isinstance(new, str) and new not in target_category_names:
@@ -324,7 +326,8 @@ def resize(coco: COCO) -> COCO:
         img_data['width'] = round(img_data['width'] * h_scale, None)
 
         if ARGS.apply_to_images:
-            import cv2
+            from abyss_deep_learning.utils import imread
+            from PIL import Image
             path = None
             basenames = set()
             if os.path.isfile(img_data['path']):
@@ -335,7 +338,6 @@ def resize(coco: COCO) -> COCO:
                 say("cannot find path to image [{}]".format(img_data['path']))
 
             if path is not None:
-                img = cv2.imread(img_data['path'])
                 new_path = os.path.join(os.getcwd(), ARGS.image_output_dir, os.path.basename(img_data['path']))
                 if new_path in basenames:
                     print('coco-calc: resize: expected unique image filenames, got duplicated "{}"'.format(new_path),
@@ -343,10 +345,10 @@ def resize(coco: COCO) -> COCO:
                     sys.exit(1)
                 img_data['path'] = new_path
                 img_size = (img_data['width'], img_data['height'])
-                resized_img = cv2.resize(img, img_size)
+                resized_img = imread(img_data['path'], output_size=img_size)
                 # os.makedirs( new_path, exist_ok = True )
                 say("writing image to {}".format(new_path))
-                cv2.imwrite(new_path, resized_img)
+                Image.fromarray(resized_img).save(new_path)
 
         anns = coco.loadAnns(coco.getAnnIds(img_data['id']))
         # Rescaling bbox and segmentation values
