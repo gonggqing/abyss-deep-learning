@@ -86,7 +86,7 @@ def generate_from_bounding_boxes(df): #def generate_from_bounding_boxes(df: pd.D
     except IOError as e:
         say("could not read file [{}]; omit categories section in coco output".format(ARGS.map))
         say(e)
-    except TypeError:
+    except (TypeError, AttributeError):
         say("no mapping file given, received [{}]; omit categories section in coco output".format(ARGS.map))
 
     seen_imgs = set()
