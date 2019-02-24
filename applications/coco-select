@@ -129,8 +129,8 @@ def create_data_frame(data):
             invalid_values.append(column_name)
         except TypeError:
             invalid_values.append(column_name)
-    df.fillna(value=values, inplace=True)
-    df.loc[:, invalid_values].fillna(method='pad')
+    df.fillna(inplace=True)
+    df.loc[:, invalid_values].fillna(None)
     return df
 
 
