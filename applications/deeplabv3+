@@ -108,13 +108,16 @@ function do_train(){
   $(bool_flag initialize_last_layer $PRETRAIN) \
   --last_layers_contain_logits_only True \
   --save_interval_secs 300 \
-  $(optional_flag tf_initial_checkpoint "$CHECKPOINT")
+  $(optional_flag tf_initial_checkpoint "$CHECKPOINT") &
  PID_TRAIN=$!
 
  if [ $VALIDATE ] ; then
-  sleep 5
-  do_eval 0
+  do_eval 0 &
   PID_VAL=$!
+  sleep 2
+  if [[ ! $? == 0 ]] ; then 
+   kill $PID_TRAIN $PID_VALL
+  fi
   wait $PID_TRAIN
   kill $PID_VAL
  fi
@@ -141,8 +144,11 @@ function do_eval(){
   --checkpoint_dir="${TRAIN_LOGDIR}" \
   --eval_logdir="${LOGDIR}" \
   --dataset_dir="${DATASET}" \
-  --max_number_of_evaluations=${num_eval} 
+  --model_variant "$MODEL" \
+  --max_number_of_evaluations=${num_eval}
+ local return_code=$? 
  info "Eval finished."
+ return $?
 }
 
 
