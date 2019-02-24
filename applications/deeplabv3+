@@ -1,0 +1,171 @@
+#!/bin/bash
+# Deeplab V3+ train, eval, export utility
+SCRIPTNAME=$(basename $0)
+ARGPARSE_DESCRIPTION="Deeplab V3+ training application"      # this is optional
+source $(dirname $0)/argparse.bash || exit 1
+argparse "$@" <<EOF || exit 1
+parser.add_argument('operation', help='One of {init, train, eval, export}')
+parser.add_argument('dataset', help='The path to the coco JSON (for init) or tfrecord (all others) to train or evaluate')
+parser.add_argument('logdir', help='Path to the log directory used for all operations')
+parser.add_argument('--batch-size', help='The batch size to use in training and evaluation', default=1)
+parser.add_argument('--checkpoint', help='The path to the checkpoint to load before training or evaluation')
+parser.add_argument('--crop-size', help='The crop size to use in training and evaluation', default=513)
+parser.add_argument('--deeplab-dir', help='The path to tensorflow/models/deeplab', default='$PWD')
+parser.add_argument('--init-image-dir', help='The path to the image directory for the COCO JSON (init only)', default='$PWD')
+parser.add_argument('--learning-rate', type=float, help='The base learning rate (default 1e-4, use 1e-3 for scratch training)', default=1e-4)
+parser.add_argument('--model', help='One of {xception_65, mobilenet_v2}', default='xception_65')
+parser.add_argument('--reinitialize-head', action='store_true', help='Clear the class specific layers to allow for a transfer learning to a new class set.')
+parser.add_argument('--train-freeze-batch-norm', action='store_false', help='Whether or not to freeze the batch norms')
+parser.add_argument('--train-steps', type=int, help='The number of epochs to train for', default=0)
+parser.add_argument('--validate', action='store_true', help='Simultenously run validation after every checkpoint.')
+parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output to stderr')
+EOF
+
+set -e 
+
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+function info(){
+ echo -e "\n\n${YELLOW}[$SCRIPTNAME]${NC} ${@}" 2>&1
+}
+
+function error(){
+ echo -e "${RED}[$SCRIPTNAME]${NC} ${@}" 2>&1
+}
+
+function optional_flag(){
+  [[ ! -z $2 ]] && echo "--$1 $2"
+}
+
+function bool_flag(){
+ local no=no
+ [[ ! -z $2 ]]  && no=
+ echo "--${no}${1}"
+}
+
+function assert (){
+  if [ $1 ] ; then
+     return 0
+  else 
+    error "${RED}Assertion failed:  \"$1\"${NC} (${@:2})"
+    exit 1
+  fi 
+}
+
+function patch_dataset_file(){
+ local file="$DEEPLAB_DIR/datasets/segmentation_dataset.py"
+ local num_classes=$(jq '.num_classes' "$DATASET/dataset_meta.json")
+ local train_set_size=$(jq '.train_set_size' "$DATASET/dataset_meta.json")
+ local val_set_size=$(jq '.val_set_size' "$DATASET/dataset_meta.json")
+
+ info "Patching $file"
+ NUM_CLASSES=$(( 1 + $num_classes )) \
+ TRAIN_SET_SIZE=$train_set_size \
+ VAL_SET_SIZE=$val_set_size \
+ perl -p -e 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : $&/eg' <"$file.template" >"$file"
+}
+
+function do_install(){
+ error "TODO: install"
+}
+
+function do_init(){
+ if [[ ! -d $DATASET ]] ; then error "[$LINENO] dataset $DATASET does not exist"; fi
+ if [[ ! -d $INIT_IMAGE_DIR ]] ; then error "[$LINENO] dataset $INIT_IMAGE_DIR does not exist"; fi
+ if [[ ! -d $LOGDIR ]] ; then error "[$LINENO] dataset $LOGDIR does not exist"; fi
+
+ # Go to the train logdir and create the VOC dataset
+ cd "$LOGDIR"
+ coco-to-tfrecord "$DATASET" "$INIT_IMAGE_DIR"
+ info "init success"
+}
+
+function do_train(){
+ info "Training:\n DATASET=${DATASET}\nLOGDIR=${LOGDIR}"
+ assert "$TRAIN_STEPS -gt 0" "[$LINENO] --train-steps must be provided"
+ assert "-d $LOGDIR" "[$LINENO] log dir '$LOGDIR' does not exist"
+ patch_dataset_file
+  
+ info "Beginning training for $TRAIN_STEPS steps"
+  PYTHONPATH=$PYTHONPATH CUDA_VISIBLE_DEVICES=$(cut -d, -f1 <<< $CUDA_VISIBLE_DEVICES) \
+  python3 "${DEEPLAB_DIR}"/train.py \
+  --atrous_rates 12  --atrous_rates 18  --atrous_rates 6 \
+  --base_learning_rate $LEARNING_RATE \
+  --dataset_dir "${DATASET}" \
+  --decoder_output_stride 4 \
+  $(bool_flag fine_tune_batch_norm $TRAIN_FREEZE_BATCH_NORM) \
+  --logtostderr \
+  --model_variant "$MODEL" \
+  --output_stride 16 \
+  --save_summaries_images True \
+  --save_summaries_secs 60 \
+  --train_batch_size ${BATCH_SIZE} \
+  --train_crop_size ${CROP_SIZE} --train_crop_size ${CROP_SIZE} \
+  --train_logdir "$LOGDIR" \
+  --train_split "train" \
+  --training_number_of_steps "$TRAIN_STEPS" \
+  $(bool_flag initialize_last_layer $PRETRAIN) \
+  --last_layers_contain_logits_only True \
+  --save_interval_secs 300 \
+  $(optional_flag tf_initial_checkpoint "$CHECKPOINT") &
+ PID_TRAIN=$!
+
+ if [ $VALIDATE ] ; then
+  do_eval 0 &
+  PID_VAL=$!
+  sleep 2
+  if [[ ! $? == 0 ]] ; then 
+   kill $PID_TRAIN $PID_VALL
+  fi
+  wait $PID_TRAIN
+  kill $PID_VAL
+ fi
+
+ info "Training finished."
+}
+
+function do_eval(){
+ local num_eval=$1
+ info "Evaluating:\n DATASET=${DATASET}\nLOGDIR=${LOGDIR}"
+ assert "-d $LOGDIR" "[$LINENO] log dir '$LOGDIR' does not exist"
+ PYTHONPATH=$PYTHONPATH CUDA_VISIBLE_DEVICES=$(cut -d, -f2 <<< $CUDA_VISIBLE_DEVICES) \
+ python3 ${DEEPLAB_DIR}/eval.py \
+  --logtostderr \
+  --eval_split="val" \
+  --model_variant="${MODEL_VARIANT}" \
+  --atrous_rates=6 \
+  --atrous_rates=12 \
+  --atrous_rates=18 \
+  --output_stride=16 \
+  --decoder_output_stride=4 \
+  --eval_crop_size=513 \
+  --eval_crop_size=513 \
+  --checkpoint_dir="${TRAIN_LOGDIR}" \
+  --eval_logdir="${LOGDIR}" \
+  --dataset_dir="${DATASET}" \
+  --model_variant "$MODEL" \
+  --max_number_of_evaluations=${num_eval}
+ local return_code=$? 
+ info "Eval finished."
+ return $?
+}
+
+
+trap ctrl_c INT
+function ctrl_c() {
+ info "killing processes: train ($PID_TRAIN) and val ($PID_VAL)"
+ kill $PID_TRAIN $PID_VAL
+}
+####
+assert "-d $DEEPLAB_DIR" "[$LINENO] Deeplab dir not found"
+assert "$(basename $(dirname $DEEPLAB_DIR) ) = research" "[$LINENO] Deeplab dir not in tensorflow_models/research folder"
+
+PYTHONPATH="$PYTHONPATH:$DEEPLAB_DIR/..:$DEEPLAB_DIR/../slim"
+
+[[ "$OPERATION" == "install" ]] && do_install
+[[ "$OPERATION" == "init" ]] && do_init
+[[ "$OPERATION" == "train" ]] && do_train
+[[ "$OPERATION" == "eval" ]] && do_eval
+
