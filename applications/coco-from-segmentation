@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
+import logging
 import json
 import os
 import sys
+import time
 from argparse import ArgumentParser
 from datetime import datetime
 
@@ -13,6 +15,9 @@ from skimage import measure
 
 
 def main(args=None):
+    logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=args.verbose)
+    logging.info('--verbose enabled')
+
     if args.category_id == 'from-mask':
         if args.num_classes is None:
             raise ValueError("--num-classes must be specified when passing 'from-mask' to --category-id")
@@ -40,7 +45,7 @@ def main(args=None):
         'categories':  original_json.get('categories', []),
         'licenses':    original_json.get('licenses', [
             {
-                'id':   1,
+                'id':   0,
                 'url':  'http://creativecommons.org/licenses/by-nc-sa/2.0/',
                 'name': 'Attribution-NonCommercial-ShareAlike License',
                 }
@@ -52,9 +57,12 @@ def main(args=None):
     padding = 1
     id_2_original = {entry['id']: entry for entry in original_json['images']}
     for mask_entry in mask_json['images']:
+        tic = time.perf_counter()
         curr_id = mask_entry['id']
+        logging.info('evaluating mask {}'.format(curr_id))
         original_entry = id_2_original.get(curr_id, None)
         if original_entry is None:
+            logging.info('skipping mask {} as original entry could not be found'.format(curr_id))
             continue
         original_mask = load_input(mask_entry)
         padded_mask = load_input(mask_entry, padding=padding)
@@ -77,7 +85,7 @@ def main(args=None):
                     copy[copy >= (thresholds[i + 1] - np.finfo(copy.dtype).eps)] = 0.0
                 except IndexError:
                     pass
-
+                tic = time.perf_counter()
                 found_contours = measure.find_contours(copy, thresholds[i] - np.finfo(copy.dtype).eps, fully_connected=args.fully_connected)
                 category_contours.append([np.around(contour) - padding for contour in found_contours])
                 mask_indices.append(copy[1:-1, 1:-1].astype(np.bool))
@@ -94,7 +102,9 @@ def main(args=None):
             copy = np.zeros(original_mask.shape)
             copy[mask_index] = 1
             for contour in contours:
+                tic = time.perf_counter()
                 approximated = measure.approximate_polygon(contour, args.tolerance)
+                tic = time.perf_counter()
                 poly_mask = measure.grid_points_in_poly(original_mask.shape[:2], approximated)
                 segmentation = np.flip(approximated, axis=1).ravel().tolist()
                 points = [segmentation[n:n + 2] for n in range(0, len(segmentation), 2)]
@@ -115,23 +125,30 @@ def main(args=None):
                                            "category_id":  category_id,
                                            "id":           len(output_annotations)
                                            })
+        logging.info("processing time for mask {}: {}h {}m {}s".format(curr_id, *pretty_time(time.perf_counter() - tic)))
 
     json.dump(coco_json, sys.stdout, indent=4)
     sys.exit(0)
 
 
 def print_debug(*args, **kwargs):
-    print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
+    print_verbose(*args, verbose=True, **kwargs)
+
+
+def print_verbose(*args, verbose=False, **kwargs):
+    if verbose:
+        print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
 
 
 def load_input(mask_entry, padding=0):
     width = int(mask_entry['width'])
     height = int(mask_entry['height'])
-    img = np.zeros((width + padding * 2, height + padding * 2))
+    img = np.zeros((height + padding * 2, width + padding * 2))
     _, ext = os.path.splitext(mask_entry['path'])
+    ext = ext.lstrip('.')
     if 'bin' in ext:
         img_buf = np.fromfile(mask_entry['path'], dtype=np.float32)
-        img_buf = np.reshape(img_buf, (width, height))
+        img_buf = np.reshape(img_buf, (height, width))
     elif ext in {'png', 'jpg'}:
         img_buf = imread(mask_entry['path'], dtype=np.float32) / 255
     else:
@@ -167,9 +184,16 @@ def bounding_box(polygon, w=None, h=None):
     return [min_x, min_y, max_x - min_x, max_y - min_y]
 
 
+def pretty_time(seconds: float):
+    """ Return seconds as hours minute seconds
+    """
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    return int(hours), int(minutes), seconds
+
+
 def get_args():
-    parser = ArgumentParser(
-        description="The utility takes in a coco file and applies the segementations from the mask file provided as a command line argument and outputs the new coco json to stdout. If a binary file is give, assumes values are normalized between 0 and 1")
+    parser = ArgumentParser(description="The utility takes in a coco file and applies the segementations from the mask file provided as a command line argument and outputs the new coco json to stdout. If a binary file is give, assumes values are normalized between 0 and 1")
     parser.add_argument('mask_file', type=str, help="Mask JSON File")
     parser.add_argument('-c', '--category-id', type=str,
                         help="The id of the category to set the mask can be an int or from-mask. from-mask infers category based on how many unique values there are for the pixels in a segmentation mask",
@@ -186,6 +210,8 @@ def get_args():
                         choices=['low', 'high'], default='low')
     parser.add_argument('-b', '--fill-above', '--fill-above-thresh', action='store_true',
                         help="This argument will fill the mask with 1 values if the pixel is above the threshold")
+    parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO,
+                        help="More output to stderr")
     return parser.parse_args()
 
 
