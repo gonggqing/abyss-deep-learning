@@ -8,13 +8,14 @@ parser.add_argument('operation', help='One of {init, train, eval, export}')
 parser.add_argument('dataset', help='The path to the coco JSON (for init) or tfrecord (all others) to train or evaluate')
 parser.add_argument('logdir', help='Path to the log directory used for all operations')
 parser.add_argument('--batch-size', help='The batch size to use in training and evaluation', default=1)
-parser.add_argument('--init-image-dir', help='The path to the image directory for the COCO JSON (init only)', default='$PWD')
 parser.add_argument('--checkpoint', help='The path to the checkpoint to load before training or evaluation')
 parser.add_argument('--crop-size', help='The crop size to use in training and evaluation', default=513)
 parser.add_argument('--deeplab-dir', help='The path to tensorflow/models/deeplab', default='$PWD')
+parser.add_argument('--init-image-dir', help='The path to the image directory for the COCO JSON (init only)', default='$PWD')
 parser.add_argument('--learning-rate', type=float, help='The base learning rate (default 1e-4, use 1e-3 for scratch training)', default=1e-4)
 parser.add_argument('--model', help='One of {xception_65, mobilenet_v2}', default='xception_65')
 parser.add_argument('--reinitialize-head', action='store_true', help='Clear the class specific layers to allow for a transfer learning to a new class set.')
+parser.add_argument('--train-freeze-batch-norm', action='store_false', help='Whether or not to freeze the batch norms')
 parser.add_argument('--train-steps', type=int, help='The number of epochs to train for', default=0)
 parser.add_argument('--validate', action='store_true', help='Simultenously run validation after every checkpoint.')
 parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output to stderr')
@@ -94,7 +95,7 @@ function do_train(){
   --base_learning_rate $LEARNING_RATE \
   --dataset_dir "${DATASET}" \
   --decoder_output_stride 4 \
-  --fine_tune_batch_norm true \
+  $(bool_flag fine_tune_batch_norm $TRAIN_FREEZE_BATCH_NORM) \
   --logtostderr \
   --model_variant "$MODEL" \
   --output_stride 16 \
