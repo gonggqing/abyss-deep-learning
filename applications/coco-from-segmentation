@@ -219,8 +219,7 @@ def get_args():
                         choices=['low', 'high'], default='low')
     parser.add_argument('-b', '--fill-above', '--fill-above-thresh', action='store_true',
                         help="This argument will fill the mask with 1 values if the pixel is above the threshold")
-    parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO,
-                        help="More output to stderr")
+    parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, help="More output to stderr")
     return parser.parse_args()
 
 
