@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 import argparse
+import copy
 import itertools
 import json
 import logging
 import os
 import sys
-import copy
 from contextlib import redirect_stdout
 from operator import itemgetter
 
 from pycocotools.coco import COCO
 
-_PARSER_DESCRIPTION = "Actions apply to all images in the dataset. " \
-                      "For more information on each " \
-                      "individual action, append -h"
+_PARSER_DESCRIPTION = """
+Operations apply to all images in the dataset. For more information on each operation, append -h to the subcommand
+"""
 
 _DESCRIPTION = """
 Read COCO json file piped in from stdin or a list of COCO json files and apply image manipulation and 
@@ -115,6 +115,7 @@ examples:
 
 
 def main(args):
+    # Setup logging of default warnings and verbose print
     logging.basicConfig(
         level=args.verbose,
         datefmt='%Y-%m-%d %H:%M:%S',
@@ -131,7 +132,7 @@ def main(args):
 
 def crop(coco: COCO, args) -> COCO:
     from abyss_deep_learning.utils import imread
-    logging.info("Cropping images.")
+    logging.info("crop operation selected")
     if args.keep_partial:
         logging.error('coco-calc crop --keep-partial: TODO')
         sys.exit(1)
@@ -232,7 +233,7 @@ def crop(coco: COCO, args) -> COCO:
 def remap(coco: COCO, args) -> COCO:
     # literal_eval allows usage of either single quote (') or double quote(") to interpret a json string
     from ast import literal_eval
-    logging.info("Remapping categories.")
+    logging.info("remap operation selected")
     if os.path.isfile(args.mapping):
         with open(args.mapping) as f:
             mapping = {category['name']: category['id'] for category in json.load(f)['categories']}
@@ -334,49 +335,63 @@ def remap(coco: COCO, args) -> COCO:
 
 
 def resize(coco: COCO, args) -> COCO:
-    logging.info("Resizing images.")
+    """
+
+    Args:
+        coco: COCO file read from stdin
+        args: arguments passed from argparse
+
+    Returns: COCO file with correct values for bbox, area, and segmentation based on either args.scale or args.factor
+
+    """
+    logging.info("resize operation selected")
     if args.apply_to_images:
+        from abyss_deep_learning.utils import imread
+        from PIL import Image
+
         os.makedirs(os.path.join(os.getcwd(), args.image_output_dir), exist_ok=True)
-    for img_data in coco.loadImgs(coco.getImgIds()):
-        if args.factor is not None:
+
+    paths = set()
+    for image_entry in coco.dataset['images']:
+        if 'height' not in image_entry:
+            logging.warning("Cannot find height value")
+            logging.warning("Skipping image with id {}".format(image_entry['id']))
+            continue
+
+        if 'width' not in image_entry:
+            logging.warning("Cannot find width value")
+            logging.warning("Skipping image with id {}".format(image_entry['id']))
+            continue
+
+        if args.factor is None:
+            dims = args.size.split(',')
+            h_scale = float(dims[0]) / image_entry['width']
+            v_scale = float(dims[1]) / image_entry['height']
+        else:
             args.factor = abs(args.factor)
             h_scale = v_scale = args.factor
-        else:
-            dims = args.size.split(',')
-            h_scale = float(dims[0]) / img_data['width']
-            v_scale = float(dims[1]) / img_data['height']
-        img_data['height'] = round(img_data['height'] * v_scale, None)
-        img_data['width'] = round(img_data['width'] * h_scale, None)
+
+        image_entry['height'] = round(image_entry['height'] * v_scale, None)
+        image_entry['width'] = round(image_entry['width'] * h_scale, None)
 
         if args.apply_to_images:
-            from abyss_deep_learning.utils import imread
-            from PIL import Image
-            path = None
-            basenames = set()
-            if os.path.isfile(img_data['path']):
-                path = img_data['path']
-            elif os.path.isfile(os.path.abspath(img_data['path'])):
-                path = img_data['path']
-            else:
-                logging.warning("Cannot find path to image [{}]".format(img_data['path']))
-
-            if path is not None:
-                new_path = os.path.join(os.getcwd(), args.image_output_dir, os.path.basename(img_data['path']))
-                if new_path in basenames:
+            if os.path.isfile(image_entry['path']):
+                new_path = os.path.join(os.getcwd(), args.image_output_dir, os.path.basename(image_entry['path']))
+                if new_path in paths:
                     logging.error('coco-calc: resize: expected unique image filenames, got duplicated "{}"'.format(new_path))
                     sys.exit(1)
-                img_data['path'] = new_path
-                img_size = (img_data['width'], img_data['height'])
-                resized_img = imread(img_data['path'], output_size=img_size)
-                # os.makedirs( new_path, exist_ok = True )
+                paths.add(new_path)
+                image_entry['path'] = new_path
+                resized_img = imread(image_entry['path'], output_size=(image_entry['width'], image_entry['height']))
                 logging.info("Saving image to {}".format(new_path))
                 Image.fromarray(resized_img).save(new_path)
+            else:
+                logging.warning("Cannot find path to image [{}]".format(image_entry['path']))
 
-        anns = coco.loadAnns(coco.getAnnIds(img_data['id']))
         # Rescaling bbox and segmentation values
         # format is [x, y, width, height]
         # Rescaled area value i.e. new_width * new_height
-        for ann in anns:
+        for ann in coco.loadAnns(coco.getAnnIds(imgIds=image_entry['id'])):
             x = round(ann['bbox'][0] * h_scale, args.digits)
             y = round(ann['bbox'][1] * v_scale, args.digits)
             width = round(ann['bbox'][2] * h_scale, args.digits)
@@ -389,8 +404,7 @@ def resize(coco: COCO, args) -> COCO:
                 if type(tmp) is list:
                     segmentation = []
                     for segment in tmp:
-                        new_segment = [(round(x * h_scale, args.digits), round(y * v_scale, args.digits)) for x, y in
-                                       grouper(segment, 2)]
+                        new_segment = [(round(x * h_scale, args.digits), round(y * v_scale, args.digits)) for x, y in grouper(segment, 2)]
                         # Flatten the list of tuples
                         new_segment = list(itertools.chain(*new_segment))
                         segmentation.append(new_segment)
@@ -401,6 +415,7 @@ def resize(coco: COCO, args) -> COCO:
                     logging.warning("Unknown data type [{}]".format(type(tmp)))
             else:
                 logging.warning("Annotation with id", ann['id'], "does not have 'segmentation'. Skipping annotation")
+
     return coco
 
 
@@ -414,7 +429,7 @@ def repath(coco: COCO, args: argparse.Namespace) -> COCO:
     Returns: COCO file with image paths that have been prepended with args.path
 
     """
-    logging.info("Repathing images to begin with {}".format(args.path))
+    logging.info("repath operation selected")
     for image in coco.dataset['images']:
         try:
             image['path'] = os.path.join(args.path, os.path.basename(image['path']))
@@ -471,6 +486,7 @@ def grouper(iterable, size: int, fillvalue=None):
 
 def assign_new_image_ids(coco: COCO, args: argparse.Namespace) -> COCO:
     """Assigning new image id methods"""
+    logging.info("assign-new-image-ids operation selected")
     if args.assign_method == 'sort':
         return assign_from_sorted(coco, args)
     elif args.assign_method == 'coco':
@@ -524,11 +540,11 @@ def assign_from_sorted(coco: COCO, args: argparse.Namespace) -> COCO:
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
-    subparsers = parser.add_subparsers(title="Actions", description=_PARSER_DESCRIPTION, help="Available actions")
+    subparsers = parser.add_subparsers(title="Operations", description=_PARSER_DESCRIPTION, help="Available operations")
 
     apply_to_images_args = ['--apply-to-images']
     apply_to_images_kwargs = {'action': 'store_true',
-                              'help'  : 'Apply action to images, output to directory specified by --images-output-dir'}
+                              'help'  : 'Apply operation to images, output to directory specified by --images-output-dir'}
 
     image_output_dir_args = ['-o', '--image-output-dir']
     image_output_dir_kwargs = {'type'   : str,
