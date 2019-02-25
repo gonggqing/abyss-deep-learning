@@ -13,13 +13,15 @@ from skimage import measure
 
 
 def main(args=None):
-    logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(message)s', datefmt='%Y-%m-%d %H:%M:%S',
+    logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S',
                         level=args.verbose)
     logging.info('--verbose enabled')
 
     if args.category_id == 'from-mask':
         if args.num_classes is None:
-            raise ValueError("--num-classes must be specified when passing 'from-mask' to --category-id")
+            logging.ERROR("--num-classes must be specified when passing 'from-mask' to --category-id")
+            sys.exit(1)
         else:
             thresholds = [i / args.num_classes for i in range(1, args.num_classes + 1)]
 
@@ -28,7 +30,8 @@ def main(args=None):
     if buffer:
         original_json = json.loads(buffer)
     else:
-        raise IOError("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
+        logging.CRITICAL("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
+        sys.exit(1)
 
     # Empty file check
     with open(args.mask_file) as f:
@@ -36,28 +39,26 @@ def main(args=None):
         if buffer:
             mask_json = json.loads(buffer)
         else:
-            raise IOError("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
+            logging.CRITICAL("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
+            sys.exit(1)
 
     coco_json = {
-        'info':        original_json.get('info', {
-            'contributor':  'Abyss Solutions',
-            'total_time':   '00h00m00s',
-            'year':         str(datetime.now().year),
+        'info'       : original_json.get('info', {
+            'contributor' : 'Abyss Solutions',
+            'total_time'  : '00h00m00s',
+            'year'        : str(datetime.now().year),
             'date_created': str(datetime.now()),
-            'description':  'This is a dataset configured by Abyss Solutions.',
-            'version':      '1.0',
-            'url':          'http://www.abysssolutions.com.au',
-            }
+            'description' : 'This is a dataset configured by Abyss Solutions.',
+            'version'     : '1.0',
+            'url'         : 'http://www.abysssolutions.com.au',
+        }
                                          ),
-        'images':      original_json.get('images', [
-            ]),
+        'images'     : original_json.get('images', []),
         'annotations': [],
-        'categories':  original_json.get('categories', [
-
-            ]),
-        'licenses':    original_json.get('licenses', [{
-            'id':   0,
-            'url':  'http://creativecommons.org/licenses/by-nc-sa/2.0/',
+        'categories' : original_json.get('categories', []),
+        'licenses'   : original_json.get('licenses', [{
+            'id'  : 0,
+            'url' : 'http://creativecommons.org/licenses/by-nc-sa/2.0/',
             'name': 'Attribution-NonCommercial-ShareAlike License',
         }]
                                          )
@@ -69,10 +70,10 @@ def main(args=None):
     for mask_entry in mask_json['images']:
         tic = time.perf_counter()
         curr_id = mask_entry['id']
-        logging.info('evaluating mask {}'.format(curr_id))
+        logging.info('Evaluating entry {}'.format(curr_id))
         original_entry = id_2_original.get(curr_id, None)
         if original_entry is None:
-            logging.warning('skipping mask {} as original entry could not be found'.format(curr_id))
+            logging.warning('Skipping mask {} as original entry could not be found'.format(curr_id))
             continue
         original_mask = load_input(mask_entry)
         if original_mask is None:
@@ -129,13 +130,13 @@ def main(args=None):
                 if args.category_id == 'from-mask':
                     score = round(score)
                 output_annotations.append({"segmentation": [segmentation],
-                                           "area":         get_area(poly_mask),
-                                           "iscrowd":      0,
-                                           "image_id":     original_entry['id'],
-                                           "bbox":         bounding_box(points),
-                                           "score":        score,
-                                           "category_id":  category_id,
-                                           "id":           len(output_annotations)
+                                           "area"        : get_area(poly_mask),
+                                           "iscrowd"     : 0,
+                                           "image_id"    : original_entry['id'],
+                                           "bbox"        : bounding_box(points),
+                                           "score"       : score,
+                                           "category_id" : category_id,
+                                           "id"          : len(output_annotations)
                                            })
         logging.info("Processing time for mask {}: {}h {}m {}s".format(curr_id, *pretty_time(time.perf_counter() - tic)))
 
@@ -200,7 +201,8 @@ def pretty_time(seconds: float):
 
 
 def get_args():
-    parser = ArgumentParser(description="The utility takes in a coco file and applies the segementations from the mask file provided as a command line argument and outputs the new coco json to stdout. If a binary file is give, assumes values are normalized between 0 and 1")
+    parser = ArgumentParser(
+        description="The utility takes in a coco file and applies the segementations from the mask file provided as a command line argument and outputs the new coco json to stdout. If a binary file is give, assumes values are normalized between 0 and 1")
     parser.add_argument('mask_file', type=str, help="Mask JSON File")
     parser.add_argument('-c', '--category-id', type=str,
                         help="The id of the category to set the mask can be an int or from-mask. from-mask infers category based on how many unique values there are for the pixels in a segmentation mask",
