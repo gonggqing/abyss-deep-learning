@@ -11,11 +11,10 @@ import numpy as np
 from abyss_deep_learning.utils import imread
 from skimage import measure
 
-#np.set_printoptions(threshold=np.inf)
-
 
 def main(args=None):
-    logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=args.verbose)
+    logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(message)s', datefmt='%Y-%m-%d %H:%M:%S',
+                        level=args.verbose)
     logging.info('--verbose enabled')
 
     if args.category_id == 'from-mask':
@@ -24,34 +23,45 @@ def main(args=None):
         else:
             thresholds = [i / args.num_classes for i in range(1, args.num_classes + 1)]
 
-    original_json = json.load(sys.stdin)
+    # Empty file check
+    buffer = sys.stdin.read().strip()
+    if buffer:
+        original_json = json.loads(buffer)
+    else:
+        raise IOError("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
+
+    # Empty file check
     with open(args.mask_file) as f:
-        mask_json = json.load(f)
+        buffer = f.read().strip()
+        if buffer:
+            mask_json = json.loads(buffer)
+        else:
+            raise IOError("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
 
     coco_json = {
-        'info':        original_json.get('info',
-                                         {
-                                             'contributor':  'Abyss Solutions',
-                                             'total_time':   '00h00m00s',
-                                             'year':         str(datetime.now().year),
-                                             'date_created': str(datetime.now()),
-                                             'description':  'This is a dataset configured by Abyss Solutions.',
-                                             'version':      '1.0',
-                                             'url':          'http://www.abysssolutions.com.au',
-                                             }
+        'info':        original_json.get('info', {
+            'contributor':  'Abyss Solutions',
+            'total_time':   '00h00m00s',
+            'year':         str(datetime.now().year),
+            'date_created': str(datetime.now()),
+            'description':  'This is a dataset configured by Abyss Solutions.',
+            'version':      '1.0',
+            'url':          'http://www.abysssolutions.com.au',
+            }
                                          ),
-        'images':      original_json.get('images', []),
+        'images':      original_json.get('images', [
+            ]),
         'annotations': [],
-        'categories':  original_json.get('categories', []),
-        'licenses':    original_json.get('licenses', [
-            {
-                'id':   0,
-                'url':  'http://creativecommons.org/licenses/by-nc-sa/2.0/',
-                'name': 'Attribution-NonCommercial-ShareAlike License',
-                }
-            ]
+        'categories':  original_json.get('categories', [
+
+            ]),
+        'licenses':    original_json.get('licenses', [{
+            'id':   0,
+            'url':  'http://creativecommons.org/licenses/by-nc-sa/2.0/',
+            'name': 'Attribution-NonCommercial-ShareAlike License',
+        }]
                                          )
-        }
+    }
     output_annotations = coco_json['annotations']
 
     padding = 1
@@ -62,9 +72,12 @@ def main(args=None):
         logging.info('evaluating mask {}'.format(curr_id))
         original_entry = id_2_original.get(curr_id, None)
         if original_entry is None:
-            logging.info('skipping mask {} as original entry could not be found'.format(curr_id))
+            logging.warning('skipping mask {} as original entry could not be found'.format(curr_id))
             continue
         original_mask = load_input(mask_entry)
+        if original_mask is None:
+            logging.warning("Unknown file type {} is not supported currently".format(get_file_ext(mask_entry['path'])))
+            sys.exit(1)
         padded_mask = load_input(mask_entry, padding=padding)
         if args.fill_above:
             padded_mask[padded_mask > args.low_thresh] = 1.0
@@ -85,8 +98,8 @@ def main(args=None):
                     copy[copy >= (thresholds[i + 1] - np.finfo(copy.dtype).eps)] = 0.0
                 except IndexError:
                     pass
-                tic = time.perf_counter()
-                found_contours = measure.find_contours(copy, thresholds[i] - np.finfo(copy.dtype).eps, fully_connected=args.fully_connected)
+                found_contours = measure.find_contours(copy, thresholds[i] - np.finfo(copy.dtype).eps,
+                                                       fully_connected=args.fully_connected)
                 category_contours.append([np.around(contour) - padding for contour in found_contours])
                 mask_indices.append(copy[1:-1, 1:-1].astype(np.bool))
         else:
@@ -96,24 +109,23 @@ def main(args=None):
             category_ids.append(int(args.category_id))
         for contours, category_id, mask_index in zip(category_contours, category_ids, mask_indices):
             # Mask out unnecessary pixels for score calculation
-            # Segmentations that were originally holes should have a score of approximately 0
-            # Segmentations that were NOT holes should have a score of approximately 1
+            # Segmentation that were originally holes should have a score of approximately 0
+            # Segmentation that were NOT holes should have a score of approximately 1
             # This is relevant for semantic segmentation
             copy = np.zeros(original_mask.shape)
             copy[mask_index] = 1
             for contour in contours:
-                tic = time.perf_counter()
                 approximated = measure.approximate_polygon(contour, args.tolerance)
-                tic = time.perf_counter()
                 poly_mask = measure.grid_points_in_poly(original_mask.shape[:2], approximated)
+                # Polygon points found do not lie exactly on the original binary mask
+                if True not in np.unique(poly_mask):
+                    logging.warning('All polygon points (x, y) lie outside of mask height/width')
+                    continue
                 segmentation = np.flip(approximated, axis=1).ravel().tolist()
                 points = [segmentation[n:n + 2] for n in range(0, len(segmentation), 2)]
-                # polygon points found in approximated do not lie exactly on the original binary mask
-                if True not in np.unique(poly_mask):
-                    continue
                 score = get_score(copy, poly_mask)
                 # Score is rounded only if 'from-mask' is specified, i.e. if the binary mask input are from the SemanticPredictions:0 layer
-                # Otherwise, score is just averaged of pixel confidence / area
+                # Otherwise, score is just average of pixel confidence / area
                 if args.category_id == 'from-mask':
                     score = round(score)
                 output_annotations.append({"segmentation": [segmentation],
@@ -125,37 +137,32 @@ def main(args=None):
                                            "category_id":  category_id,
                                            "id":           len(output_annotations)
                                            })
-        logging.info("processing time for mask {}: {}h {}m {}s".format(curr_id, *pretty_time(time.perf_counter() - tic)))
+        logging.info("Processing time for mask {}: {}h {}m {}s".format(curr_id, *pretty_time(time.perf_counter() - tic)))
 
     json.dump(coco_json, sys.stdout, indent=4)
     sys.exit(0)
 
 
-def print_debug(*args, **kwargs):
-    print_verbose(*args, verbose=True, **kwargs)
-
-
-def print_verbose(*args, verbose=False, **kwargs):
-    if verbose:
-        print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
-
-
-def load_input(mask_entry, padding=0):
-    width = int(mask_entry['width'])
-    height = int(mask_entry['height'])
+def load_input(image_entry, padding=0):
+    width = int(image_entry['width'])
+    height = int(image_entry['height'])
     img = np.zeros((height + padding * 2, width + padding * 2))
-    _, ext = os.path.splitext(mask_entry['path'])
-    ext = ext.lstrip('.')
-    if 'bin' in ext:
-        img_buf = np.fromfile(mask_entry['path'], dtype=np.float32)
+    ext = get_file_ext(image_entry['path'])
+    if ext in {'bin'}:
+        img_buf = np.fromfile(image_entry['path'], dtype=np.float32)
         img_buf = np.reshape(img_buf, (height, width))
     elif ext in {'png', 'jpg'}:
-        img_buf = imread(mask_entry['path'], dtype=np.float32) / 255
+        img_buf = imread(image_entry['path'], dtype=np.float32) / 255
     else:
-        print("{}: file type {} unsupported".format(os.path.basename(__file__), ext), file=sys.stderr)
-        sys.exit(1)
+        return None
     img[padding: padding + height, padding: padding + width] = img_buf[:, :]
     return img
+
+
+def get_file_ext(path: str) -> str:
+    _, ext = os.path.splitext(path)
+    ext = ext.lstrip('.')
+    return ext
 
 
 def get_area(mask):

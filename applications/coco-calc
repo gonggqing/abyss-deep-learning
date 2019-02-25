@@ -402,6 +402,10 @@ def drop_duplicates(lst: list):
 
 
 def load_coco(json_buffer: str) -> COCO:
+    json_buffer = json_buffer.strip()
+    if not json_buffer:
+        # Empty file check
+        raise IOError("Expecting input from stdin: received empty characters {}".format(repr(json_buffer)))
     with redirect_stdout(Verbose):
         coco = COCO()
         coco.dataset = json.loads(json_buffer)
