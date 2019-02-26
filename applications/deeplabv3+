@@ -56,10 +56,11 @@ function assert (){
 
 function patch_dataset_file(){
  local file="$DEEPLAB_DIR/datasets/segmentation_dataset.py"
+ assert "-f $DATASET/dataset_meta.json" "Dataset meta file not found."
  local num_classes=$(jq '.num_classes' "$DATASET/dataset_meta.json")
  local train_set_size=$(jq '.train_set_size' "$DATASET/dataset_meta.json")
  local val_set_size=$(jq '.val_set_size' "$DATASET/dataset_meta.json")
-
+ 
  info "Patching $file"
  NUM_CLASSES=$(( 1 + $num_classes )) \
  TRAIN_SET_SIZE=$train_set_size \
@@ -106,7 +107,7 @@ function do_train(){
   --train_logdir "$LOGDIR" \
   --train_split "train" \
   --training_number_of_steps "$TRAIN_STEPS" \
-  $(bool_flag initialize_last_layer $PRETRAIN) \
+  $(bool_flag initialize_last_layer $REINITIALIZE_HEAD) \
   --last_layers_contain_logits_only True \
   --save_interval_secs 300 \
   $(optional_flag tf_initial_checkpoint "$CHECKPOINT") &
@@ -117,10 +118,12 @@ function do_train(){
   PID_VAL=$!
   sleep 2
   if [[ ! $? == 0 ]] ; then
-   kill $PID_TRAIN $PID_VALL
+   kill $PID_TRAIN $PID_VAL
   fi
   wait $PID_TRAIN
   kill $PID_VAL
+ else
+  wait $PID_TRAIN
  fi
 
  info "Training finished."
