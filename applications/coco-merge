@@ -50,7 +50,7 @@ def main():
     for json_file_path in ARGS.json_files:
         say("loading {}".format(json_file_path))
         old_ds = load_dataset(json_file_path)
-        if not old_ds:
+        if old_ds is None:
             continue
 
         if info is None:
@@ -154,12 +154,17 @@ def die(*args, **kwargs):
 
 
 def load_dataset(json_file_path):
-    try:
-        with open(json_file_path, 'r') as file_handle:
-            in_dataset = json.load(file_handle)
-        return in_dataset
-    except IOError:
-        pass
+    in_dataset = None
+    with open(json_file_path, 'r') as file_handle:
+        buffer = file_handle.read().strip()
+        if buffer:
+            try:
+                in_dataset = json.loads(buffer)
+            except json.decoder.JSONDecodeError:
+                say("skipping {} as it could not be properly interpreted as a json file".format(json_file_path), verbose=True)
+        else:
+            say("skipping {} as it contains received empty characters {}".format(json_file_path, repr(buffer)), verbose=True)
+    return in_dataset
 
 
 def get_args():
