@@ -60,7 +60,7 @@ function patch_dataset_file(){
  local num_classes=$(jq '.num_classes' "$DATASET/dataset_meta.json")
  local train_set_size=$(jq '.train_set_size' "$DATASET/dataset_meta.json")
  local val_set_size=$(jq '.val_set_size' "$DATASET/dataset_meta.json")
- 
+
  info "Patching $file"
  NUM_CLASSES=$(( 1 + $num_classes )) \
  TRAIN_SET_SIZE=$train_set_size \
@@ -154,7 +154,7 @@ function do_eval(){
   --output_stride=16 \
   --decoder_output_stride=4 \
   --eval_crop_size ${CROP_SIZE} --eval_crop_size ${CROP_SIZE} \
-  --checkpoint_dir="${TRAIN_LOGDIR}" \
+  --checkpoint_dir="${LOGDIR}" \
   --eval_logdir="${LOGDIR}" \
   --dataset_dir="${DATASET}" \
   --model_variant "$MODEL" \
@@ -167,11 +167,11 @@ function do_eval(){
 
 trap ctrl_c INT
 function ctrl_c() {
- if [[ ! -z $PID_TRAIN ]]; then 
+ if [[ ! -z $PID_TRAIN ]]; then
    info "killing process: train ($PID_TRAIN)"
    kill $PID_TRAIN
  fi
- if [[ ! -z $PID_VAL ]]; then 
+ if [[ ! -z $PID_VAL ]]; then
    info "killing process: validate ($PID_VAL)"
    kill $PID_VAL
  fi
