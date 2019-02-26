@@ -153,30 +153,27 @@ def procuce_embeddings_tsv(path, headers, labels):
             file.write("\t".join([str(i) for i in label]) + "\n")
 
 
-
-def kernel_sparsity(model, min_value=1e-6):
+def weight_sparsity(weights, min_value):
     '''Returns a tensor with the fraction of approximately zero valued weights in the model.
+    Note that the min_value is around 1e-7 for the upper layers, and 5e-6 for the lower layers.
     
     Args:
-        model (keras.Model): The model to monitor.
+        model (keras.Model): The keras model to monitor.
         min_value (float, optional): The smallest value at which to consider a weight as being sparse.
     
     Returns:
-        tf.Tensor: A tensor containing the approximate kernel sparsity of the model.
+        tf.Tensor: A tensor containing the mean kernel sparsity of the selected weights.
     '''
-    num = tf.zeros(1)
-    den = tf.zeros(1)
-    for weight in model.trainable_weights:
-        if 'kernel' not in weight.name:
-            continue
-        size = tf.cast(tf.size(weight), tf.float32)
-        zeros = size - tf.cast(tf.count_nonzero(tf.greater(weight, min_value)), tf.float32)
-        num += zeros
-        den += size
-    return num / den
+    with tf.name_scope('weight_sparsity'):
+        num = tf.zeros(1)
+        den = tf.zeros(1)
+        for weight in weights:
+            num += tf.cast(tf.count_nonzero(tf.less(tf.abs(weight), min_value)), tf.float32)
+            den += tf.cast(tf.size(weight), tf.float32)
+        return tf.divide(num, den, name='ratio')
 
-def avg_update_ratio(model, weight):
-    '''Returns the average update-to-weight ratio for the given weight and model.
+def avg_update_ratio(model, weights):
+    '''Returns the average update-to-weight ratio for the given weights and model.
     This should be in the realm of 1e-3 for a healthy network.
     
     Args:
@@ -186,5 +183,10 @@ def avg_update_ratio(model, weight):
     Returns:
         tf.Tensor: A tensor containing the average update to weight ratio.
     '''
-    grads = model.optimizer.get_gradients(model.total_loss, [weight])[0]
-    return tf.norm(grads) * model.optimizer.lr / tf.norm(weight)
+    with tf.name_scope('update_stats'):
+        grad_sum = tf.zeros(1)
+
+        for weight in weights:
+            grads = model.optimizer.get_gradients(model.total_loss, [weight])[0]
+            grad_sum += tf.norm(grads) * model.optimizer.lr / tf.norm(weight)
+        return tf.math.divide(grad_sum, len(weights), name='ratio')
