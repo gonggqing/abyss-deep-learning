@@ -117,14 +117,12 @@ function do_train(){
   do_eval 0 &
   PID_VAL=$!
   sleep 2
-  if [[ ! $? == 0 ]] ; then
-   kill $PID_TRAIN $PID_VAL
+  if ! kill -0 $PID_VAL >/dev/null; then
+   kill $PID_TRAIN
   fi
-  wait $PID_TRAIN
-  kill $PID_VAL
- else
-  wait $PID_TRAIN
  fi
+ wait $PID_TRAIN
+ kill $PID_VAL
 
  info "Training finished."
 }
