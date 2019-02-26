@@ -28,7 +28,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 function info(){
- echo -e "\n\n${YELLOW}[$SCRIPTNAME]${NC} ${@}" 2>&1
+ echo -e "${YELLOW}[$SCRIPTNAME]${NC} ${@}" 2>&1
 }
 
 function error(){
@@ -159,8 +159,14 @@ function do_eval(){
 
 trap ctrl_c INT
 function ctrl_c() {
- info "killing processes: train ($PID_TRAIN) and val ($PID_VAL)"
- kill $PID_TRAIN $PID_VAL
+ if [[ ! -z $PID_TRAIN ]]; then 
+   info "killing process: train ($PID_TRAIN)"
+   kill $PID_TRAIN
+ fi
+ if [[ ! -z $PID_VAL ]]; then 
+   info "killing process: validate ($PID_VAL)"
+   kill $PID_VAL
+ fi
 }
 ####
 assert "-d $DEEPLAB_DIR" "[$LINENO] Deeplab dir not found"
