@@ -21,7 +21,7 @@ parser.add_argument('--validate', action='store_true', help='Simultenously run v
 parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output to stderr')
 EOF
 
-set -e 
+set -e
 
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
@@ -48,10 +48,10 @@ function bool_flag(){
 function assert (){
   if [ $1 ] ; then
      return 0
-  else 
+  else
     error "${RED}Assertion failed:  \"$1\"${NC} (${@:2})"
     exit 1
-  fi 
+  fi
 }
 
 function patch_dataset_file(){
@@ -72,13 +72,13 @@ function do_install(){
 }
 
 function do_init(){
- if [[ ! -d $DATASET ]] ; then error "[$LINENO] dataset $DATASET does not exist"; fi
+ if [[ ! -f $DATASET ]] ; then error "[$LINENO] dataset $DATASET does not exist"; fi
  if [[ ! -d $INIT_IMAGE_DIR ]] ; then error "[$LINENO] dataset $INIT_IMAGE_DIR does not exist"; fi
  if [[ ! -d $LOGDIR ]] ; then error "[$LINENO] dataset $LOGDIR does not exist"; fi
 
  # Go to the train logdir and create the VOC dataset
  cd "$LOGDIR"
- coco-to-tfrecord "$DATASET" "$INIT_IMAGE_DIR"
+ coco-to-tfrecord "$DATASET" "$INIT_IMAGE_DIR" "$DEEPLAB_DIR"
  info "init success"
 }
 
@@ -87,7 +87,7 @@ function do_train(){
  assert "$TRAIN_STEPS -gt 0" "[$LINENO] --train-steps must be provided"
  assert "-d $LOGDIR" "[$LINENO] log dir '$LOGDIR' does not exist"
  patch_dataset_file
-  
+
  info "Beginning training for $TRAIN_STEPS steps"
   PYTHONPATH=$PYTHONPATH CUDA_VISIBLE_DEVICES=$(cut -d, -f1 <<< $CUDA_VISIBLE_DEVICES) \
   python3 "${DEEPLAB_DIR}"/train.py \
@@ -116,7 +116,7 @@ function do_train(){
   do_eval 0 &
   PID_VAL=$!
   sleep 2
-  if [[ ! $? == 0 ]] ; then 
+  if [[ ! $? == 0 ]] ; then
    kill $PID_TRAIN $PID_VALL
   fi
   wait $PID_TRAIN
@@ -147,7 +147,7 @@ function do_eval(){
   --dataset_dir="${DATASET}" \
   --model_variant "$MODEL" \
   --max_number_of_evaluations=${num_eval}
- local return_code=$? 
+ local return_code=$?
  info "Eval finished."
  return $?
 }
@@ -168,4 +168,3 @@ PYTHONPATH="$PYTHONPATH:$DEEPLAB_DIR/..:$DEEPLAB_DIR/../slim"
 [[ "$OPERATION" == "init" ]] && do_init
 [[ "$OPERATION" == "train" ]] && do_train
 [[ "$OPERATION" == "eval" ]] && do_eval
-
