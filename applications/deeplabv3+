@@ -7,7 +7,7 @@ argparse "$@" <<EOF || exit 1
 parser.add_argument('operation', help='One of {init, train, eval, export}')
 parser.add_argument('dataset', help='The path to the coco JSON (for init) or tfrecord (all others) to train or evaluate')
 parser.add_argument('logdir', help='Path to the log directory used for all operations')
-parser.add_argument('--batch-size', help='The batch size to use in training and evaluation', default=1)
+parser.add_argument('--batch-size', help='The batch size to use in training and evaluation', default=2)
 parser.add_argument('--checkpoint', help='The path to the checkpoint to load before training or evaluation')
 parser.add_argument('--crop-size', help='The crop size to use in training and evaluation', default=513)
 parser.add_argument('--deeplab-dir', help='The path to tensorflow/models/deeplab', default='$PWD')
@@ -87,6 +87,9 @@ function do_train(){
  info "Training:\n DATASET=${DATASET}\nLOGDIR=${LOGDIR}"
  assert "$TRAIN_STEPS -gt 0" "[$LINENO] --train-steps must be provided"
  assert "-d $LOGDIR" "[$LINENO] log dir '$LOGDIR' does not exist"
+ if [[ $TRAIN_FREEZE_BATCH_NORM = yes ]]; then
+  assert "$BATCH_SIZE > 1" "If you are fine tuning batch_norm you MUST have a batch size > 1."
+ fi
  patch_dataset_file
 
  info "Beginning training for $TRAIN_STEPS steps"
@@ -100,7 +103,7 @@ function do_train(){
   --logtostderr \
   --model_variant "$MODEL" \
   --output_stride 16 \
-  --save_summaries_images True \
+  --save_summaries_images \
   --save_summaries_secs 60 \
   --train_batch_size ${BATCH_SIZE} \
   --train_crop_size ${CROP_SIZE} --train_crop_size ${CROP_SIZE} \
@@ -108,7 +111,7 @@ function do_train(){
   --train_split "train" \
   --training_number_of_steps "$TRAIN_STEPS" \
   $(bool_flag initialize_last_layer $REINITIALIZE_HEAD) \
-  --last_layers_contain_logits_only True \
+  --last_layers_contain_logits_only \
   --save_interval_secs 300 \
   $(optional_flag tf_initial_checkpoint "$CHECKPOINT") &
  PID_TRAIN=$!
