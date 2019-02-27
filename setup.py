@@ -23,6 +23,7 @@ setup(
         "applications/coco-calc",
         "applications/coco-calc-masks",
         "applications/coco-check-data-pollution",
+	"applications/coco-draw",
         "applications/coco-extract-masks",
         "applications/coco-filter-categories",
         "applications/coco-from-csv",

@@ -1,5 +1,6 @@
 from collections import Counter
 
+import re
 import numpy as np
 from itertools import cycle
 # from numpy.lib.stride_tricks import as_strided as ast
@@ -9,12 +10,94 @@ from abyss_deep_learning.utils import tile_gen, detile
 
 ######### Model utilities #########
 
-def reset_weights(model):
-    '''Reinitialize all weights in a Model'''
+def select_layers(keras_model, include=None, exclude=None):
+    """Return layers in the model that match include conditions and do not match exclude conditions.
+    Accepts regex string or callable function for include and exclude.
+    
+    Args:
+        keras_model (Keras.Model): The model to search.
+        include (str or callable, optional): 
+            A regex string or boolean valued callable of type (layer -> bool) which returns whether or not to include the layer.
+        exclude (str or callable, optional): 
+            A regex string or boolean valued callable of type (layer -> bool) which returns whether or not to exclude the layer.
+    
+    Raises:
+        ValueError: If include or exclude is not a string or callable.
+    """
+    select = []
+    layers = keras_model.inner_model.layers \
+        if hasattr(keras_model, "inner_model") \
+        else keras_model.layers
+        
+    if isinstance(include, str):
+        include_fn = lambda layer: re.fullmatch(include, layer.name)
+    elif callable(include):
+        include_fn = include
+    elif include is not None:
+        raise ValueError("include must be either a regexp string or a callable boolean function")
+        
+    if isinstance(exclude, str):
+        exclude_fn = lambda layer: re.fullmatch(exclude, layer.name)
+    elif callable(exclude):
+        exclude_fn = exclude
+    elif exclude is not None:
+        raise ValueError("exclude must be either a regexp string or a callable boolean function")
+    
+    def condition(layer):
+        do_include = True if include and include_fn(layer) else False
+        if do_include and exclude:
+            do_include = False if exclude_fn(layer) else True
+        return do_include
+    
+    return [layer for layer in layers if condition(layer)]
+
+
+def select_weights(keras_model, include=None, exclude=None):
+    """Return weights in the model that match include conditions and do not match exclude conditions.
+    Accepts regex string or callable function for include and exclude.
+    
+    Args:
+        keras_model (Keras.Model): The model to search.
+        include (str or callable, optional): 
+            A regex string or boolean valued callable of type (weight -> bool) which returns whether or not to include the weight.
+        exclude (str or callable, optional): 
+            A regex string or boolean valued callable of type (weight -> bool) which returns whether or not to exclude the weight.
+    
+    Raises:
+        ValueError: If include or exclude is not a string or callable.
+    """
+    select = []
+    weights = keras_model.inner_model.weights \
+        if hasattr(keras_model, "inner_model") \
+        else keras_model.weights
+        
+    if isinstance(include, str):
+        include_fn = lambda weight: re.fullmatch(include, weight.name)
+    elif callable(include):
+        include_fn = include
+    elif include is not None:
+        raise ValueError("include must be either a regexp string or a callable boolean function")
+        
+    if isinstance(exclude, str):
+        exclude_fn = lambda weight: re.fullmatch(exclude, weight.name)
+    elif callable(exclude):
+        exclude_fn = exclude
+    elif exclude is not None:
+        raise ValueError("exclude must be either a regexp string or a callable boolean function")
+    
+    def condition(weight):
+        do_include = True if include and include_fn(weight) else False
+        if do_include and exclude:
+            do_include = False if exclude_fn(weight) else True
+        return do_include
+    
+    return [weight for weight in weights if condition(weight)]
+    
+def reinitialize_weights(weights):
+    '''Reinitialize the given weights'''
     session = K.get_session()
-    for layer in model.layers:
-        if hasattr(layer, 'kernel_initializer'):
-            layer.kernel.initializer.run(session=session)
+    for weight in weights:
+        weight.initializer.run(session=session)
 
 def bilinear_upsample_weights(filter_size):
     """

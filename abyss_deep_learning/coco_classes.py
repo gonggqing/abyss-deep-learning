@@ -26,13 +26,13 @@ class CocoDataset(object):
         '''Helper functions'''
         @staticmethod
         def polygon_from_bbox(bbox):
-            return np.array([
+            return np.round(np.array([
                 bbox[0], bbox[1],
                 bbox[0] + bbox[2], bbox[1],
                 bbox[0] + bbox[2], bbox[1] + bbox[3],
                 bbox[0], bbox[1] + bbox[3],
                 bbox[0], bbox[1]
-            ]).tolist()
+            ]), 3).tolist()
 
         @staticmethod
         def bbox_from_polygon2D(polygon):
@@ -118,7 +118,7 @@ class CocoDataset(object):
             points = np.array(label).reshape((-1, 2))
             bbox = CocoDataset.Utils.bbox_from_points(points)
             area = CocoDataset.Utils.area_polygon(points)
-            segm = [points.ravel().tolist()]
+            segm = [np.round(points, 3).ravel().tolist()]
         elif label_type == 'mask':  # No conversion to poly
             segm = coco_mask.encode(np.asfortranarray(label.astype(np.uint8)))
             segm["counts"] = segm["counts"].decode("utf-8")
@@ -275,10 +275,19 @@ class CocoDataset(object):
             datasets.append(dataset)
         return datasets
 
-    def save(self, path):
-        '''Save the COCO dataset to a file'''
-        with open(path, 'w') as handle:
-            return handle.write(str(self))
+    def save(self, path_or_buf):
+        '''Save the COCO dataset to a file
+        
+        Args:
+            path_or_buf (str or buffer): Either a file path or a buffer object supporting buffer.write()
+        
+        Returns:
+            int: The number of bytes written
+        '''
+        if isinstance(path_or_buf, str):
+            with open(path_or_buf, 'w') as handle:
+                return handle.write(str(self))
+        return path_or_buf.write(str(self))
 
     def __add__(self, other):
         if not isinstance(other, CocoDataset):
@@ -391,8 +400,8 @@ class CocoResults(object):
             else:  # polygon
                 poly = np.array(detection).reshape((-1, 2)).tolist()
                 result["bbox"] = CocoDataset.Utils.bbox_from_polygon2D(poly)
-                result["segmentation"] = np.array(
-                    poly).reshape((1, -1)).tolist()
+                result["segmentation"] = np.round(
+                    np.array(poly).reshape((1, -1)), 3).tolist()
         self.results.append(result)
 
     def add_detection_keypoints(self, image_id, category_id, score, keypoints):

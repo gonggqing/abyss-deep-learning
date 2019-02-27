@@ -7,7 +7,7 @@ import json
 import os
 import urllib.request
 
-from bedrock.utils import JsonNumpyEncoder
+from abyss.bedrock.json.utils import JsonNumpyEncoder
 from PIL import Image
 import numpy as np
 import pycocotools.mask as pcm

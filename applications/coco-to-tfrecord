@@ -17,6 +17,7 @@ function help(){
   arguments:
       coco_path: the path to the coco file to convert
       image_source_dir: the path to the directory that contains the images referred to in the coco file
+      deeplab_dir: the path to the deeplab directory, e.g. $HOME/src/tensorflow_models/research/deeplab
 
   options:
       --check-labels: Go through each generated VOC label and display the label value counts. This is
@@ -56,12 +57,14 @@ if (( $# < 2 )) ; then
   exit 1
 fi
 
+
 #LABELSET_DIR=~/src/projects/anadarko/label-sets/example-test
 #IMAGE_SOURCE_DIR="/mnt/rhino/processed/industry-data/anadarko/gunnison/r2s/sphericals/CD -/cubes"
 COCO_PATH=$(readlink -e "$1")
 LABELSET_DIR=$PWD
 VOC_DIR=$LABELSET_DIR/voc
 IMAGE_SOURCE_DIR="$2"
+DEEPLAB_DIR=$3
 
 info "[1/3] Creating VOC structure and symlinks"
 #Make relevant VOC structures
@@ -70,21 +73,21 @@ mkdir -p \
       "$VOC_DIR/SegmentationClassRaw" \
       "$VOC_DIR/ImageSets/Segmentation" \
       "$LABELSET_DIR/tfrecord"
- 
+
 cd "$LABELSET_DIR"
- 
+
 # First create symlinks to relevant images
 jq '.images[].file_name'  "$COCO_PATH" | sed 's/"//g' > "$VOC_DIR/images.csv" # Extract image filenames from COCO
 cd "$VOC_DIR/JPEGImages"
 cat "$VOC_DIR/images.csv" | while IFS=$"\n" read -r filename; do ln -s "$IMAGE_SOURCE_DIR/$filename"; done
- 
+
 #If needed, resize the dataset (e.g. labelbox we use smaller images, need to resize back to (4000, 4000)
 cd $VOC_DIR
- 
+
 # Create the VOC label images
 # #TODO: Currently handling images with no annotations very poorly, ensure every image has at least one annotation
 coco-to-voc "$COCO_PATH"  SegmentationClassRaw -v -v --image-dir JPEGImages
- 
+
 # Check the label images contain the labels you expect
 if flag_present "--check-labels"; then
   convert SegmentationClassRaw/*.png -define histogram:unique-colors=true -format "%f %c" histogram:info:- # This will take a while
@@ -92,7 +95,7 @@ fi
 
 # List all images (images without anns dropped in coco-to-voc)
 ls -1 SegmentationClassRaw/*.png | while IFS=$'\n' read -r filename ; do basename "$filename"; done | sed 's/\.png//' > images.filtered.csv
- 
+
 # Create the train and val split (below hardcoded for 75% train, 25% val)
 NUM_IMAGES=$(wc -l <images.filtered.csv)
 info "[2/3] Converting VOC -> TfRecord"
@@ -113,8 +116,7 @@ fi
 
 ### Now run VOC to TfRecord
 info "[3/3] Now converting VOC -> TfRecord"
-# Execute from path tensorflow_models/research/deeplab/datasets
-DEEPLAB_DIR="$HOME/src/tensorflow_models/research/deeplab" #TODO: Find a way to include this configurable 
+
 
 ls -ald "$VOC_DIR/JPEGImages" "$VOC_DIR/ImageSets/Segmentation" "$VOC_DIR/SegmentationClassRaw" "$LABELSET_DIR/tfrecord" 1>&2
 # Check all dirs exist
@@ -122,13 +124,12 @@ if [ $? -ne 0 ]  ; then
   info "ERROR: There is a dir in the VOC structure that does not exist."
   exit 1
 fi
- 
+
 python3 "$DEEPLAB_DIR/datasets/build_voc2012_data.py" \
     --image_folder "$VOC_DIR/JPEGImages" \
     --list_folder "$VOC_DIR/ImageSets/Segmentation" \
     --semantic_segmentation_folder "$VOC_DIR/SegmentationClassRaw" \
     --output_dir "$LABELSET_DIR/tfrecord" \
     --image_format png --label_format png
- 
-#If nothing happens above you have probably forgotten to make train/val .txt files.
 
+#If nothing happens above you have probably forgotten to make train/val .txt files.

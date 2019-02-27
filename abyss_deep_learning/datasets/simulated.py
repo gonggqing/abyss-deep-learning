@@ -4,7 +4,7 @@ import collections
 
 import numpy as np
 
-from bedrock.utils import text_image
+from abyss.bedrock.imaging.utils import text_image
 
 
 def alphanum_gen(corpus, length, scale=2, thickness=2, noise=5, bg=False, class_probs=None):
