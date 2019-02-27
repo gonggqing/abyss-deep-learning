@@ -122,7 +122,7 @@ def boxes(labels, image, fill=False, border=False, colors=[[255,0,0],[0,255,0],[
     mask = np.zeros((len(image),len(image[0]),3), dtype=np.uint8)
     for label in labels:  # quick and dirty, watch performance
         c = colors[label[4]%len(colors)]
-        cv2.rectangle(mask, (label[0], label[1]), (label[2], label[3]), (int(c[2]), int(c[1]), int(c[0])), thickness)
+        cv2.rectangle(mask, ( int(label[0]),  int(label[1])), (int(label[2]), int(label[3])), (int(c[2]), int(c[1]), int(c[0])), thickness)
     return cv2.addWeighted( image, image_alpha, mask, alpha, 0 )
 
 def polygons(labels, image, fill=False, border=False, colors=[[255,0,0],[0,255,0],[0,0,255],[255,255,0],[0,255,255]], alpha=0.3, image_alpha=1, thickness=1):
@@ -173,6 +173,7 @@ def polygons(labels, image, fill=False, border=False, colors=[[255,0,0],[0,255,0
         point_set = label[0]
         point_set_list = np.array([point_set[n:n+2] for n in range(0, len(point_set), 2)],np.int32)
         point_set_list.reshape((-1,1,2))
+        point_set_list.astype(dtype=int)
         cv2.polylines(mask,[point_set_list], True,(int(c[2]), int(c[1]), int(c[0])),thickness)
         
         if fill:
@@ -187,5 +188,5 @@ def text(labels, image, colors=[[255,0,0],[0,255,0],[0,0,255],[255,255,0],[0,255
     mask = np.zeros((len(image),len(image[0]),3), dtype=np.uint8)
     for label in labels:  # quick and dirty, watch performance
         c = colors[label[3]%len(colors)]
-        cv2.putText(mask,label[2],(label[0],label[1]),font,scale,(int(c[2]), int(c[1]), int(c[0])),thickness,cv2.LINE_AA)
+        cv2.putText(mask,label[2],(int(label[0]),int(label[1])),font,scale,(int(c[2]), int(c[1]), int(c[0])),thickness,cv2.LINE_AA)
     return cv2.addWeighted( image, image_alpha, mask, alpha, 0 )
