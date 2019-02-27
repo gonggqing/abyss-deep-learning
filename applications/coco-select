@@ -47,7 +47,7 @@ examples:
 """
 
 
-def main(args: argparse.Namespace = None):
+def main(args):
     logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S',
                         level=args.verbose)
@@ -90,16 +90,16 @@ def main(args: argparse.Namespace = None):
 
     logging.info("Joining annotations, categories and images")
     df = pd.merge(left=df_annotations, right=df_categories, on='category_id')
-    df: pd.DataFrame = pd.merge(left=df, right=df_images, on='image_id')
+    df = pd.merge(left=df, right=df_images, on='image_id')
 
     Keys = namedtuple("Keys", ['ann_keys', 'img_keys', 'cat_keys'])
     keys = Keys(ann_keys=annotation_keys, img_keys=image_keys, cat_keys=category_keys)
 
     logging.info("Evaluating on {}".format(args.on))
     if args.on == 'images':
-        df: pd.DataFrame = eval_on(df, args, keys, 'image_id')
+        df = eval_on(df, args, keys, 'image_id')
     elif args.on == 'annotations':
-        df: pd.DataFrame = eval_on(df, args, keys, 'annotation_id')
+        df = eval_on(df, args, keys, 'annotation_id')
 
     images = []
     for record in df[image_keys].itertuples():
@@ -163,7 +163,7 @@ def eval_on(df: pd.DataFrame, args: argparse.Namespace, keys: namedtuple, on_id:
     df_annotations = df[keys.ann_keys].rename(index=str, columns={'annotation_id': 'id'})
 
     if args.init is not None:
-        eval(args.init)
+        exec(args.init)
 
     for a, i, c in zip(df_annotations.itertuples(), df_images.itertuples(), df_categories.itertuples()):
         idx = int(a.Index)
@@ -196,5 +196,5 @@ def get_args() -> argparse.Namespace:
 
 
 if __name__ == '__main__':
-    main(args=get_args())
+    main(get_args())
 

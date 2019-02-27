@@ -15,7 +15,7 @@ from abyss_deep_learning.utils import imread
 import matplotlib.pyplot as plt
 import numpy as np
 
-from bedrock.utils import search_path
+from abyss.bedrock.filesystem.utils import search_path
 
 def bounding_box(polygon):
     'return the bounding box of a given polygon'
