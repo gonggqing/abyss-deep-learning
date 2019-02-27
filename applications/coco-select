@@ -163,7 +163,7 @@ def eval_on(df: pd.DataFrame, args: argparse.Namespace, keys: namedtuple, on_id:
     df_annotations = df[keys.ann_keys].rename(index=str, columns={'annotation_id': 'id'})
 
     if args.init is not None:
-        eval(args.init)
+        exec(args.init)
 
     for a, i, c in zip(df_annotations.itertuples(), df_images.itertuples(), df_categories.itertuples()):
         idx = int(a.Index)

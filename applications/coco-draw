@@ -68,7 +68,7 @@ def main(command_line_args=None):
     for image in coco_file['images']:
         labels = [] # Labels either bbox or segmentation
         text_labels = [] # Text Labels with Text and origin
-        cv2_image = cv2.imread(image['path'])
+        cv2_image = cv2.imread(image['path'],cv2.IMREAD_UNCHANGED)
         if cv2_image is None:
             print("coco-draw : error, image not found \"{}\"".format(image['path']), file=sys.stderr)
             continue
