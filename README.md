@@ -80,6 +80,7 @@ The token must be used the first time, then you can use the password "123".
 * coco-calc-masks: Open a COCO dataset and save a new one, where the segmentations are always masks.
 * coco-check-data-pollution: Examine combinations of COCO datasets to ensure there are no common images between them.
 * coco-extract-masks: Extract masks from COCO to pngs
+* coco-draw: dump coco annotations in the form of images with overlayed detections. Supports coco segmentation and bounding boxes
 * coco-from-video: For one or more labeled videos, create COCO json files and, optionally, corresponding image frames 
 * coco-grep: For given json files, search for all images of a specific caption type
 * coco-merge: For given json files, merge them into a single json file
