@@ -18,6 +18,7 @@ parser.add_argument('--reinitialize-head', action='store_true', help='Clear the 
 parser.add_argument('--train-freeze-batch-norm', action='store_false', help='Whether or not to freeze the batch norms')
 parser.add_argument('--train-steps', type=int, help='The number of epochs to train for', default=0)
 parser.add_argument('--validate', action='store_true', help='Simultenously run validation after every checkpoint.')
+parser.add_argument('--output-checkpoint-number', type=int, default=0, help='When exporting a model, the checkpoint number to use, e.g. for model.ckpt-5000, this would be 5000')
 parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output to stderr')
 EOF
 
@@ -147,7 +148,7 @@ function do_eval(){
  python3 ${DEEPLAB_DIR}/eval.py \
   --logtostderr \
   --eval_split="val" \
-  --model_variant="${MODEL_VARIANT}" \
+  --model_variant="$MODEL" \
   --atrous_rates=6 \
   --atrous_rates=12 \
   --atrous_rates=18 \
@@ -163,6 +164,42 @@ function do_eval(){
  info "Eval finished."
  return $?
 }
+
+function do_export(){
+ local cuda_visible_devices=$CUDA_VISIBLE_DEVICES
+
+ assert "-d $LOGDIR" "[$LINENO] log dir '$LOGDIR' does not exist"
+
+ # If the checkpoint number is 0, remove it from the path
+ if (($OUTPUT_CHECKPOINT_NUMBER == 0)); then
+   CHECKPOINT_PATH=$LOGDIR/model.ckpt
+ else
+   CHECKPOINT_PATH=$LOGDIR/model.ckpt-$OUTPUT_CHECKPOINT_NUMBER
+ fi
+
+ info "Exporting checkpoint ${CHECKPOINT_PATH} to ${LOGDIR}/export/frozen_inference_graph_$OUTPUT_CHECKPOINT_NUMBER.pb"
+
+ # Make the log directory
+ mkdir -p ${LOGDIR}/export
+ PYTHONPATH=$PYTHONPATH CUDA_VISIBLE_DEVICES=$cuda_visible_devices \
+ python3 ${DEEPLAB_DIR}/export_model.py \
+  --checkpoint_path="${CHECKPOINT_PATH}" \
+  --export_path="${LOGDIR}/export/frozen_inference_graph_$OUTPUT_CHECKPOINT_NUMBER.pb" \
+  --logtostderr \
+  --atrous_rates=6 \
+  --atrous_rates=12 \
+  --atrous_rates=18 \
+  --output_stride=16 \
+  --decoder_output_stride=4 \
+  --eval_crop_size ${CROP_SIZE} --eval_crop_size ${CROP_SIZE} \
+  --model_variant "$MODEL" \
+  --inference_scales=1.0
+ local return_code=$?
+ info "Export finished."
+ return $?
+}
+
+
 
 
 trap ctrl_c INT
@@ -186,3 +223,4 @@ PYTHONPATH="$PYTHONPATH:$DEEPLAB_DIR/..:$DEEPLAB_DIR/../slim"
 [[ "$OPERATION" == "init" ]] && do_init
 [[ "$OPERATION" == "train" ]] && do_train
 [[ "$OPERATION" == "eval" ]] && do_eval 1
+[[ "$OPERATION" == "export" ]] && do_export
