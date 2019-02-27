@@ -82,10 +82,7 @@ def main():
 
         say("merging {}".format(json_file_path))
         for image in old_ds['images']:
-            if 'path' not in image:
-                continue
-
-            img_file_name, img_ext = os.path.splitext(os.path.basename(image['path']))
+            img_file_name, img_ext = os.path.splitext(os.path.basename(image.get("path", image['file_name'])))
 
             old_id = image['id']
             old_id_2_path[old_id] = img_file_name
