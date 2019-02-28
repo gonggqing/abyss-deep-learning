@@ -14,7 +14,7 @@ if [[ ! -e $SRC_DIR ]] ; then
 	mkdir "$SRC_DIR"
 fi
 if [[ ! -e $COCOTOOLS_DIR ]] ; then
-  cd "$COCOTOOLS_DIR/.."
+  cd "$SRC_DIR"
   git clone https://github.com/cocodataset/cocoapi.git
 fi
 
@@ -29,10 +29,10 @@ fi
 make && sudo make install
 
 ## Download Mask RCNN pretrained weights and update remotes
-mkdir -p "$BASE/abyss_maskrcnn"
-cd "$BASE/abyss_maskrcnn"
-[[ ! -e mask_rcnn_coco.h5 ]] && \
- wget -c https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5
+#mkdir -p "$BASE/abyss_maskrcnn"
+#cd "$BASE/abyss_maskrcnn"
+#[[ ! -e mask_rcnn_coco.h5 ]] && \
+# wget -c https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5
 
 ## Download Mask RCNN tutorial datasets
 # cd $BASE/datasets
