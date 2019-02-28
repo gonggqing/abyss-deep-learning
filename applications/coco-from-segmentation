@@ -1,103 +1,189 @@
 #!/usr/bin/env python3
+import logging
 import json
 import os
 import sys
+import time
 from argparse import ArgumentParser
 from datetime import datetime
 
 import numpy as np
-from skimage import io, measure
-
-# np.set_printoptions(threshold=sys.maxsize)
-PADDING = 1
+from abyss_deep_learning.utils import imread
+from skimage import measure
 
 
-def main(command_line_args=None):
-    if command_line_args.category_id == 'from-mask':
-        raise NotImplementedError("the from-mask param has not yet been implemented")
+def main(args=None):
+    logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S',
+                        level=args.verbose)
+    logging.info('--verbose enabled')
 
-    original_json = json.load(sys.stdin)
-    with open(command_line_args.mask_file) as f:
-        mask_json = json.load(f)
+    if args.category_id == 'from-mask':
+        if args.num_classes is None:
+            logging.ERROR("--num-classes must be specified when passing 'from-mask' to --category-id")
+            sys.exit(1)
+        else:
+            thresholds = [i / args.num_classes for i in range(1, args.num_classes + 1)]
+
+    # Empty file check
+    buffer = sys.stdin.read().strip()
+    if buffer:
+        original_json = json.loads(buffer)
+    else:
+        logging.CRITICAL("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
+        sys.exit(1)
+
+    # Empty file check
+    with open(args.mask_file) as f:
+        buffer = f.read().strip()
+        if buffer:
+            mask_json = json.loads(buffer)
+        else:
+            logging.CRITICAL("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
+            sys.exit(1)
 
     coco_json = {
-        'images':      original_json.get('images', []),
-        'annotations': [],
-        'categories':  original_json.get('categories', [])
+        'info'       : original_json.get('info', {
+            'contributor' : 'Abyss Solutions',
+            'total_time'  : '00h00m00s',
+            'year'        : str(datetime.now().year),
+            'date_created': str(datetime.now()),
+            'description' : 'This is a dataset configured by Abyss Solutions.',
+            'version'     : '1.0',
+            'url'         : 'http://www.abysssolutions.com.au',
         }
+                                         ),
+        'images'     : original_json.get('images', []),
+        'annotations': [],
+        'categories' : original_json.get('categories', []),
+        'licenses'   : original_json.get('licenses', [{
+            'id'  : 0,
+            'url' : 'http://creativecommons.org/licenses/by-nc-sa/2.0/',
+            'name': 'Attribution-NonCommercial-ShareAlike License',
+        }]
+                                         )
+    }
     output_annotations = coco_json['annotations']
 
-    # TODO: pre-process both images list by sorting on id
+    padding = 1
     id_2_original = {entry['id']: entry for entry in original_json['images']}
     for mask_entry in mask_json['images']:
+        tic = time.perf_counter()
         curr_id = mask_entry['id']
+        logging.info('Evaluating entry {}'.format(curr_id))
         original_entry = id_2_original.get(curr_id, None)
         if original_entry is None:
+            logging.warning('Skipping mask {} as original entry could not be found'.format(curr_id))
             continue
-        mask_img = load_input(mask_entry)
-        original_img = np.array(mask_img)
-        if command_line_args.fill_above_thresh:
-            mask_img = 1.0*mask_img > command_line_args.threshold
+        original_mask = load_input(mask_entry)
+        if original_mask is None:
+            logging.warning("Unknown file type {} is not supported currently".format(get_file_ext(mask_entry['path'])))
+            sys.exit(1)
+        padded_mask = load_input(mask_entry, padding=padding)
+        if args.fill_above:
+            padded_mask[padded_mask > args.low_thresh] = 1.0
 
-        contours = measure.find_contours(mask_img, command_line_args.threshold, command_line_args.level)
-        for contour in contours:
-            contour -= PADDING
-            approximated = measure.approximate_polygon(contour, command_line_args.polygon_tolerance)
-            contour_flipped = np.flip(approximated, axis=1)
-            segmentation = contour_flipped.ravel().tolist()
-            seg_to_points = [segmentation[n:n + 2] for n in range(0, len(segmentation), 2)]
-            area, score = get_area_and_score(original_img, approximated)
-            output_annotations.append({"segmentation": [segmentation],
-                                       "area":         area,
-                                       "iscrowd":      0,
-                                       "image_id":     original_entry['id'],
-                                       "bbox":         bounding_box(seg_to_points),
-                                       "score":        score,
-                                       "category_id":  int(command_line_args.category_id),
-                                       "id":           len(output_annotations)
-                                       })
+        category_ids = []
+        category_contours = []
+        mask_indices = []
+        if args.category_id == 'from-mask':
+            for i in range(len(thresholds)):
+                category_id = i + 1
+                category_ids.append(category_id)
+                copy = np.array(padded_mask)
+                # Mask lower threshold of previous class
+                if i != 0:
+                    copy[copy <= (thresholds[i - 1] + np.finfo(copy.dtype).eps)] = 0.0
+                # Mask upper threshold of next class
+                try:
+                    copy[copy >= (thresholds[i + 1] - np.finfo(copy.dtype).eps)] = 0.0
+                except IndexError:
+                    pass
+                found_contours = measure.find_contours(copy, thresholds[i] - np.finfo(copy.dtype).eps,
+                                                       fully_connected=args.fully_connected)
+                category_contours.append([np.around(contour) - padding for contour in found_contours])
+                mask_indices.append(copy[1:-1, 1:-1].astype(np.bool))
+        else:
+            padded_mask[padded_mask > args.up_thresh] = 0.0
+            found_contours = (measure.find_contours(padded_mask, args.low_thresh, fully_connected=args.fully_connected))
+            category_contours.append([np.around(contour) - padding for contour in found_contours])
+            category_ids.append(int(args.category_id))
+        for contours, category_id, mask_index in zip(category_contours, category_ids, mask_indices):
+            # Mask out unnecessary pixels for score calculation
+            # Segmentation that were originally holes should have a score of approximately 0
+            # Segmentation that were NOT holes should have a score of approximately 1
+            # This is relevant for semantic segmentation
+            copy = np.zeros(original_mask.shape)
+            copy[mask_index] = 1
+            for contour in contours:
+                approximated = measure.approximate_polygon(contour, args.tolerance)
+                poly_mask = measure.grid_points_in_poly(original_mask.shape[:2], approximated)
+                # Polygon points found do not lie exactly on the original binary mask
+                if True not in np.unique(poly_mask):
+                    logging.warning('All polygon points (x, y) lie outside of mask height/width')
+                    continue
+                segmentation = np.flip(approximated, axis=1).ravel().tolist()
+                points = [segmentation[n:n + 2] for n in range(0, len(segmentation), 2)]
+                score = get_score(copy, poly_mask)
+                # Score is rounded only if 'from-mask' is specified, i.e. if the binary mask input are from the SemanticPredictions:0 layer
+                # Otherwise, score is just average of pixel confidence / area
+                if args.category_id == 'from-mask':
+                    score = round(score)
+                output_annotations.append({"segmentation": [segmentation],
+                                           "area"        : get_area(poly_mask),
+                                           "iscrowd"     : 0,
+                                           "image_id"    : original_entry['id'],
+                                           "bbox"        : bounding_box(points),
+                                           "score"       : score,
+                                           "category_id" : category_id,
+                                           "id"          : len(output_annotations)
+                                           })
+        logging.info("Processing time for mask {}: {}h {}m {}s".format(curr_id, *pretty_time(time.perf_counter() - tic)))
 
     json.dump(coco_json, sys.stdout, indent=4)
     sys.exit(0)
 
 
-def load_input(mask_entry):
-    width = int(mask_entry['width'])
-    height = int(mask_entry['height'])
-    img = np.zeros((width + PADDING * 2, height + PADDING * 2))
-    _, ext = os.path.splitext(mask_entry['path'])
-    if 'bin' in ext:
-        img_buf = np.fromfile(mask_entry['path'], dtype=np.float32)
-        img_buf = np.reshape(img_buf, (width, height))
+def load_input(image_entry, padding=0):
+    width = int(image_entry['width'])
+    height = int(image_entry['height'])
+    img = np.zeros((height + padding * 2, width + padding * 2))
+    ext = get_file_ext(image_entry['path'])
+    if ext in {'bin'}:
+        img_buf = np.fromfile(image_entry['path'], dtype=np.float32)
+        img_buf = np.reshape(img_buf, (height, width))
     elif ext in {'png', 'jpg'}:
-        img_buf = io.imread(mask_entry['path']) / 255.0
+        img_buf = imread(image_entry['path'], dtype=np.float32) / 255
     else:
-        print("{}: file type {} unsupported".format(os.path.basename(__file__), ext))
-        sys.exit(1)
-    img[PADDING: PADDING + height, PADDING: PADDING + width] = img_buf[:, :]
+        return None
+    img[padding: padding + height, padding: padding + width] = img_buf[:, :]
     return img
 
 
-# def area_polygon(polygon):
-#    x = [i[0] for i in polygon]
-#    y = [i[1] for i in polygon]
-#    return float(0.5 * np.abs(np.dot(x, np.roll(y, 1)) -
-#                              np.dot(y, np.roll(x, 1))))
+def get_file_ext(path: str) -> str:
+    _, ext = os.path.splitext(path)
+    ext = ext.lstrip('.')
+    return ext
 
 
-def get_area_and_score(image, poly):
-    mask = measure.grid_points_in_poly((image.shape[0], image.shape[1]), poly)
-    poly = np.flip(poly, axis=1)
-    area = np.count_nonzero(mask)
-    if area == 0:
-        return 0, 0
-    return area, np.sum((mask * image)) / area
+def get_area(mask):
+    return np.count_nonzero(mask)
+
+
+def get_score(original_mask, poly_mask):
+    return original_mask[poly_mask].sum() / get_area(poly_mask)
 
 
 def bounding_box(polygon, w=None, h=None):
     """Return the bounding box of a given polygon"""
     min_x, min_y = np.min(polygon, axis=0)
     max_x, max_y = np.max(polygon, axis=0)
+    # Convert to native Python scalars
+    # Should be a better way to do this I think
+    min_x = min_x.item()
+    min_y = min_y.item()
+    max_x = max_x.item()
+    max_y = max_y.item()
     if w is not None and h is not None:
         min_x = max(0, min_x)
         min_y = max(0, min_y)
@@ -106,21 +192,36 @@ def bounding_box(polygon, w=None, h=None):
     return [min_x, min_y, max_x - min_x, max_y - min_y]
 
 
-def parse_cli():
+def pretty_time(seconds: float):
+    """ Return seconds as hours minute seconds
+    """
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    return int(hours), int(minutes), seconds
+
+
+def get_args():
     parser = ArgumentParser(
-        description="The utility takes in a mask coco file and applies the segementations to the original file provided in stdin")
+        description="The utility takes in a coco file and applies the segementations from the mask file provided as a command line argument and outputs the new coco json to stdout. If a binary file is give, assumes values are normalized between 0 and 1")
     parser.add_argument('mask_file', type=str, help="Mask JSON File")
     parser.add_argument('-c', '--category-id', type=str,
-                        help="the id of the category to set the mask can be an int or from-mask", required=True)
-    parser.add_argument('-t', '--threshold', '--thresh', type=float, default=0.0,
-                        help="The number to threshold the image by, default: %(default)s")
-    parser.add_argument('-b', '--fill-above-thresh', '--fill_above',  action='store_true' ,
-                        help="this argument will fill the mask with 1 values if the pixel is above the threshold")
-    parser.add_argument('--polygon-tolerance', '--tolerance', type=float, default=0.0,
-                        help="threshold tolerance for polygon precision (see skimage.metrics.approximate_polygon(), default: %(default)s")
-    parser.add_argument('--level', help="Passed to skimage.measure.find_contours, default: %(default)s", type=str, default='low')
+                        help="The id of the category to set the mask can be an int or from-mask. from-mask infers category based on how many unique values there are for the pixels in a segmentation mask",
+                        required=True)
+    parser.add_argument('-n', '--num-classes', type=int,
+                        help="Number of possible classes that can be detected from the network (excluding background). Used in conjunction with from-mask.")
+    parser.add_argument('-l', '--low-thresh', '--lower-threshold', type=float, default=0.0,
+                        help="The lower score to threshold the image by, default: %(default)s")
+    parser.add_argument('-u', '--up-thresh', '--upper-threshold', type=float, default=1.0,
+                        help="The upper score to threshold the image by, default: %(default)s")
+    parser.add_argument('-t', '--tolerance', '--polygon-tolerance', type=float, default=0.0,
+                        help="Threshold tolerance for polygon precision (see skimage.metrics.approximate_polygon(), default: %(default)s")
+    parser.add_argument('--fully-connected', help="Passed to skimage.measure.find_contours, default: %(default)s",
+                        choices=['low', 'high'], default='low')
+    parser.add_argument('-b', '--fill-above', '--fill-above-thresh', action='store_true',
+                        help="This argument will fill the mask with 1 values if the pixel is above the threshold")
+    parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, help="More output to stderr")
     return parser.parse_args()
 
 
 if __name__ == '__main__':
-    main(command_line_args=parse_cli())
+    main(args=get_args())

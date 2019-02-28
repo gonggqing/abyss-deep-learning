@@ -26,7 +26,13 @@ Required CSV file fields are:
 def main():
     global ARGS
     ARGS = get_args()
-    csv = StringIO(sys.stdin.read())
+    # Empty file check
+    buffer = sys.stdin.read().strip()
+    if buffer:
+        csv = StringIO(buffer)
+    else:
+        raise IOError("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
+
     try:
         if ARGS.fields:
             df = pd.read_csv(csv, names=ARGS.fields.split(','), header=None)
@@ -37,7 +43,7 @@ def main():
     # todo: check whether df is valid, otherwise an obscure error down the line
 
     coco_json = {}
-    if all(field in df for field in ['file_name', 'x1', 'y1', 'x2', 'y2', 'score', 'category_id']):
+    if all(field in df for field in ['file_name', 'x1', 'y1', 'x2', 'y2', 'category_id']):
         coco_json = generate_from_bounding_boxes(df)
     elif all(field in df for field in ['file_name', 'begin_frame', 'end_frame', 'caption']):
         coco_json = generate_from_video_frames(df)
@@ -86,7 +92,7 @@ def generate_from_bounding_boxes(df): #def generate_from_bounding_boxes(df: pd.D
     except IOError as e:
         say("could not read file [{}]; omit categories section in coco output".format(ARGS.map))
         say(e)
-    except TypeError:
+    except (TypeError, AttributeError):
         say("no mapping file given, received [{}]; omit categories section in coco output".format(ARGS.map))
 
     seen_imgs = set()
@@ -142,7 +148,7 @@ def generate_from_bounding_boxes(df): #def generate_from_bounding_boxes(df: pd.D
             'area'        : int(width * height),
             'bbox'        : [int(x), int(y), int(width), int(height)],
             'iscrowd'     : 0,
-            'score'       : row['score'],
+            'score'       : row.get('score', 1),
         })
     return coco_json
 

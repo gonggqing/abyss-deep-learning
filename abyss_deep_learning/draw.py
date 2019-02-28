@@ -64,7 +64,7 @@ def masks(labels, image=None, fill=True, border=False, colors=None, alpha=0.3, i
         masked = b if masked is None else cv2.addWeighted( masked, image_alpha, b, 1, 0 )
     return masked
 
-def boxes(labels, image, fill=False, border=False, colors=skic.colorlabel.DEFAULT_COLORS, alpha=0.3, image_alpha=1, thickness=1):
+def boxes(labels, image, fill=False, border=False, colors=[[255,0,0],[0,255,0],[0,0,255],[255,255,0],[0,255,255]], alpha=0.3, image_alpha=1, thickness=1):
     """Draw boxes on an image
     
     todo
@@ -88,8 +88,10 @@ def boxes(labels, image, fill=False, border=False, colors=skic.colorlabel.DEFAUL
             fill rectangle, same as thickness < 0
         border: bool
             draw rectangle border
-        colors: list
-            see skimage.color.labels2rgb() for details
+        colors: list of r,g,b values
+            [[255,255,0],
+             [255,0,255]
+            ]
         alpha: float
             [0,1]: alpha for rectangles
         image_alpha: float
@@ -119,7 +121,72 @@ def boxes(labels, image, fill=False, border=False, colors=skic.colorlabel.DEFAUL
     if fill: thickness = -1
     mask = np.zeros((len(image),len(image[0]),3), dtype=np.uint8)
     for label in labels:  # quick and dirty, watch performance
-        c = skic.colorlabel.color_dict[colors[label[4]%len(colors)]]
-        cv2.rectangle(mask, (label[0], label[1]), (label[2], label[3]), (int(c[2]*255), int(c[1]*255), int(c[0]*255)), thickness)
+        c = colors[label[4]%len(colors)]
+        cv2.rectangle(mask, ( int(label[0]),  int(label[1])), (int(label[2]), int(label[3])), (int(c[2]), int(c[1]), int(c[0])), thickness)
     return cv2.addWeighted( image, image_alpha, mask, alpha, 0 )
 
+def polygons(labels, image, fill=False, border=False, colors=[[255,0,0],[0,255,0],[0,0,255],[255,255,0],[0,255,255]], alpha=0.3, image_alpha=1, thickness=1):
+    """Draw boxes on an image
+    parameters
+    ----------
+        labels: np.ndarray
+            cols*rows*2 array where every 2-tuple represents segmentation points and label
+        image: np.ndarray
+            image
+        fill: bool
+            fill rectangle, same as thickness < 0
+        border: bool
+            draw rectangle border
+        colors: list of r,g,b values
+            [[255,255,0],
+             [255,0,255]
+            ]
+        alpha: float
+            [0,1]: alpha for rectangles
+        image_alpha: float
+            [0,1]: alpha for image
+        thickness: int
+            line thickness, thickness < 0 is same as fill set to True
+    
+    returns
+    -------
+    np.ndarray
+        RGB base-256 image
+    
+    example - TODO NOT CORRECT
+    -------
+        import cv2
+        import numpy as np
+        import abyss_deep_learning as adl
+        from abyss_deep_learning import draw
+
+        image = cv2.imread( 'some.image.jpg' )
+        drawn = adl.draw.polygons( [[200,200,300,400],0],[500,600,800,900],1]], drawn, fill=True, colors=('darkorange', 'green'), image_alpha=0.7 )
+        drawn = adl.draw.polygons( [[200,200,300,400],0],[500,600,800,900],1]], drawn, colors=('darkorange', 'green'), alpha=1 )
+        cv2.imshow( 'drawn', drawn )
+        cv2.waitKey( 0 )
+        cv2.destroyAllWindows()
+    """
+    mask = np.zeros((len(image),len(image[0]),3), dtype=np.uint8)
+    for label in labels:  # quick and dirty, watch performance
+        c = colors[label[1]%len(colors)]
+        point_set = label[0]
+        point_set_list = np.array([point_set[n:n+2] for n in range(0, len(point_set), 2)],np.int32)
+        point_set_list.reshape((-1,1,2))
+        point_set_list.astype(dtype=int)
+        cv2.polylines(mask,[point_set_list], True,(int(c[2]), int(c[1]), int(c[0])),thickness)
+        
+        if fill:
+            cv2.fillPoly(mask,[point_set_list],(int(c[2]), int(c[1]), int(c[0])))
+    return cv2.addWeighted( image, image_alpha, mask, alpha, 0 )
+
+
+
+
+
+def text(labels, image, colors=[[255,0,0],[0,255,0],[0,0,255],[255,255,0],[0,255,255]],font=cv2.FONT_HERSHEY_SIMPLEX, alpha=0.3, image_alpha=1, scale=1,thickness=1):
+    mask = np.zeros((len(image),len(image[0]),3), dtype=np.uint8)
+    for label in labels:  # quick and dirty, watch performance
+        c = colors[label[3]%len(colors)]
+        cv2.putText(mask,label[2],(int(label[0]),int(label[1])),font,scale,(int(c[2]), int(c[1]), int(c[0])),thickness,cv2.LINE_AA)
+    return cv2.addWeighted( image, image_alpha, mask, alpha, 0 )
