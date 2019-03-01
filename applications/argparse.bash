@@ -12,6 +12,41 @@
 # https://github.com/nhoffman/argparse-bash
 # MIT License - Copyright (c) 2015 Noah Hoffman
 
+
+### BEGIN This section added by Steven Potiris 
+
+COLOR_RED='\033[0;31m'
+COLOR_YELLOW='\033[1;33m'
+COLOR_NONE='\033[0m'
+
+function info(){
+ echo -e "${COLOR_YELLOW}[$SCRIPTNAME]${COLOR_NONE} ${@}" 2>&1
+}
+
+function error(){
+ echo -e "${COLOR_RED}[$SCRIPTNAME]${COLOR_NONE} ${@}" 2>&1
+}
+
+function optional_flag(){
+  [[ ! -z $2 ]] && echo "--$1 $2"
+}
+
+function bool_flag(){
+ local no=no
+ [[ ! -z $2 ]]  && no=
+ echo "--${no}${1}"
+}
+
+function assert (){
+  if [ $1 ] ; then
+     return 0
+  fi
+  error "${COLOR_RED}Assertion failed:  \"$1\"${COLOR_NONE} (${@:2})"
+  exit 1
+}
+
+#### END 
+
 argparse(){
     argparser=$(mktemp 2>/dev/null || mktemp -t argparser)
     cat > "$argparser" <<EOF
@@ -28,7 +63,7 @@ class MyArgumentParser(argparse.ArgumentParser):
         sys.exit(1)
 
 parser = MyArgumentParser(prog=os.path.basename("$0"),
-            description="""$ARGPARSE_DESCRIPTION""")
+            description="""$ARGPARSE_DESCRIPTION""", formatter_class=argparse.RawTextHelpFormatter)
 EOF
 
     # stdin to this function should contain the parser definition

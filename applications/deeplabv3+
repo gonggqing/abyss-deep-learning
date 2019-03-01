@@ -1,69 +1,53 @@
 #!/bin/bash
 # Deeplab V3+ train, eval, export utility
-SCRIPTNAME=$(basename $0)
-ARGPARSE_DESCRIPTION="Deeplab V3+ training application"      # this is optional
-source $(dirname $0)/argparse.bash || exit 1
+SCRIPTNAME="$(basename $0)"
+ARGPARSE_DESCRIPTION="Deeplab v3+ application for initialising dataset, training, evaluating and exporting the frozen inference graph.
+Examples: 
+
+deeplabv3+ init train.json /tmp/project1 \\\\
+    --eval-dataset val.json \\\\
+    --image-dir /path/to/voc/JPEGImages \\\\
+    --deeplab-dir $HOME/tensorflow_models/research/deeplab
+
+deeplabv3+ train /tmp/lol/tmp/project1/tfrecord /tmp/project1 \\\\
+    --deeplab-dir $HOME/src/tensorflow_models/research/deeplab \\\\
+    --train-steps 1000 --batch-size 2 --train-crop-size 513 \\\\
+    --validate --eval-crop-size 1025
+"
+source "$(dirname $0)/argparse.bash" || exit 1 # This imports functions info, error, optional_flag, bool_flag, assert
 argparse "$@" <<EOF || exit 1
 parser.add_argument('operation', help='One of {init, train, eval, export}')
-parser.add_argument('dataset', help='The path to the coco JSON (for init) or tfrecord (all others) to train or evaluate')
+parser.add_argument('dataset', help='The path to the coco JSON (for init) or tfrecord (all others) to train')
 parser.add_argument('logdir', help='Path to the log directory used for all operations')
-parser.add_argument('--batch-size', help='The batch size to use in training and evaluation', default=2)
-parser.add_argument('--checkpoint', help='The path to the checkpoint to load before training or evaluation')
-parser.add_argument('--crop-size', help='The crop size to use in training and evaluation', default=513)
 parser.add_argument('--deeplab-dir', help='The path to tensorflow/models/deeplab', default='$PWD')
-parser.add_argument('--init-image-dir', help='The path to the image directory for the COCO JSON (init only)', default='$PWD')
-parser.add_argument('--learning-rate', type=float, help='The base learning rate (default 1e-4, use 1e-3 for scratch training)', default=1e-4)
-parser.add_argument('--model', help='One of {xception_65, mobilenet_v2}', default='xception_65')
-parser.add_argument('--reinitialize-head', action='store_true', help='Clear the class specific layers to allow for a transfer learning to a new class set.')
-parser.add_argument('--train-freeze-batch-norm', action='store_false', help='Whether or not to freeze the batch norms')
-parser.add_argument('--train-steps', type=int, help='The number of epochs to train for', default=0)
-parser.add_argument('--validate', action='store_true', help='Simultenously run validation after every checkpoint.')
-parser.add_argument('--output-checkpoint-number', type=int, default=0, help='When exporting a model, the checkpoint number to use, e.g. for model.ckpt-5000, this would be 5000')
 parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output to stderr')
+parser.add_argument('--image-dir', help='[init] The path to the image directory for the COCO JSON (init only)', default='$PWD')
+parser.add_argument('--eval-dataset', help='[init] The path to the image directory for the COCO JSON (init only)')
+parser.add_argument('--learning-rate', type=float, help='[train] The base learning rate (default 1e-4, use 1e-3 for scratch training)', default=1e-4)
+parser.add_argument('--model', help='[train] One of {xception_65, mobilenet_v2}', default='xception_65')
+parser.add_argument('--reinitialize-head', action='store_true', help='[train] Clear the class specific layers to allow for a transfer learning to a new class set.')
+parser.add_argument('--train-crop-size', help='[train] The crop size to use in training and evaluation', default=513)
+parser.add_argument('--train-freeze-batch-norm', action='store_false', help='[train] Whether or not to freeze the batch norms')
+parser.add_argument('--train-steps', type=int, help='[train] The number of epochs to train for', default=0)
+parser.add_argument('--validate', action='store_true', help='[train] Simultenously run validation after every checkpoint.')
+parser.add_argument('--batch-size', help='[train, eval] The batch size to use in training and evaluation', default=2)
+parser.add_argument('--checkpoint', help='[train, eval] The path to the checkpoint to load before training or evaluation')
+parser.add_argument('--eval-crop-size', help='[train] The crop size to use in evaluation, must be at least as big as the largest image in val set', default=513)
+parser.add_argument('--export-checkpoint-number', type=int, default=0, help='[export] When exporting a model, the checkpoint number to use, e.g. for model.ckpt-5000, this would be 5000')
 EOF
 
 set -e
-
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-function info(){
- echo -e "${YELLOW}[$SCRIPTNAME]${NC} ${@}" 2>&1
-}
-
-function error(){
- echo -e "${RED}[$SCRIPTNAME]${NC} ${@}" 2>&1
-}
-
-function optional_flag(){
-  [[ ! -z $2 ]] && echo "--$1 $2"
-}
-
-function bool_flag(){
- local no=no
- [[ ! -z $2 ]]  && no=
- echo "--${no}${1}"
-}
-
-function assert (){
-  if [ $1 ] ; then
-     return 0
-  else
-    error "${RED}Assertion failed:  \"$1\"${NC} (${@:2})"
-    exit 1
-  fi
-}
+set -x
 
 function patch_dataset_file(){
  local file="$DEEPLAB_DIR/datasets/segmentation_dataset.py"
  assert "-f $DATASET/dataset_meta.json" "Dataset meta file not found."
- local num_classes=$(jq '.num_classes' "$DATASET/dataset_meta.json")
- local train_set_size=$(jq '.train_set_size' "$DATASET/dataset_meta.json")
- local val_set_size=$(jq '.val_set_size' "$DATASET/dataset_meta.json")
+ local num_classes=$(jq '.train.num_classes' "$DATASET/dataset_meta.json")
+ local train_set_size=$(jq '.train.set_size' "$DATASET/dataset_meta.json")
+ local val_set_size=$(jq '.val.set_size' "$DATASET/dataset_meta.json")
 
  info "Patching $file"
- NUM_CLASSES=$(( 1 + $num_classes )) \
+ NUM_CLASSES=$(( 1 + num_classes )) \
  TRAIN_SET_SIZE=$train_set_size \
  VAL_SET_SIZE=$val_set_size \
  perl -p -e 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : $&/eg' <"$file.template" >"$file"
@@ -74,13 +58,16 @@ function do_install(){
 }
 
 function do_init(){
- if [[ ! -f $DATASET ]] ; then error "[$LINENO] dataset $DATASET does not exist"; fi
- if [[ ! -d $INIT_IMAGE_DIR ]] ; then error "[$LINENO] dataset $INIT_IMAGE_DIR does not exist"; fi
- if [[ ! -d $LOGDIR ]] ; then error "[$LINENO] dataset $LOGDIR does not exist"; fi
+ if [[ ! -f "$DATASET" ]] ; then error "[$LINENO] dataset $DATASET does not exist"; fi
+ if [[ ! -z "$EVAL_DATASET" && ! -f "$EVAL_DATASET" ]] ; then error "[$LINENO] validation dataset $EVAL_DATASET does not exist"; fi
+ if [[ ! -d "$IMAGE_DIR" ]] ; then error "[$LINENO] dataset $IMAGE_DIR does not exist"; fi
+ if [[ ! -d "$LOGDIR" ]] ; then error "[$LINENO] dataset $LOGDIR does not exist"; fi
 
  # Go to the train logdir and create the VOC dataset
+ 
  cd "$LOGDIR"
- coco-to-tfrecord "$DATASET" "$INIT_IMAGE_DIR" "$DEEPLAB_DIR"
+ [[ ! -z $EVAL_DATASET ]] && VAL_CMD="val,$EVAL_DATASET,$IMAGE_DIR"
+ coco-to-tfrecord "train,$DATASET,$IMAGE_DIR" "$VAL_CMD" --deeplab-dir "$DEEPLAB_DIR"
  info "init success"
 }
 
@@ -97,21 +84,21 @@ function do_train(){
   PYTHONPATH=$PYTHONPATH CUDA_VISIBLE_DEVICES=$(cut -d, -f1 <<< $CUDA_VISIBLE_DEVICES) \
   python3 "${DEEPLAB_DIR}"/train.py \
   --atrous_rates 12  --atrous_rates 18  --atrous_rates 6 \
-  --base_learning_rate $LEARNING_RATE \
+  --base_learning_rate "$LEARNING_RATE" \
   --dataset_dir "${DATASET}" \
   --decoder_output_stride 4 \
-  $(bool_flag fine_tune_batch_norm $TRAIN_FREEZE_BATCH_NORM) \
+  $(bool_flag fine_tune_batch_norm "$TRAIN_FREEZE_BATCH_NORM") \
   --logtostderr \
   --model_variant "$MODEL" \
   --output_stride 16 \
   --save_summaries_images \
   --save_summaries_secs 60 \
-  --train_batch_size ${BATCH_SIZE} \
-  --train_crop_size ${CROP_SIZE} --train_crop_size ${CROP_SIZE} \
+  --train_batch_size "${BATCH_SIZE}" \
+  --train_crop_size "${TRAIN_CROP_SIZE}" --train_crop_size "${TRAIN_CROP_SIZE}" \
   --train_logdir "$LOGDIR" \
   --train_split "train" \
   --training_number_of_steps "$TRAIN_STEPS" \
-  $(bool_flag initialize_last_layer $REINITIALIZE_HEAD) \
+  $(bool_flag initialize_last_layer "$REINITIALIZE_HEAD") \
   --last_layers_contain_logits_only \
   --save_interval_secs 300 \
   $(optional_flag tf_initial_checkpoint "$CHECKPOINT") &
@@ -145,7 +132,7 @@ function do_eval(){
  info "Evaluating:\n DATASET=${DATASET}\nLOGDIR=${LOGDIR}"
  assert "-d $LOGDIR" "[$LINENO] log dir '$LOGDIR' does not exist"
  PYTHONPATH=$PYTHONPATH CUDA_VISIBLE_DEVICES=$cuda_visible_devices \
- python3 ${DEEPLAB_DIR}/eval.py \
+ python3 "${DEEPLAB_DIR}/eval.py" \
   --logtostderr \
   --eval_split="val" \
   --model_variant="$MODEL" \
@@ -154,7 +141,7 @@ function do_eval(){
   --atrous_rates=18 \
   --output_stride=16 \
   --decoder_output_stride=4 \
-  --eval_crop_size ${CROP_SIZE} --eval_crop_size ${CROP_SIZE} \
+  --eval_crop_size "${EVAL_CROP_SIZE}" --eval_crop_size "${EVAL_CROP_SIZE}" \
   --checkpoint_dir="${LOGDIR}" \
   --eval_logdir="${LOGDIR}" \
   --dataset_dir="${DATASET}" \
@@ -171,20 +158,20 @@ function do_export(){
  assert "-d $LOGDIR" "[$LINENO] log dir '$LOGDIR' does not exist"
 
  # If the checkpoint number is 0, remove it from the path
- if (($OUTPUT_CHECKPOINT_NUMBER == 0)); then
+ if ((EXPORT_CHECKPOINT_NUMBER == 0)); then
    CHECKPOINT_PATH=$LOGDIR/model.ckpt
  else
-   CHECKPOINT_PATH=$LOGDIR/model.ckpt-$OUTPUT_CHECKPOINT_NUMBER
+   CHECKPOINT_PATH=$LOGDIR/model.ckpt-$EXPORT_CHECKPOINT_NUMBER
  fi
 
- info "Exporting checkpoint ${CHECKPOINT_PATH} to ${LOGDIR}/export/frozen_inference_graph_$OUTPUT_CHECKPOINT_NUMBER.pb"
+ info "Exporting checkpoint ${CHECKPOINT_PATH} to ${LOGDIR}/export/frozen_inference_graph_$EXPORT_CHECKPOINT_NUMBER.pb"
 
  # Make the log directory
  mkdir -p ${LOGDIR}/export
  PYTHONPATH=$PYTHONPATH CUDA_VISIBLE_DEVICES=$cuda_visible_devices \
  python3 ${DEEPLAB_DIR}/export_model.py \
   --checkpoint_path="${CHECKPOINT_PATH}" \
-  --export_path="${LOGDIR}/export/frozen_inference_graph_$OUTPUT_CHECKPOINT_NUMBER.pb" \
+  --export_path="${LOGDIR}/export/frozen_inference_graph_$EXPORT_CHECKPOINT_NUMBER.pb" \
   --logtostderr \
   --atrous_rates=6 \
   --atrous_rates=12 \
@@ -196,7 +183,7 @@ function do_export(){
   --inference_scales=1.0
  local return_code=$?
  info "Export finished."
- return $?
+ return return_code
 }
 
 

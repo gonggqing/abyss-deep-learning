@@ -3,70 +3,27 @@
 set -e
 
 SCRIPTNAME=$(basename $0)
-CLI_ARGS="$@"
-
-function help(){
-  cat <<EOF
-  $scriptname:
-      Convert a coco file to a TfRecord, by converting to intermediate VOC first.
-      Currently uses a 75/25 % split between train and val sets.
-
-  usage:
-      $scriptname [--check-labels] coco_path image_source_dir
-
-  arguments:
-      coco_path: the path to the coco file to convert
-      image_source_dir: the path to the directory that contains the images referred to in the coco file
-      deeplab_dir: the path to the deeplab directory, e.g. $HOME/src/tensorflow_models/research/deeplab
-
-  options:
-      --check-labels: Go through each generated VOC label and display the label value counts. This is
-                      useful to check if the labels match the class numbers expected
-
-  example:
-      $scriptname --check-labels coco_trainvaltest_combined.json images
+ARGPARSE_DESCRIPTION="Convert a COCO JSON dataset to a TfRecord dataset.
+e.g.: 
+coco-to-tfrecord \\\\
+  train,train_800.json,/data/images-trainval \\\\
+  val,val_800.json,/data/images-trainval \\\\
+  --deeplab-dir $HOME/src/tensorflow_models/research/deeplab"
+source $(dirname $0)/argparse.bash || exit 1 # This imports functions info, error, optional_flag, bool_flag, assert
+argparse "$@" <<EOF || exit 1
+parser.add_argument('set_specs', nargs='+', help='CSV tuples of (set_name,coco_path,image_dir) to embed in the dataset')
+parser.add_argument('--image-format', help='Extension of the image files, one of: {png, jpg}', default='jpg')
+parser.add_argument('--deeplab-dir', help='The path to the tensorflow deeplab dir', default='$HOME/src/tensorflow_models/research/deeplab')
+parser.add_argument('--check-labels', action='store_true', help='Output the histograms of the label values.')
+parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output to stderr')
 EOF
-}
 
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+set -e
 
-function info(){
- echo -e "${YELLOW}[$SCRIPTNAME]${NC} ${@}" 2>&1
-}
-
-function error(){
- echo -e "${RED}[$SCRIPTNAME]${NC} ${@}" 2>&1
-}
-
-function flag_present(){
-  local flag="$1"
-  grep -- "$flag" <<<"$CLI_ARGS" 1>/dev/null 2>/dev/null
-  return $?
-}
-
-if flag_present "--help"; then
-  help
-  exit 1
-fi
-
-if (( $# < 2 )) ; then
-  info "Error: coco_path and image_source_dir not given."$"\n"
-  help
-  exit 1
-fi
-
-
-#LABELSET_DIR=~/src/projects/anadarko/label-sets/example-test
-#IMAGE_SOURCE_DIR="/mnt/rhino/processed/industry-data/anadarko/gunnison/r2s/sphericals/CD -/cubes"
-COCO_PATH=$(readlink -e "$1")
 LABELSET_DIR=$PWD
 VOC_DIR=$LABELSET_DIR/voc
-IMAGE_SOURCE_DIR="$2"
-DEEPLAB_DIR=$3
 
-info "[1/3] Creating VOC structure and symlinks"
+info "[1/2] Creating VOC dataset"
 #Make relevant VOC structures
 mkdir -p \
       "$VOC_DIR/JPEGImages" \
@@ -74,49 +31,51 @@ mkdir -p \
       "$VOC_DIR/ImageSets/Segmentation" \
       "$LABELSET_DIR/tfrecord"
 
-cd "$LABELSET_DIR"
-
 # First create symlinks to relevant images
-jq '.images[].file_name'  "$COCO_PATH" | sed 's/"//g' > "$VOC_DIR/images.csv" # Extract image filenames from COCO
+# cd "$LABELSET_DIR"
 cd "$VOC_DIR/JPEGImages"
-cat "$VOC_DIR/images.csv" | while IFS=$"\n" read -r filename; do ln -s "$IMAGE_SOURCE_DIR/$filename"; done
+echo '{}' > "$LABELSET_DIR/tfrecord/dataset_meta.json"
+for set_pair in "${SET_SPECS[@]}"; do
+  echo $set_pair | while IFS=, read -r set_name set_path set_image_dir; do
+    info "Processing $set_name: $set_path @ $set_image_dir"
+    assert "! -z $set_name -a ! -z $set_path -a ! -z $set_image_dir" "$set_name tuple incomplete (requires set_name,set_path,set_image_dir)"
+    assert "-f $set_path " "$set_name: $set_name COCO not found"
+    assert "-d $set_image_dir" "$set_name: image directory not found"
+    jq '.images[].file_name' "$set_path" | sed 's/"//g' > "$VOC_DIR/images.$set_name.csv" # Extract image filenames from COCO
+    cat "$VOC_DIR/images.$set_name.csv" | sort | while IFS=$"\n" read -r filename; do ln -s "${set_image_dir}/${filename}"; done
+    cat "$VOC_DIR/images.$set_name.csv" | sort | sed 's/\.png//' | sed 's/\.jpg//' >"$VOC_DIR/ImageSets/Segmentation/${set_name}.txt"
+    
+    ## Create the VOC label images
+    ## #TODO: Currently handling images with no annotations very poorly, ensure every image has at least one annotation
+    cd "$VOC_DIR" 
+    coco-to-voc "$set_path" SegmentationClassRaw -v -v --image-dir JPEGImages
 
-#If needed, resize the dataset (e.g. labelbox we use smaller images, need to resize back to (4000, 4000)
-cd $VOC_DIR
+    # Append to the metadata file
+    num_classes=$(jq '.categories | length' <"$set_path")
+    set_size=$(wc -l < "$VOC_DIR/ImageSets/Segmentation/${set_name}.txt")
+    json_meta=$(
+      echo "$num_classes,$set_size" |
+      name-value-from-csv num_classes,set_size |
+      name-value-convert --to json)
+    existing_json=$(cat "$LABELSET_DIR/tfrecord/dataset_meta.json")
+    echo -en $existing_json | jq ". |= . + {\"$set_name\": $json_meta}" > "$LABELSET_DIR/tfrecord/dataset_meta.json"
+  done
+done
 
-# Create the VOC label images
-# #TODO: Currently handling images with no annotations very poorly, ensure every image has at least one annotation
-coco-to-voc "$COCO_PATH"  SegmentationClassRaw -v -v --image-dir JPEGImages
 
 # Check the label images contain the labels you expect
-if flag_present "--check-labels"; then
+if [[ ! -z $CHECK_LABELS ]]; then
+  info "Checking label histograms"
   convert SegmentationClassRaw/*.png -define histogram:unique-colors=true -format "%f %c" histogram:info:- # This will take a while
 fi
 
-# List all images (images without anns dropped in coco-to-voc)
-ls -1 SegmentationClassRaw/*.png | while IFS=$'\n' read -r filename ; do basename "$filename"; done | sed 's/\.png//' > images.filtered.csv
-
-# Create the train and val split (below hardcoded for 75% train, 25% val)
-NUM_IMAGES=$(wc -l <images.filtered.csv)
-info "[2/3] Converting VOC -> TfRecord"
-shuf images.filtered.csv | head -n $(( NUM_IMAGES * 3 / 4 )) | sort >ImageSets/Segmentation/train.txt
-comm -23 images.filtered.csv ImageSets/Segmentation/train.txt  | sort >ImageSets/Segmentation/val.txt
-
-train_set_size=$(wc -l < ImageSets/Segmentation/train.txt)
-val_set_size=$(wc -l < ImageSets/Segmentation/val.txt)
-num_classes=$(jq '.categories | length' <"$COCO_PATH")
-echo "$num_classes,$train_set_size,$val_set_size" |
- name-value-from-csv num_classes,train_set_size,val_set_size |
- name-value-convert --to json > "$LABELSET_DIR/tfrecord/dataset_meta.json"
-
 # Run below to check there are no common lines between train and val
-if [[ ! -z $(comm -12 ImageSets/Segmentation/*) ]] ; then
-    info "Error: COMMON LINES IN TRAIN AND VAL"
-fi
+# if [[ ! -z $(comm -12 ImageSets/Segmentation/*) ]] ; then
+#     info "WARNING: COMMON LINES IN TRAIN AND VAL"
+# fi
 
 ### Now run VOC to TfRecord
-info "[3/3] Now converting VOC -> TfRecord"
-
+info "[2/2] Now converting VOC -> TfRecord"
 
 ls -ald "$VOC_DIR/JPEGImages" "$VOC_DIR/ImageSets/Segmentation" "$VOC_DIR/SegmentationClassRaw" "$LABELSET_DIR/tfrecord" 1>&2
 # Check all dirs exist
@@ -125,11 +84,9 @@ if [ $? -ne 0 ]  ; then
   exit 1
 fi
 
-python3 "$DEEPLAB_DIR/datasets/build_voc2012_data.py" \
+CUDA_VISIBLE_DEVICES= python3 $DEEPLAB_DIR/datasets/build_voc2012_data.py \
     --image_folder "$VOC_DIR/JPEGImages" \
     --list_folder "$VOC_DIR/ImageSets/Segmentation" \
     --semantic_segmentation_folder "$VOC_DIR/SegmentationClassRaw" \
     --output_dir "$LABELSET_DIR/tfrecord" \
-    --image_format png --label_format png
-
-#If nothing happens above you have probably forgotten to make train/val .txt files.
+    --image_format "$IMAGE_FORMAT" --label_format png

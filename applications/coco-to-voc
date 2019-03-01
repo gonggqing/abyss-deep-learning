@@ -98,5 +98,5 @@ def get_args():
 
 if __name__ == '__main__':
     args = get_args()
-    print_v.verbose = args.verbose
+    print_v.verbose = args.verbose or 0
     coco_to_voc(args)

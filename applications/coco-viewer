@@ -18,7 +18,7 @@ import numpy as np
 from abyss.bedrock.filesystem.utils import search_path
 
 def bounding_box(polygon):
-    'return the bounding box of a given polygon'
+    '''return the bounding box of a given polygon'''
     min_x, min_y = np.min(polygon, axis=0)
     max_x, max_y = np.max(polygon, axis=0)
     return [(min_x, min_y), (min_x, max_y), (max_x, max_y), (max_x, min_y)]

@@ -92,10 +92,10 @@ class CocoDataset(object):
             return 'poly'
         if isinstance(segm, np.ndarray) and segm.ndim == 2:
             return 'mask'
-        print("DEBUG INFO:")
-        print(type(segm))
+        print("DEBUG INFO:", file=sys.stderr)
+        print(type(segm), file=sys.stderr)
         if isinstance(segm, np.ndarray):
-            print(segm.shape)
+            print(segm.shape, file=sys.stderr)
         raise RuntimeError("Unknown label type")
 
     @staticmethod
@@ -174,7 +174,7 @@ class CocoDataset(object):
         return cat_id
 
     def add_image(
-            self, image_size, filename, url,
+            self, image_size, filename, url=None,
             force_id=None, license=0, date_captured=None, path=None,
             **kwargs):
         if force_id in self.image_ids:
@@ -232,8 +232,7 @@ class CocoDataset(object):
             if self.verbose:
                 print(
                     "Warning: Skipped annotation on image {:d} category {:d} due to area <= 1"
-                    .format(image_id, category_id)
-                )
+                    .format(image_id, category_id), file=sys.stderr)
 
     def add_caption(self, image_id, caption, other=None):
         annotation_id = next_smallest_free_id(
