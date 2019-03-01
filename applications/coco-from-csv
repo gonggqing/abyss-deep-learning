@@ -140,17 +140,23 @@ def generate_from_bounding_boxes(df): #def generate_from_bounding_boxes(df: pd.D
         y = row['y1']
         width = row['x2'] - x
         height = row['y2'] - y
+        bbox = [int(x), int(y), int(width), int(height)]
         coco_json['annotations'].append({
             'id'          : len(coco_json['annotations']),
             'image_id'    : img_file_name_2_img_id[img_file_name],
             'category_id' : category_id,
-            'segmentation': None,
+            'segmentation': [bbox_to_segmentation([x, y, width, height])],
             'area'        : int(width * height),
-            'bbox'        : [int(x), int(y), int(width), int(height)],
+            'bbox'        : bbox,
             'iscrowd'     : 0,
             'score'       : row.get('score', 1),
         })
     return coco_json
+
+
+def bbox_to_segmentation(bbox: list) -> list:
+    x, y, width, height = bbox
+    return [x, y, x + width, y, x + width, y + height, x, y + height]
 
 
 def generate_from_video_frames(df: pd.DataFrame) -> dict:

@@ -63,34 +63,41 @@ def main(args):
         logging.error("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
         sys.exit(1)
 
-    if args.on == 'annotations' and len(data['annotations']) == 0:
+    if args.on == 'annotations' and len(data.get('annotations', [])) == 0:
         logging.warning("Got empty annotations, input passed through to stdout")
         json.dump(data, sys.stdout, indent=args.indent)
         sys.exit(0)
 
-    for annotation in data['annotations']:
+    original_images = copy.deepcopy(data.get('images', [])) if args.keep_images else None   # quick and dirty, ugly
+
+    for annotation in data.get('annotations', []):
         annotation['annotation_id'] = annotation.pop('id')
 
-    if args.keep_images:
-        original_images = copy.deepcopy(data['images'])  # quick and dirty, ugly
-
-    for image in data['images']:
+    for image in data.get('images', []):
         image['image_id'] = image.pop('id')
 
-    for category in data['categories']:
+    for category in data.get('categories', []):
         category['category_id'] = category.pop('id')
 
-    df_annotations = create_data_frame(data['annotations'])
-    df_images = create_data_frame(data['images'])
-    df_categories = create_data_frame(data['categories'])
+    df_annotations = create_data_frame(data.get('annotations', []))
+    df_images = create_data_frame(data.get('images', []))
+    df_categories = create_data_frame(data.get('categories', []))
 
     annotation_keys = df_annotations.keys()
     image_keys = df_images.keys()
     category_keys = df_categories.keys()
 
     logging.info("Joining annotations, categories and images")
-    df = pd.merge(left=df_annotations, right=df_categories, on='category_id')
-    df = pd.merge(left=df, right=df_images, on='image_id')
+    try:
+        df = pd.merge(left=df_annotations, right=df_categories, on='category_id')
+    except KeyError:
+        # Not point in having a category data frame as images do not contain a category id field
+        df = df_annotations
+    try:
+        df = pd.merge(left=df, right=df_images, on='image_id')
+    except KeyError:
+        # Original df was df_annotations, if empty, then assign df_images
+        df = df_images if df.empty else df
 
     Keys = namedtuple("Keys", ['ann_keys', 'img_keys', 'cat_keys'])
     keys = Keys(ann_keys=annotation_keys, img_keys=image_keys, cat_keys=category_keys)
@@ -102,16 +109,23 @@ def main(args):
         df = eval_on(df, args, keys, 'annotation_id')
 
     images = []
-    for record in df[image_keys].itertuples():
-        images.append(record_to_dict(record, 'image_id'))
+    df_images = df[image_keys]
+    if not df_images.empty:
+        for record in df_images.itertuples():
+            images.append(record_to_dict(record, 'image_id'))
 
     annotations = []
-    for record in df[annotation_keys].itertuples():
-        annotations.append(record_to_dict(record, 'annotation_id'))
+
+    df_annotations = df[annotation_keys]
+    if not df_annotations.empty:
+        for record in df_annotations.itertuples():
+            annotations.append(record_to_dict(record, 'annotation_id'))
 
     categories = []
-    for record in df[category_keys].itertuples():
-        categories.append(record_to_dict(record, 'category_id'))
+    df_categories = df[category_keys]
+    if not df_categories.empty:
+        for record in df_categories.itertuples():
+            categories.append(record_to_dict(record, 'category_id'))
 
     data['annotations'] = drop_duplicates(annotations)
     data['images'] = original_images if args.keep_images else drop_duplicates(images)
@@ -164,7 +178,6 @@ def eval_on(df: pd.DataFrame, args: argparse.Namespace, keys: namedtuple, on_id:
 
     if args.init is not None:
         exec(args.init)
-
     for a, i, c in zip(df_annotations.itertuples(), df_images.itertuples(), df_categories.itertuples()):
         idx = int(a.Index)
         if eval(args.expression):

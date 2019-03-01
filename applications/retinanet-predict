@@ -258,10 +258,8 @@ def main(args=None):
     keras.backend.tensorflow_backend.set_session(get_session())
 
     # make save path
-    try:
+    if args.output_directory_per_image is not None:
         os.makedirs(args.output_directory_per_image, exist_ok=True)
-    except TypeError:
-        pass
 
     # optionally load config parameters
     if args.config:
