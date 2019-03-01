@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+import argparse
+import os
+import sys
+
+import numpy as np
+import PIL.Image
+import keras
+import tensorflow as tf
+from keras_applications.xception import Xception
+from pycocotools.coco import COCO
+from tensorflow.contrib.tensorboard.plugins import projector
+
+from abyss_deep_learning.utils import imread
+
+def images_to_sprite(data):
+    """Creates the sprite image along with any necessary padding
+
+    Args:
+      data: NxHxW[x3] tensor containing the images.
+
+    Returns:
+      data: Properly shaped HxWx3 image with any necessary padding.
+    """
+    if len(data.shape) == 3:
+        data = np.tile(data[..., np.newaxis], (1, 1, 1, 3))
+    data = data.astype(np.float32)
+    min = np.min(data.reshape((data.shape[0], -1)), axis=1)
+    data = (data.transpose(1, 2, 3, 0) - min).transpose(3, 0, 1, 2)
+    max = np.max(data.reshape((data.shape[0], -1)), axis=1)
+    data = (data.transpose(1, 2, 3, 0) / max).transpose(3, 0, 1, 2)
+    # Inverting the colors seems to look better for MNIST
+    #data = 1 - data
+
+    n = int(np.ceil(np.sqrt(data.shape[0])))
+    padding = ((0, n ** 2 - data.shape[0]), (0, 0), (0, 0)) + ((0, 0), ) * (data.ndim - 3)
+    data = np.pad(data, padding, mode='constant', constant_values=0)
+    # Tile the individual thumbnails into an image.
+    data = data.reshape(
+        (n, n) + data.shape[1:]).transpose((0, 2, 1, 3) + tuple(range(4, data.ndim + 1)))
+    data = data.reshape((n * data.shape[1], n * data.shape[3]) + data.shape[4:])
+    data = (data * 255).astype(np.uint8)
+    return data
+
+
+def save_embeddings(log_dir, features, labels=None, sprite=None, sprite_shape=None):
+    metadata = os.path.join(log_dir, 'metadata.tsv')
+    features = tf.Variable(features, name='features')
+
+    if labels is not None:
+        with open(metadata, 'w') as metadata_file:
+            for row in labels:
+                metadata_file.write('%d\n' % row)
+    if sprite is not None:
+        PIL.Image.fromarray(sprite).save(os.path.join(log_dir, 'sprite.png'))
+    with tf.Session() as sess:
+        saver = tf.train.Saver([features])
+
+        sess.run(features.initializer)
+        saver.save(sess, os.path.join(log_dir, 'features.ckpt'))
+
+        config = projector.ProjectorConfig()
+        # One can add multiple embeddings.
+        embedding = config.embeddings.add()
+        embedding.tensor_name = features.name
+        if labels is not None:
+            # Link this tensor to its metadata file (e.g. labels).
+            embedding.metadata_path = metadata
+        if sprite is not None:
+            embedding.sprite.image_path = os.path.join(log_dir, 'sprite.png')
+            embedding.sprite.single_image_dim.extend(sprite_shape)
+        # Saves a config file that TensorBoard will read during startup.
+        projector.visualize_embeddings(tf.summary.FileWriter(log_dir), config)
+
+
+def procuce_embeddings_tsv(path, headers, labels):
+    """Produce the tab separated values required for visualizing the classes on the embeddings.
+
+    Args:
+        path (str):
+            The path to save the tsv to. Should match the embeddings_metadata argument to TensorBoard.
+        headers (dict of strings): The header to write to the tsv. Ignored if only 1 column in labels.
+        labels (np.ndarray): The labels to write. Number of columns has to match headers.
+    """
+    assert labels.shape[1] == len(headers), \
+        "labels.shape[1] is {:d} but len(headers) is {:d}".format(labels.shape[1], len(headers))
+    with open(path, 'w') as file:
+        if labels.shape[1] > 1:
+            file.write("\t".join(headers) + "\n")
+        for label in labels:
+            file.write("\t".join([str(i) for i in label]) + "\n")
+
+def say(*args):
+    print(*args, file=sys.stderr)
+
+def main(args):
+    say("Loading COCO")
+    coco = COCO(args.image_paths[0])
+    say("Loading images")
+    images = np.array([
+        imread(
+            os.path.join(args.image_dir, image["file_name"]),
+            output_size=args.image_size, dtype=np.uint8)
+        for image in coco.loadImgs(coco.getImgIds())], dtype=np.uint8)
+    say("Creating tumbnails of {:d} images".format(len(images)))
+    thumbs = np.array([
+        np.array(PIL.Image.fromarray(image).resize(args.thumb_size))
+        for image in images], dtype=np.uint8)
+    images = images.astype(np.float32) / 127.5 - 1
+    say("Making CNN")
+    cls = Xception(
+        include_top=False, weights='imagenet',
+        input_shape=args.image_size + (3, ), pooling='avg')
+    say("Predicting")
+    logits = cls.predict(images)
+    say("Saving embeddings")
+    save_embeddings(
+        args.tensorboard_dir, logits,
+        labels=None, sprite=images_to_sprite(thumbs), sprite_shape=args.thumb_size)
+
+
+def get_args(cmd_line=None):
+    '''Get args from the command line args'''
+    parser = argparse.ArgumentParser(
+        description="Cluster images using various algorithms and display the results on the TensorBoard Projector")
+    parser.add_argument(
+        "tensorboard_dir", help="Where to write the tensorboard embeddings")
+    parser.add_argument("image_paths", nargs='+', help="images, videos or COCO JSONs to cluster")
+    parser.add_argument(
+        "--image-size", help="CSV height, width to load and resize each image to feed into the network", default='224,224')
+    parser.add_argument(
+        "--thumb-size", help="CSV height, width for the TensorBoard thumbnails")
+    parser.add_argument(
+        "--image-dir", help="The directory to relatively path the images with (COCO only)")
+    args = parser.parse_args(args=cmd_line)
+    args.image_size = tuple(int(i) for i in args.image_size.split(','))
+    args.thumb_size = tuple(int(i) for i in args.thumb_size.split(',')) \
+        if args.thumb_size else tuple(i // 2 for i in args.image_size)
+    return args
+
+if __name__ == "__main__":
+    main(get_args())

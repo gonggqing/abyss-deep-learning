@@ -1,42 +1,113 @@
 #!/usr/bin/env python3
-from contextlib import redirect_stdout
 import argparse
-import importlib.util
+import contextlib
 import os
 import sys
+import logging
 
+import pandas as pd
+import numpy as np
 from pycocotools.coco import COCO
 
 from abyss_deep_learning.coco_classes import CocoDataset
-from abyss_deep_learning.utils import balanced_set
+
+def balanced_image_ids(coco, balance_by, image_id_subset=[], exclude=[], max_cat_size=None):
+    assert balance_by in ['category_id', 'caption']
+    if balance_by == 'caption':
+        raise NotImplementedError("caption balancing not yet implemented")
+    #TODO: Remove dependence on coco.get* filtering, so we can add caption balancing
+    anns = [ann for ann in coco.loadAnns(coco.getAnnIds(coco.getImgIds(image_id_subset)))
+        if not ann[balance_by] in exclude]
+    samples = pd.DataFrame(anns)[[balance_by, 'image_id']]
+    smallest_cat = samples.groupby(balance_by).size().idxmin()
+    cats_unique = samples[balance_by].unique()
+
+    images_by_cat = {cat_id: coco.getImgIds(catIds=[cat_id]) for cat_id in cats_unique}
+    if max_cat_size:
+        images_by_cat[smallest_cat] = images_by_cat[smallest_cat][:max_cat_size]
+    for cat_id, image_list in images_by_cat.items():
+        np.random.shuffle(image_list)
+
+    measure = {cat_id: len(coco.getAnnIds(imgIds=image_list)) for cat_id, image_list in images_by_cat.items()}
+    sample_idxs = [cat_id
+                   for cat_id in measure.keys()
+                   if measure[cat_id] > measure[smallest_cat] ]
+    while len(sample_idxs):
+        for idx in sample_idxs:
+            images_by_cat[idx].pop()
+        measure = {cat_id: len(coco.getAnnIds(imgIds=image_list)) for cat_id, image_list in images_by_cat.items()}
+        sample_idxs = [cat_id
+                       for cat_id in measure.keys()
+                       if measure[cat_id] > measure[smallest_cat] ]
+    image_ids = [index_id
+                 for cat_index_ids in images_by_cat.values()
+                 for index_id in cat_index_ids]
+    anns = coco.loadAnns(coco.getAnnIds(image_ids))
+    samples = pd.DataFrame(anns)[[balance_by, 'image_id']]
+    logging.info(samples.groupby(balance_by).size())
+    return image_ids
 
 def main(args):
-    coco_path = args.input
-    # coco_dir = os.path.dirname(coco_path)
-    # coco_name = '.'.join(os.path.basename(coco_path).split('.')[0:-1])
-    if args.verbose:
-        print("loading {:s}".format(coco_path), file=sys.stderr)
-    if not os.path.exists(coco_path):
-        raise Exception("No such COCO json exists")
-    with redirect_stdout(sys.stderr):
-        coco = COCO(coco_path)
-    balanced_ids = balanced_set(coco)
-    coco = CocoDataset.load(coco)#, image_dir=args.image_dir)
-    coco.images = [v for v in coco.images if v['id'] in balanced_ids]
-    coco.annotations = [v for v in coco.annotations if v['image_id'] in balanced_ids]
-    print(coco)
+    logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S',
+                        level=args.verbose)
+    logging.info('--verbose enabled')
 
+    coco_out = CocoDataset()
+    with contextlib.redirect_stdout(sys.stderr):
+        coco = COCO(args.coco_path)
 
-def get_args():
+    category_ids_by_name = {}
+    for category in coco.loadCats(coco.getCatIds()):
+        if category not in args.exclude:
+            category_ids_by_name[category['name']] = category['id']
+            coco_out.add_category(category['name'], None, category['supercategory'])
+    if args.balance_by == 'category_id':
+        args.exclude = [category_ids_by_name[name] for name in args.exclude]
+    
+    image_ids = balanced_image_ids(coco, args.balance_by, max_cat_size=args.max_cat_size, exclude=args.exclude)
+    logging.debug("image_ids\n" + str(image_ids))
+    for image_id in image_ids:
+        image_meta = coco.loadImgs([image_id])[0]
+        out_image_id = coco_out.add_image(
+            [image_meta['height'], image_meta['width']], image_meta['file_name'])
+        for ann in coco.loadAnns(coco.getAnnIds(imgIds=[image_id])):
+            if ann[args.balance_by] in args.exclude:
+                continue
+            out_ann = dict(ann)
+            out_ann['image_id'] = out_image_id
+            coco_out.add_annotation(out_ann)
+
+    print(coco_out)
+
+def get_args(cmd_line=None):
     '''Get args from the command line args'''
     parser = argparse.ArgumentParser(
-        description="Output a balanced subset of a COCO JSON dataset. Only captions are supported."
-    )
-    parser.add_argument('input')
-    parser.add_argument('--verbose', action='store_true',
-                        help="verbose output to stderr")
-    args = parser.parse_args()
+        description="""
+        Extract an approximately balanced subset of the COCO annotations, removing unneccesary images.
+        By default, the largest possible balanced subset will be extracted, which corresponds to the smallest
+        count of the balance_by criterion.
+        """)
+    parser.add_argument(
+        "coco_path",
+        help="The path to the input COCO file",
+        type=str)
+    parser.add_argument(
+        "balance_by",
+        help="Balance by one of: {category_id} (TODO: caption)",
+        type=str)
+    parser.add_argument(
+        "--max-cat-size",
+        help="Set the maximum balanced subset size",
+        type=int)
+    parser.add_argument(
+        "--exclude",
+        help="CSV list of captions or category names to exclude",
+        type=str, default='')
+    parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, help="More output to stderr")
+    args = parser.parse_args(args=cmd_line)
+    args.exclude = [i for i in args.exclude.split(',') if i]
     return args
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main(get_args())
