@@ -19,6 +19,7 @@ argparse "$@" <<EOF || exit 1
 parser.add_argument('operation', help='One of {init, train, eval, export}')
 parser.add_argument('dataset', help='The path to the coco JSON (for init) or tfrecord (all others) to train')
 parser.add_argument('logdir', help='Path to the log directory used for all operations')
+parser.add_argument('--debug', action='store_true', help='Sets bash -x flag')
 parser.add_argument('--deeplab-dir', help='The path to tensorflow/models/deeplab', default='$PWD')
 parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output to stderr')
 parser.add_argument('--image-dir', help='[init] The path to the image directory for the COCO JSON (init only)', default='$PWD')
@@ -37,19 +38,19 @@ parser.add_argument('--export-checkpoint-number', type=int, default=0, help='[ex
 EOF
 
 set -e
-set -x
+[[ ! -z $DEBUG ]] && set -x || true
 
 function patch_dataset_file(){
  local file="$DEEPLAB_DIR/datasets/segmentation_dataset.py"
- assert "-f $DATASET/dataset_meta.json" "Dataset meta file not found."
+ assert "-f '$DATASET/dataset_meta.json'" "Dataset meta file not found."
  local num_classes=$(jq '.train.num_classes' "$DATASET/dataset_meta.json")
  local train_set_size=$(jq '.train.set_size' "$DATASET/dataset_meta.json")
  local val_set_size=$(jq '.val.set_size' "$DATASET/dataset_meta.json")
-
- info "Patching $file"
- NUM_CLASSES=$(( 1 + num_classes )) \
- TRAIN_SET_SIZE=$train_set_size \
- VAL_SET_SIZE=$val_set_size \
+ 
+ info "Patching $file with $NUM_CLASSES classes and train/val size of $train_set_size/$val_set_size"
+ export NUM_CLASSES=$(( 1 + num_classes ))
+ export TRAIN_SET_SIZE=$train_set_size
+ export VAL_SET_SIZE=$val_set_size
  perl -p -e 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : $&/eg' <"$file.template" >"$file"
 }
 
@@ -104,7 +105,7 @@ function do_train(){
   $(optional_flag tf_initial_checkpoint "$CHECKPOINT") &
  PID_TRAIN=$!
 
- if [ $VALIDATE ] ; then
+ if [ ! -z "$VALIDATE" ] ; then
   do_eval 0 &
   PID_VAL=$!
   sleep 2
@@ -130,7 +131,7 @@ function do_eval(){
  fi
 
  info "Evaluating:\n DATASET=${DATASET}\nLOGDIR=${LOGDIR}"
- assert "-d $LOGDIR" "[$LINENO] log dir '$LOGDIR' does not exist"
+ assert "-d '$LOGDIR'" "[$LINENO] log dir '$LOGDIR' does not exist"
  PYTHONPATH=$PYTHONPATH CUDA_VISIBLE_DEVICES=$cuda_visible_devices \
  python3 "${DEEPLAB_DIR}/eval.py" \
   --logtostderr \
@@ -155,7 +156,7 @@ function do_eval(){
 function do_export(){
  local cuda_visible_devices=$CUDA_VISIBLE_DEVICES
 
- assert "-d $LOGDIR" "[$LINENO] log dir '$LOGDIR' does not exist"
+ assert "-d '$LOGDIR'" "[$LINENO] log dir '$LOGDIR' does not exist"
 
  # If the checkpoint number is 0, remove it from the path
  if ((EXPORT_CHECKPOINT_NUMBER == 0)); then
@@ -183,7 +184,7 @@ function do_export(){
   --inference_scales=1.0
  local return_code=$?
  info "Export finished."
- return return_code
+ return $return_code
 }
 
 
@@ -201,8 +202,8 @@ function ctrl_c() {
  fi
 }
 ####
-assert "-d $DEEPLAB_DIR" "[$LINENO] Deeplab dir not found"
-assert "$(basename $(dirname $DEEPLAB_DIR) ) = research" "[$LINENO] Deeplab dir not in tensorflow_models/research folder"
+assert "-d '$DEEPLAB_DIR'" "[$LINENO] Deeplab dir not found"
+assert "$(basename $(dirname "$DEEPLAB_DIR") ) = research" "[$LINENO] Deeplab dir not in tensorflow_models/research folder"
 
 PYTHONPATH="$PYTHONPATH:$DEEPLAB_DIR/..:$DEEPLAB_DIR/../slim"
 

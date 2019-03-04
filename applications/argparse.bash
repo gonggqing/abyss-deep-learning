@@ -38,7 +38,7 @@ function bool_flag(){
 }
 
 function assert (){
-  if [ $1 ] ; then
+  if [ "$1" ] ; then
      return 0
   fi
   error "${COLOR_RED}Assertion failed:  \"$1\"${COLOR_NONE} (${@:2})"
