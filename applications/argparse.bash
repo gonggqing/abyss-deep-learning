@@ -13,7 +13,7 @@
 # MIT License - Copyright (c) 2015 Noah Hoffman
 
 
-### BEGIN This section added by Steven Potiris 
+### BEGIN This section added by Steven Potiris
 
 COLOR_RED='\033[0;31m'
 COLOR_YELLOW='\033[1;33m'
@@ -38,14 +38,14 @@ function bool_flag(){
 }
 
 function assert (){
-  if [ $1 ] ; then
+  if [ "$1" ] ; then
      return 0
   fi
   error "${COLOR_RED}Assertion failed:  \"$1\"${COLOR_NONE} (${@:2})"
   exit 1
 }
 
-#### END 
+#### END
 
 argparse(){
     argparser=$(mktemp 2>/dev/null || mktemp -t argparser)

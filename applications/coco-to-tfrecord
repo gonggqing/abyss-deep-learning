@@ -4,7 +4,7 @@ set -e
 
 SCRIPTNAME=$(basename $0)
 ARGPARSE_DESCRIPTION="Convert a COCO JSON dataset to a TfRecord dataset.
-e.g.: 
+e.g.:
 coco-to-tfrecord \\\\
   train,train_800.json,/data/images-trainval \\\\
   val,val_800.json,/data/images-trainval \\\\
@@ -38,16 +38,16 @@ echo '{}' > "$LABELSET_DIR/tfrecord/dataset_meta.json"
 for set_pair in "${SET_SPECS[@]}"; do
   echo $set_pair | while IFS=, read -r set_name set_path set_image_dir; do
     info "Processing $set_name: $set_path @ $set_image_dir"
-    assert "! -z $set_name -a ! -z $set_path -a ! -z $set_image_dir" "$set_name tuple incomplete (requires set_name,set_path,set_image_dir)"
-    assert "-f $set_path " "$set_name: $set_name COCO not found"
-    assert "-d $set_image_dir" "$set_name: image directory not found"
+    assert "! -z $set_name -a ! -z "$set_path" -a ! -z "$set_image_dir"" "$set_name tuple incomplete (requires set_name,set_path,set_image_dir)"
+    assert "-f "$set_path" " "$set_name: $set_name COCO not found"
+    assert "-d "$set_image_dir"" "$set_name: image directory not found"
     jq '.images[].file_name' "$set_path" | sed 's/"//g' > "$VOC_DIR/images.$set_name.csv" # Extract image filenames from COCO
     cat "$VOC_DIR/images.$set_name.csv" | sort | while IFS=$"\n" read -r filename; do ln -s "${set_image_dir}/${filename}"; done
     cat "$VOC_DIR/images.$set_name.csv" | sort | sed 's/\.png//' | sed 's/\.jpg//' >"$VOC_DIR/ImageSets/Segmentation/${set_name}.txt"
-    
+
     ## Create the VOC label images
     ## #TODO: Currently handling images with no annotations very poorly, ensure every image has at least one annotation
-    cd "$VOC_DIR" 
+    cd "$VOC_DIR"
     coco-to-voc "$set_path" SegmentationClassRaw -v -v --image-dir JPEGImages
 
     # Append to the metadata file
