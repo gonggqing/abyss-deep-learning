@@ -13,7 +13,7 @@
 # MIT License - Copyright (c) 2015 Noah Hoffman
 
 
-### BEGIN This section added by Steven Potiris 
+### BEGIN This section added by Steven Potiris
 
 COLOR_RED='\033[0;31m'
 COLOR_YELLOW='\033[1;33m'
@@ -45,7 +45,7 @@ function assert (){
   exit 1
 }
 
-#### END 
+#### END
 
 argparse(){
     argparser=$(mktemp 2>/dev/null || mktemp -t argparser)
