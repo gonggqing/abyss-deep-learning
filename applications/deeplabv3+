@@ -109,6 +109,7 @@ function do_train(){
  fi
  patch_dataset_file
 
+
  info "Beginning training for $TRAIN_STEPS steps"
   PYTHONPATH=$PYTHONPATH CUDA_VISIBLE_DEVICES=$(cut -d, -f1 <<< $CUDA_VISIBLE_DEVICES) \
   python3 "${DEEPLAB_DIR}"/train.py \
@@ -134,7 +135,7 @@ function do_train(){
  PID_TRAIN=$!
 
  # This is used to copy the models to $LOGDIR/checkpoints, which stops deeplab overwriting them
- copy_models
+ copy_models &
 
 
  if [ ! -z "$VALIDATE" ] ; then
