@@ -24,7 +24,7 @@ function info(){
 }
 
 function error(){
- echo -e "${COLOR_RED}[$SCRIPTNAME]${COLOR_NONE} ${@}" 2>&1
+ echo -e "${COLOR_RED}[$SCRIPTNAME]${COLOR_NONE} ERROR: ${@}" 2>&1
  exit 1
 }
 

@@ -85,6 +85,7 @@ function do_train(){
  assert "$BATCH_SIZE > 0" "Invalid batch size of 0"
  if [[ $TRAIN_FREEZE_BATCH_NORM = yes ]]; then
   assert "$BATCH_SIZE > 1" "If you are fine tuning batch_norm you MUST have a batch size > 1."
+  if [[ $BATCH_SIZE < 12 ]]; then info "WARNING: Batch size of at least 12-16 is recommended"; fi
  fi
  patch_dataset_file
 
