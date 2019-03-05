@@ -2,7 +2,7 @@
 # Deeplab V3+ train, eval, export utility
 SCRIPTNAME="$(basename $0)"
 ARGPARSE_DESCRIPTION="Deeplab v3+ application for initialising dataset, training, evaluating and exporting the frozen inference graph.
-Examples: 
+Examples:
 
 deeplabv3+ init train.json /tmp/project1 \\\\
     --eval-dataset val.json \\\\
@@ -23,6 +23,7 @@ parser.add_argument('--debug', action='store_true', help='Sets bash -x flag')
 parser.add_argument('--deeplab-dir', help='The path to tensorflow/models/deeplab', default='$PWD')
 parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output to stderr')
 parser.add_argument('--image-dir', help='[init] The path to the image directory for the COCO JSON (init only)', default='$PWD')
+parser.add_argument('--image-format', help='[init] The image format of the files (init only)', default='jpg')
 parser.add_argument('--eval-dataset', help='[init] The path to the image directory for the COCO JSON (init only)')
 parser.add_argument('--learning-rate', type=float, help='[train] The base learning rate (default 1e-4, use 1e-3 for scratch training)', default=1e-4)
 parser.add_argument('--model', help='[train] One of {xception_65, mobilenet_v2}', default='xception_65')
@@ -72,12 +73,31 @@ function do_init(){
 
 
  # Go to the train logdir and create the VOC dataset
- 
+
  cd "$LOGDIR"
  [[ ! -z $EVAL_DATASET ]] && VAL_CMD="val,$EVAL_DATASET,$IMAGE_DIR"
- coco-to-tfrecord "train,$DATASET,$IMAGE_DIR" "$VAL_CMD" --deeplab-dir "$DEEPLAB_DIR" --output-dir "$LOGDIR"
+ coco-to-tfrecord "train,$DATASET,$IMAGE_DIR" "$VAL_CMD" --deeplab-dir "$DEEPLAB_DIR" --output-dir "$LOGDIR" --image-format $IMAGE_FORMAT
  info "init success"
 }
+
+function copy_models(){
+if [[ ! -d $LOGDIR/checkpoints ]]; then
+  mkdir -p $LOGDIR/checkpoints
+fi
+inotifywait -m -e moved_to -e create "$LOGDIR" --format "%f" | while read f
+do
+    echo $f
+    # check if the file is a .sh file
+    if [[ $f = *"model.ckpt"* ]]; then
+      # Sleep to allow for all models to be copied in
+      sleep 15
+      # Copy the models - use rsync instead?
+      cp -r $LOGDIR/*"model.ckpt"* $LOGDIR/checkpoints
+    fi
+done
+}
+
+
 
 function do_train(){
  info "Training:\n DATASET=${DATASET}\nLOGDIR=${LOGDIR}"
@@ -111,6 +131,10 @@ function do_train(){
   --save_interval_secs 300 \
   $(optional_flag tf_initial_checkpoint "$CHECKPOINT") &
  PID_TRAIN=$!
+
+ # This is used to copy the models to $LOGDIR/checkpoints, which stops deeplab overwriting them
+ copy_models
+
 
  if [ ! -z "$VALIDATE" ] ; then
   do_eval 0 &

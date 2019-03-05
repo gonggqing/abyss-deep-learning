@@ -42,7 +42,7 @@ for set_pair in "${SET_SPECS[@]}"; do
     assert "-f '$set_path' " "$set_name: $set_name COCO not found"
     assert "-d '$set_image_dir'" "$set_name: image directory not found"
     jq '.images[].file_name' "$set_path" | sed 's/"//g' > "$VOC_DIR/images.$set_name.csv" # Extract image filenames from COCO
-    cat "$VOC_DIR/images.$set_name.csv" | sort | while IFS=$"\n" read -r filename; do ln -s "${set_image_dir}/${filename}"; done
+    cat "$VOC_DIR/images.$set_name.csv" | sort | while IFS=$"\n" read -r filename; do ln -sf "${set_image_dir}/${filename}"; done
     cat "$VOC_DIR/images.$set_name.csv" | sort | sed 's/\.png//' | sed 's/\.jpg//' >"$VOC_DIR/ImageSets/Segmentation/${set_name}.txt"
 
     ## Create the VOC label images

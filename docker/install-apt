@@ -17,3 +17,4 @@ sudo
 tig
 vim
 xcftools
+inotify-tools
