@@ -43,14 +43,16 @@ set -e
 function patch_dataset_file(){
  local file="$DEEPLAB_DIR/datasets/segmentation_dataset.py"
  assert "-f '$DATASET/dataset_meta.json'" "Dataset meta file not found."
- local num_classes=$(jq '.train.num_classes' "$DATASET/dataset_meta.json")
- local train_set_size=$(jq '.train.set_size' "$DATASET/dataset_meta.json")
- local val_set_size=$(jq '.val.set_size' "$DATASET/dataset_meta.json")
- 
- info "Patching $file with $NUM_CLASSES classes and train/val size of $train_set_size/$val_set_size"
- export NUM_CLASSES=$(( 1 + num_classes ))
- export TRAIN_SET_SIZE=$train_set_size
- export VAL_SET_SIZE=$val_set_size
+ NUM_CLASSES=$(jq '.train.num_classes' "$DATASET/dataset_meta.json")
+ TRAIN_SET_SIZE=$(jq '.train.set_size' "$DATASET/dataset_meta.json")
+ VAL_SET_SIZE=$(jq '.val.set_size' "$DATASET/dataset_meta.json")
+ NUM_CLASSES=$(( 1 + NUM_CLASSES ))
+ [[ "$VAL_SET_SIZE" == 'null' ]] && VAL_SET_SIZE=0
+ info "Patching $file with $NUM_CLASSES classes and train/val size of $TRAIN_SET_SIZE/$VAL_SET_SIZE"
+ [[ $VALIDATE == yes ]] && assert "$VAL_SET_SIZE > 0" "Val set is empty but --validate was given."
+ export NUM_CLASSES
+ export TRAIN_SET_SIZE
+ export VAL_SET_SIZE
  perl -p -e 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : $&/eg' <"$file.template" >"$file"
 }
 
@@ -59,23 +61,28 @@ function do_install(){
 }
 
 function do_init(){
- if [[ ! -f "$DATASET" ]] ; then error "[$LINENO] dataset $DATASET does not exist"; fi
- if [[ ! -z "$EVAL_DATASET" && ! -f "$EVAL_DATASET" ]] ; then error "[$LINENO] validation dataset $EVAL_DATASET does not exist"; fi
- if [[ ! -d "$IMAGE_DIR" ]] ; then error "[$LINENO] dataset $IMAGE_DIR does not exist"; fi
- if [[ ! -d "$LOGDIR" ]] ; then error "[$LINENO] dataset $LOGDIR does not exist"; fi
+ # if [[ ! -f "$DATASET" ]] ; then error "[$LINENO] dataset $DATASET does not exist"; fi
+ # if [[ ! -z "$EVAL_DATASET" && ! -f "$EVAL_DATASET" ]] ; then error "[$LINENO] validation dataset $EVAL_DATASET does not exist"; fi
+ # if [[ ! -d "$IMAGE_DIR" ]] ; then error "[$LINENO] dataset $IMAGE_DIR does not exist"; fi
+ # if [[ ! -d "$LOGDIR" ]] ; then error "[$LINENO] dataset $LOGDIR does not exist"; fi
+ assert "-f '$DATASET'" "[$LINENO] dataset $DATASET does not exist"
+ assert "-z '$EVAL_DATASET' || -f '$EVAL_DATASET'" "[$LINENO] validation dataset $EVAL_DATASET does not exist"
+ assert "-d '$IMAGE_DIR'" "[$LINENO] dataset $IMAGE_DIR does not exist"
+ assert "-d '$LOGDIR'" "[$LINENO] dataset $LOGDIR does not exist"
+
 
  # Go to the train logdir and create the VOC dataset
  
  cd "$LOGDIR"
  [[ ! -z $EVAL_DATASET ]] && VAL_CMD="val,$EVAL_DATASET,$IMAGE_DIR"
- coco-to-tfrecord "train,$DATASET,$IMAGE_DIR" "$VAL_CMD" --deeplab-dir "$DEEPLAB_DIR"
+ coco-to-tfrecord "train,$DATASET,$IMAGE_DIR" "$VAL_CMD" --deeplab-dir "$DEEPLAB_DIR" --output-dir "$LOGDIR"
  info "init success"
 }
 
 function do_train(){
  info "Training:\n DATASET=${DATASET}\nLOGDIR=${LOGDIR}"
- assert "$TRAIN_STEPS -gt 0" "[$LINENO] --train-steps must be provided"
- assert "-d $LOGDIR" "[$LINENO] log dir '$LOGDIR' does not exist"
+ assert "$TRAIN_STEPS > 0" "[$LINENO] --train-steps must be provided"
+ assert "$BATCH_SIZE > 0" "Invalid batch size of 0"
  if [[ $TRAIN_FREEZE_BATCH_NORM = yes ]]; then
   assert "$BATCH_SIZE > 1" "If you are fine tuning batch_norm you MUST have a batch size > 1."
  fi
@@ -131,7 +138,7 @@ function do_eval(){
  fi
 
  info "Evaluating:\n DATASET=${DATASET}\nLOGDIR=${LOGDIR}"
- assert "-d '$LOGDIR'" "[$LINENO] log dir '$LOGDIR' does not exist"
+
  PYTHONPATH=$PYTHONPATH CUDA_VISIBLE_DEVICES=$cuda_visible_devices \
  python3 "${DEEPLAB_DIR}/eval.py" \
   --logtostderr \
@@ -155,8 +162,6 @@ function do_eval(){
 
 function do_export(){
  local cuda_visible_devices=$CUDA_VISIBLE_DEVICES
-
- assert "-d '$LOGDIR'" "[$LINENO] log dir '$LOGDIR' does not exist"
 
  # If the checkpoint number is 0, remove it from the path
  if ((EXPORT_CHECKPOINT_NUMBER == 0)); then
@@ -204,6 +209,8 @@ function ctrl_c() {
 ####
 assert "-d '$DEEPLAB_DIR'" "[$LINENO] Deeplab dir not found"
 assert "$(basename $(dirname "$DEEPLAB_DIR") ) = research" "[$LINENO] Deeplab dir not in tensorflow_models/research folder"
+assert "-e '$DATASET'" "[$LINENO] dataset '$DATASET' does not exist"
+assert "-d '$LOGDIR'" "[$LINENO] log dir '$LOGDIR' does not exist"
 
 PYTHONPATH="$PYTHONPATH:$DEEPLAB_DIR/..:$DEEPLAB_DIR/../slim"
 

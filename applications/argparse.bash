@@ -25,6 +25,7 @@ function info(){
 
 function error(){
  echo -e "${COLOR_RED}[$SCRIPTNAME]${COLOR_NONE} ${@}" 2>&1
+ exit 1
 }
 
 function optional_flag(){
@@ -37,12 +38,17 @@ function bool_flag(){
  echo "--${no}${1}"
 }
 
+
 function assert (){
-  if [ "$1" ] ; then
-     return 0
+  # Usage: assert "condition" "error message"
+  # Note: Ensure there are EXACTLY two arguments, and that any paths are enclosed with quotes
+  [ $# -ne 2 ] && error "Assert expected exactly two parameters (got $@)."
+  local condition="[[ $1 ]]"
+  if eval $condition ; then
+    [[ $DEBUG ]] && info "Assert passed: $condition" || true
+    return 0
   fi
-  error "${COLOR_RED}Assertion failed:  \"$1\"${COLOR_NONE} (${@:2})"
-  exit 1
+  error "Assertion failed: $condition (${@:2})"
 }
 
 #### END

@@ -12,6 +12,7 @@ coco-to-tfrecord \\\\
 source $(dirname $0)/argparse.bash || exit 1 # This imports functions info, error, optional_flag, bool_flag, assert
 argparse "$@" <<EOF || exit 1
 parser.add_argument('set_specs', nargs='+', help='CSV tuples of (set_name,coco_path,image_dir) to embed in the dataset')
+parser.add_argument('--output-dir', help='Where to output the TfRecord, default \$PWD', default='$PWD')
 parser.add_argument('--image-format', help='Extension of the image files, one of: {png, jpg}', default='jpg')
 parser.add_argument('--deeplab-dir', help='The path to the tensorflow deeplab dir', default='$HOME/src/tensorflow_models/research/deeplab')
 parser.add_argument('--check-labels', action='store_true', help='Output the histograms of the label values.')
@@ -20,8 +21,7 @@ EOF
 
 set -e
 
-LABELSET_DIR=$PWD
-VOC_DIR=$LABELSET_DIR/voc
+VOC_DIR=$OUTPUT_DIR/voc
 
 info "[1/2] Creating VOC dataset"
 #Make relevant VOC structures
@@ -29,18 +29,18 @@ mkdir -p \
       "$VOC_DIR/JPEGImages" \
       "$VOC_DIR/SegmentationClassRaw" \
       "$VOC_DIR/ImageSets/Segmentation" \
-      "$LABELSET_DIR/tfrecord"
+      "$OUTPUT_DIR/tfrecord"
 
 # First create symlinks to relevant images
-# cd "$LABELSET_DIR"
+# cd "$OUTPUT_DIR"
 cd "$VOC_DIR/JPEGImages"
-echo '{}' > "$LABELSET_DIR/tfrecord/dataset_meta.json"
+echo '{}' > "$OUTPUT_DIR/tfrecord/dataset_meta.json"
 for set_pair in "${SET_SPECS[@]}"; do
   echo $set_pair | while IFS=, read -r set_name set_path set_image_dir; do
     info "Processing $set_name: $set_path @ $set_image_dir"
-    assert "! -z $set_name -a ! -z "$set_path" -a ! -z "$set_image_dir"" "$set_name tuple incomplete (requires set_name,set_path,set_image_dir)"
-    assert "-f "$set_path" " "$set_name: $set_name COCO not found"
-    assert "-d "$set_image_dir"" "$set_name: image directory not found"
+    assert "! -z $set_name && ! -z '$set_path' && ! -z '$set_image_dir'" "$set_name tuple incomplete (requires set_name,set_path,set_image_dir)"
+    assert "-f '$set_path' " "$set_name: $set_name COCO not found"
+    assert "-d '$set_image_dir'" "$set_name: image directory not found"
     jq '.images[].file_name' "$set_path" | sed 's/"//g' > "$VOC_DIR/images.$set_name.csv" # Extract image filenames from COCO
     cat "$VOC_DIR/images.$set_name.csv" | sort | while IFS=$"\n" read -r filename; do ln -s "${set_image_dir}/${filename}"; done
     cat "$VOC_DIR/images.$set_name.csv" | sort | sed 's/\.png//' | sed 's/\.jpg//' >"$VOC_DIR/ImageSets/Segmentation/${set_name}.txt"
@@ -57,8 +57,8 @@ for set_pair in "${SET_SPECS[@]}"; do
       echo "$num_classes,$set_size" |
       name-value-from-csv num_classes,set_size |
       name-value-convert --to json)
-    existing_json=$(cat "$LABELSET_DIR/tfrecord/dataset_meta.json")
-    echo -en $existing_json | jq ". |= . + {\"$set_name\": $json_meta}" > "$LABELSET_DIR/tfrecord/dataset_meta.json"
+    existing_json=$(cat "$OUTPUT_DIR/tfrecord/dataset_meta.json")
+    echo -en $existing_json | jq ". |= . + {\"$set_name\": $json_meta}" > "$OUTPUT_DIR/tfrecord/dataset_meta.json"
   done
 done
 
@@ -77,7 +77,7 @@ fi
 ### Now run VOC to TfRecord
 info "[2/2] Now converting VOC -> TfRecord"
 
-ls -ald "$VOC_DIR/JPEGImages" "$VOC_DIR/ImageSets/Segmentation" "$VOC_DIR/SegmentationClassRaw" "$LABELSET_DIR/tfrecord" 1>&2
+ls -ald "$VOC_DIR/JPEGImages" "$VOC_DIR/ImageSets/Segmentation" "$VOC_DIR/SegmentationClassRaw" "$OUTPUT_DIR/tfrecord" 1>&2
 # Check all dirs exist
 if [ $? -ne 0 ]  ; then
   info "ERROR: There is a dir in the VOC structure that does not exist."
@@ -88,5 +88,5 @@ CUDA_VISIBLE_DEVICES= python3 $DEEPLAB_DIR/datasets/build_voc2012_data.py \
     --image_folder "$VOC_DIR/JPEGImages" \
     --list_folder "$VOC_DIR/ImageSets/Segmentation" \
     --semantic_segmentation_folder "$VOC_DIR/SegmentationClassRaw" \
-    --output_dir "$LABELSET_DIR/tfrecord" \
+    --output_dir "$OUTPUT_DIR/tfrecord" \
     --image_format "$IMAGE_FORMAT" --label_format png
