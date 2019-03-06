@@ -5,6 +5,8 @@ import os
 import random
 import sys
 from contextlib import redirect_stdout
+import pandas as pd
+import numpy as np
 
 from pycocotools.coco import COCO
 
@@ -15,22 +17,68 @@ Randomly sample data from coco json file passed as command line arguments or pip
 Output coco json contents in stdout.
 
 examples:
-    cat coco.json | coco-sample 100
+    # Randomly sample 100 images
+    cat coco.json | coco-sample 100 
+
+    # Sample a set that is (approximately) the largest set with balanced annotation.category_id's.
+    cat coco.json | coco-sample --balance category_id 
+
+    # Same as above, but limit each subset to a maximum of 11 images (not instances).
+    cat coco.json | coco-sample 11 --balance category_id
 """
+
+def balanced_image_ids(coco, balance_by, max_cat_size=None):
+    assert balance_by in ['category_id', 'caption']
+    if balance_by == 'caption':
+        raise NotImplementedError("caption balancing not yet implemented")
+    #TODO: Remove dependence on coco.get* filtering, so we can add caption balancing
+    anns = [ann for ann in coco.loadAnns(coco.getAnnIds(coco.getImgIds()))]
+    samples = pd.DataFrame(anns)[[balance_by, 'image_id']]
+    smallest_cat = samples.groupby(balance_by).size().idxmin()
+    cats_unique = samples[balance_by].unique()
+
+    images_by_cat = {cat_id: coco.getImgIds(catIds=[cat_id]) for cat_id in cats_unique}
+    for cat_id in images_by_cat.keys():
+        np.random.shuffle(images_by_cat[cat_id])
+    if max_cat_size:
+        images_by_cat[smallest_cat] = images_by_cat[smallest_cat][:max_cat_size]
+
+
+    measure = {cat_id: len(coco.getAnnIds(imgIds=image_list)) for cat_id, image_list in images_by_cat.items()}
+    say(str(measure))
+    sample_idxs = [cat_id
+                   for cat_id in measure.keys()
+                   if measure[cat_id] > measure[smallest_cat] ]
+    while len(sample_idxs):
+        for idx in sample_idxs:
+            images_by_cat[idx].pop()
+        measure = {cat_id: len(coco.getAnnIds(imgIds=image_list)) for cat_id, image_list in images_by_cat.items()}
+        sample_idxs = [cat_id
+                       for cat_id in measure.keys()
+                       if measure[cat_id] > measure[smallest_cat] ]
+    image_ids = [index_id
+                 for cat_index_ids in images_by_cat.values()
+                 for index_id in cat_index_ids]
+    anns = coco.loadAnns(coco.getAnnIds(image_ids))
+    samples = pd.DataFrame(anns)[[balance_by, 'image_id']]
+    return image_ids
 
 
 def main():
     global ARGS
     ARGS = get_args()
+    assert ARGS.balance or ARGS.num_imgs, "num_imgs must be given when not using --balance"
 
     say("creating coco object")
     coco = load_coco(sys.stdin.read())
 
-    if ARGS.num_imgs <= len(coco.imgs):
-        sample = random.sample(list(coco.imgs), ARGS.num_imgs)
-    else:
+    if ARGS.num_imgs and ARGS.num_imgs > len(coco.imgs):
         raise RuntimeError("Number of images to be sampled [{}] is greater than number of images in the data set "
                            "[{}] ".format(ARGS.num_imgs, len(coco.imgs)))
+    if ARGS.balance:
+        sample = balanced_image_ids(coco, ARGS.balance, ARGS.num_imgs)
+    else:
+        sample = random.sample(coco.getImgIds(), ARGS.num_imgs)
 
     coco.dataset['images'] = coco.loadImgs(sample)
     coco.dataset['annotations'] = coco.loadAnns(coco.getAnnIds(imgIds=sample))
@@ -63,7 +111,11 @@ class Verbose:
 
 def get_args():
     parser = argparse.ArgumentParser(description=DESCRIPTION)
-    parser.add_argument('num_imgs', type=int, help="Number of images to randomly sample")
+    parser.add_argument('num_imgs', nargs='?', type=int, help="Number of images to randomly sample (if --balance this is the optional maximum subset size)")
+    parser.add_argument(
+        "--balance",
+        help="Balance by one of: { category_id } (TODO: caption)",
+        type=str)
     parser.add_argument('-m', '--min', action='store_const', help="Output minimised json", const=None, default=4,
                         dest='indent')
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
