@@ -17,8 +17,8 @@ import numpy as np
 from pycocotools.coco import COCO
 
 
-def next_smallest_free_id(id_list):
-    return next(filterfalse(set(id_list).__contains__, count(1)))
+def next_smallest_free_id(id_list, starting_at=0):
+    return next(filterfalse(set(id_list).__contains__, count(starting_at)))
 
 class CocoDataset(object):
     '''Class to load, manipulate and save COCO datasets'''
@@ -137,12 +137,12 @@ class CocoDataset(object):
         self.categories = []
         self.annotations = []
         self.info = {
-            "contributor": "Abyss Solutions.",
-            "date_created": "2017-01-01 00:00:00.000000",
+            "contributor": "Abyss Solutions",
+            "date_created": "2019-01-01 00:00:00.000000",
             "description": "",
-            "url": "http://www.abysssolutions.co",
+            "url": "http://www.abysssolutions.com.au",
             "version": "1.0",
-            "year": 2017
+            "year": 2019
         }
         if name is not None:
             self.info['name'] = name
@@ -177,13 +177,12 @@ class CocoDataset(object):
             self, image_size, filename, url=None,
             force_id=None, license=0, date_captured=None, path=None,
             **kwargs):
-        if force_id in self.image_ids:
+        if force_id and force_id in self.image_ids:
             raise Exception(
                 "add_image: tried to add an image with force_id and encountered a key clash")
         if date_captured is None:
             date_captured = "1970-01-01 00:00:00"
-        image_id = force_id if force_id is not None else next_smallest_free_id(
-            self.image_ids)
+        image_id = force_id if force_id is not None else next_smallest_free_id(self.image_ids)
         record = {
             "id": image_id,
             "width": int(image_size[1]),
@@ -208,31 +207,25 @@ class CocoDataset(object):
         ann['id'] = next_smallest_free_id([ann['id'] for ann in self.annotations])
         self.annotations.append(ann)
 
-    def add_segmentation(self, image_id, category_id, segm, other=None):
+    def add_segmentation(self, image_id, category_id, segm, force_id=None, other=None):
         if category_id not in self.class_dict.inv:
             raise Exception("no category id exists {}".format(category_id))
         (segm, bbox, area) = CocoDataset.serialize_label(segm)
         # segm = [[j for i in polygon for j in i]]
-        if area > 1:
-            annotation_id = next_smallest_free_id(
-                [ann['id'] for ann in self.annotations])
-            annotation = {
-                "area": float(area),
-                "bbox": bbox if isinstance(bbox, list) else bbox.tolist(),
-                "category_id": category_id,
-                "id": annotation_id,
-                "image_id": image_id,
-                "iscrowd": 0,
-                "segmentation": segm
-            }
-            if other is not None:
-                annotation.update(other)
-            self.annotations.append(annotation)
-        else:
-            if self.verbose:
-                print(
-                    "Warning: Skipped annotation on image {:d} category {:d} due to area <= 1"
-                    .format(image_id, category_id), file=sys.stderr)
+        annotation_id = next_smallest_free_id(
+            [ann['id'] for ann in self.annotations]) if not force_id else force_id
+        annotation = {
+            "area": float(area),
+            "bbox": bbox if isinstance(bbox, list) else bbox.tolist(),
+            "category_id": category_id,
+            "id": annotation_id,
+            "image_id": image_id,
+            "iscrowd": 0,
+            "segmentation": segm
+        }
+        if other is not None:
+            annotation.update(other)
+        self.annotations.append(annotation)
 
     def add_caption(self, image_id, caption, other=None):
         annotation_id = next_smallest_free_id(
@@ -289,8 +282,7 @@ class CocoDataset(object):
         return path_or_buf.write(str(self))
 
     def __add__(self, other):
-        if not isinstance(other, CocoDataset):
-            raise Exception("Can only add together two CocoDataset objects")
+        assert isinstance(other, CocoDataset), "Can only add together two CocoDataset objects"
         if self.name and other.name:
             self.name += "_" + other.name
         elif not self.name and other.name:
@@ -323,8 +315,6 @@ class CocoDataset(object):
         # Never reuse image ids... refer to by filename/path if you need a unique key
         img_map = {}
         img_ids = set([img['id'] for img in self.images])
-        # print("Image map:")
-        # print(image_map)
         print("Category map:", file=sys.stderr)
         print(cat_map, file=sys.stderr)
         for image in other.images:
