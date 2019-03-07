@@ -313,7 +313,7 @@ def centroid2d(points):
 
 def get_args():
     parser = ArgumentParser(
-        description="The utility takes in a coco file and applies the segementations from the mask file provided as a command line argument and outputs the new coco json to stdout. If a binary file is give, assumes values are normalized between 0 and 1")
+        description="The utility takes in a coco file and applies the segementations from the mask file provided as a command line argument and outputs the new coco json to stdout. If a binary file is give, assumes values are normalized between 0 and 1.\nThe coco data file is taken from stdin whilst the mask coco file is supplied using a required argument \n eg. data.json | coco-from-segmentation mask.json")
     parser.add_argument('mask_file', type=str, help="Mask JSON File")
     parser.add_argument('-c', '--category-id', type=str,
                         help="The id of the category to set the mask can be an int or from-mask. from-mask infers category based on how many unique values there are for the pixels in a segmentation mask",
