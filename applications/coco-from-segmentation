@@ -150,7 +150,7 @@ def main(args):
                 segmentation_holes = []
                 unpadded_copy = copy[padding:-padding, padding:-padding]
                 found_contours = skimage.measure.find_contours(copy, thresholds[category_id] - np.finfo(copy.dtype).eps, fully_connected=args.fully_connected)
-
+                
                 if args.connect_holes:
                     for contour in found_contours:
                         contour = np.around(contour).astype(dtype=np.uint16) - 1
@@ -214,12 +214,12 @@ def main(args):
                 approximated = skimage.measure.approximate_polygon(contour, args.tolerance)
                 poly_mask = skimage.measure.grid_points_in_poly(original_mask.shape[:2], approximated)
                 # Polygon points found do not lie exactly on the original binary mask
-                if True not in np.unique(poly_mask):
-                    logging.warning('All polygon points (x, y) lie outside of mask height/width')
+                if not np.any( poly_mask ):
+                    logging.info('All polygon points (x, y) lie outside of mask height/width')
                     continue
                 segmentation = np.flip(approximated, axis=1).ravel().tolist()
                 points = [segmentation[n:n + 2] for n in range(0, len(segmentation), 2)]
-                score = get_score(unpadded_copy, poly_mask)
+                area, score = get_area_and_score(unpadded_copy, poly_mask)
                 # Score is rounded only if 'from-mask' is specified, i.e. if the binary mask input are from the SemanticPredictions:0 layer
                 # Otherwise, score is just average of pixel confidence / area
                 if args.category_id == 'from-mask':
@@ -229,7 +229,7 @@ def main(args):
                     "image_id"    : original_entry['id'],
                     "category_id" : category_id,
                     "segmentation": [segmentation],
-                    "area"        : get_area(poly_mask),
+                    "area"        : area,
                     "bbox"        : bounding_box(points),
                     "iscrowd"     : 0,
                     "score"       : score,
@@ -263,12 +263,10 @@ def get_file_ext(path: str) -> str:
     return ext
 
 
-def get_area(mask):
-    return np.count_nonzero(mask)
-
-
-def get_score(original_mask, poly_mask):
-    return original_mask[poly_mask].sum() / get_area(poly_mask)
+def get_area_and_score(original_mask, poly_mask):
+    area = np.count_nonzero(poly_mask)
+    if area == 0: return 0, 0
+    return area, original_mask[poly_mask].sum() / area
 
 
 def bounding_box(polygon, w=None, h=None):
