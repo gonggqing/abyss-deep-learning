@@ -271,7 +271,7 @@ def imread(path, output_size=None, dtype=None):
         im = im.resize(output_size)
     im = np.array(im)
     if dtype:
-        im.astype(dtype)
+        im = im.astype(dtype)
     return im
 
 
