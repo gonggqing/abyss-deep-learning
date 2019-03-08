@@ -1,21 +1,41 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import logging
 import os
 import sys
 import time
-from argparse import ArgumentParser
 from datetime import datetime
 
 import numpy as np
-import skimage.draw
-import skimage.measure
+import skimage
 from abyss_deep_learning.utils import imread
+
+_DESCRIPTION = """
+The utility takes in a coco file and applies the segmentations from the mask file provided as a command line argument 
+and outputs the new coco json to stdout. If a binary file is give, assumes values are normalized between 0 and 1.
+The coco data file is taken from stdin whilst the mask coco file is supplied using a required argument 
+eg. data.json | coco-from-segmentation mask.json
+
+examples: 
+    Generates a COCO file with segmentation annotations inferred from the amount of unique pixels in the mask.
+    Holes are connected by drawing a line between the first pixel in the polygon points to the closest background pixel
+    e.g. Use for mask JSON that contains paths to segmentation masks from the SemanticPredictions layer
+    
+    cat images.json | coco-from-segmentation mask.json -c from-mask -n 2 --connect-holes > segmentations.json
+    
+    Generates a COCO file with segmentation annotations from pixels above and below certain values.
+    e.g. Use for mask JSON that contains paths to segmentation masks from the ResizedBilinear layer
+    
+    cat images.json | coco-from-segmentation mask.json -c 1 --lower-threshold 0.3 --upper-threshold 0.8 > segmentations.json
+    
+Use --normalize if passing unnormalized .bin file
+"""
 
 np.set_printoptions(threshold=np.inf)
 
 
-def main(args):
+def main(args: argparse.Namespace):
     logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)03d: %(levelname)s: %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S',
                         level=args.verbose)
@@ -54,8 +74,7 @@ def main(args):
             'description' : 'This is a dataset configured by Abyss Solutions.',
             'version'     : '1.0',
             'url'         : 'http://www.abysssolutions.com.au',
-        }
-                                         ),
+        }),
         'images'     : original_json.get('images', []),
         'annotations': [],
         'categories' : original_json.get('categories', []),
@@ -63,8 +82,7 @@ def main(args):
             'id'  : 0,
             'url' : 'http://creativecommons.org/licenses/by-nc-sa/2.0/',
             'name': 'Attribution-NonCommercial-ShareAlike License',
-        }]
-                                         )
+        }])
     }
     output_annotations = coco_json['annotations']
 
@@ -80,150 +98,81 @@ def main(args):
             logging.warning('Skipping mask {} as original entry could not be found'.format(curr_id))
             continue
 
-        original_mask = load_input(mask_entry)
-        if original_mask is None:
+        padded_mask = load_input(mask_entry, padding=padding, normalize=args.norm)
+        if padded_mask is None:
             logging.warning("Unknown file type {} is not supported currently".format(get_file_ext(mask_entry['path'])))
             sys.exit(1)
 
-        padded_mask = load_input(mask_entry, padding=padding)
-        if args.fill_above:
-            padded_mask[padded_mask > args.low_thresh] = 1.0
-
-        masks = []
         category_ids = []
-        category_scores = []
         category_contours = []
-        # TODO: separate logic of generating contours outside of the loop that populates the annotations
+
         if args.category_id == 'from-mask':
             for category_id in range(len(thresholds)):
-                # Offset by one to account for background category
-                category_ids.append(category_id + 1)
-
-                # Create a copy of the original mask to mask out other category segmentation's
-                copy = np.array(padded_mask)
+                # Create a copy of the padded mask to mask out other category segmentation's
+                thresholded_padded_mask = np.array(padded_mask)
 
                 # Mask lower threshold of previous category
                 if category_id != 0:
-                    copy[copy <= (thresholds[category_id - 1] + np.finfo(copy.dtype).eps)] = 0.0
+                    thresholded_padded_mask[thresholded_padded_mask <= (thresholds[category_id - 1] + np.finfo(thresholded_padded_mask.dtype).eps)] = 0.0
 
                 # Mask upper threshold of next category
                 try:
-                    copy[copy >= (thresholds[category_id + 1] - np.finfo(copy.dtype).eps)] = 0.0
+                    thresholded_padded_mask[thresholded_padded_mask >= (thresholds[category_id + 1] - np.finfo(thresholded_padded_mask.dtype).eps)] = 0.0
                 except IndexError:
                     pass
-                # following was tested in ipython, need to adapt for code here
-                """
-                img = copy
-                to_points = []
-                from_points = []
-                for seg in hole_segments:
-                    # Convert to arr of n points of form (y, x)
-                    seg = np.flip(np.array(seg).reshape((len(seg) // 2, 2)), axis=1)
-                    
-                    # Calculate centroid of hole
-                    centroid_y, centroid_x = [int(round(i)) for i in centroid2d(seg)]
-                    
-                    # Get list of x and y co-ordinates
-                    r = seg[:, 0]   # rows
-                    c = seg[:, 1]   # columns
-                    
-                    # Mask the segmentation as background so that the closest point found is not its neighbouring point
-                    rr, cc = skimage.draw.polygon(r, c)
-                    mask_coords.append((rr, cc))    # Keep a reference to the pixels so that segmentation can be un-masked later
-                    img[rr, cc] = category_value
-                    
-                    min_coords = np.argwhere(img == 0)
-                    min_index = np.square(min_coords - np.array((centroid_y, centroid_x))).sum(axis=1).argmin()
-                    min_coord = min_coords[min_index]
-                    
-                    # Keep reference of centroid and coordinate
-                    to_points.append(min_coord)
-                    from_points.append((centroid_y, centroid_x))
-                    
-                # Draw the lines now
-                for from_point, to_point in zip(from_points, to_points):
-                    rr, cc = skimage.draw.line(from_point[0], from_point[1], to_point[0], to_point[1])
-                    img[rr, cc] = 0 # Background class value
-                """
+
                 # list of Nx2 array returned, consisting of n (row, column) points along the contour
-                # TODO: Filter out contours outside boundary of image
-                segmentation_holes = []
-                unpadded_copy = copy[padding:-padding, padding:-padding]
-                found_contours = skimage.measure.find_contours(copy, thresholds[category_id] - np.finfo(copy.dtype).eps, fully_connected=args.fully_connected)
-                
+                threshold_value = thresholds[category_id]
+                found_contours = skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)
                 if args.connect_holes:
-                    for contour in found_contours:
-                        contour = np.around(contour).astype(dtype=np.uint16) - 1
-                        poly_mask = skimage.measure.grid_points_in_poly(original_mask.shape[:2], contour)
-                        if True not in np.unique(poly_mask):
-                            continue
-                        score = round(get_score(unpadded_copy.astype(np.bool), poly_mask))
-                        if score == 0:
-                            segmentation_holes.append(contour)
+                    connected_padded_mask = connect_segmentation_holes(thresholded_padded_mask, found_contours, threshold_value=threshold_value)
+                    found_contours = skimage.measure.find_contours(connected_padded_mask, threshold_value - np.finfo(connected_padded_mask.dtype).eps, fully_connected=args.fully_connected)
 
-                    # Stores closest background pixel co-ordinate
-                    to_points = []
-
-                    # Stores co-ordinate of hole centroid
-                    from_points = []
-                    mask_coords = []
-                    for hole_segment in segmentation_holes:
-                        logging.info("Connecting holes with lines")
-                        centroid_y, centroid_x = [int(round(i)) for i in centroid2d(hole_segment)]
-
-                        r = hole_segment[:, 0]
-                        c = hole_segment[:, 1]
-
-                        rr, cc = skimage.draw.polygon(r, c)
-                        mask_coords.append((rr, cc))
-                        unpadded_copy[rr, cc] = thresholds[category_id]
-
-                        min_coords = np.argwhere(unpadded_copy == 0)
-                        min_index = np.square(min_coords - np.array((centroid_y, centroid_x))).sum(axis=1).argmin()
-                        min_coord = min_coords[min_index]
-
-                        # Keep reference of centroid and coordinate
-                        to_points.append(min_coord)
-                        from_points.append((centroid_y, centroid_x))
-
-                    for coord in mask_coords:
-                        unpadded_copy[coord[0], coord[1]] = 0
-
-                    # Draw the lines to connect a hole with background
-                    for from_point, to_point in zip(from_points, to_points):
-                        rr, cc = skimage.draw.line(*from_point, *to_point)
-                        unpadded_copy[rr, cc] = 0
-
-                    found_contours = skimage.measure.find_contours(copy, thresholds[category_id] - np.finfo(copy.dtype).eps, fully_connected=args.fully_connected)
-
+                category_ids.append(category_id + 1)
                 category_contours.append(found_contours)
-                masks.append(unpadded_copy.astype(np.bool))
         else:
-            padded_mask[padded_mask > args.up_thresh] = 0.0
-            found_contours = (skimage.measure.find_contours(padded_mask, args.low_thresh, fully_connected=args.fully_connected))
-            category_contours.append([np.around(contour) - padding for contour in found_contours])
+            # Create a copy of the padded mask to mask out other category segmentation's
+            thresholded_padded_mask = np.array(padded_mask)
+
+            thresholded_padded_mask[thresholded_padded_mask >= args.up_thresh + np.finfo(float).eps] = 0.0
+            thresholded_padded_mask[thresholded_padded_mask <= args.low_thresh - np.finfo(float).eps] = 0.0
+            found_contours = skimage.measure.find_contours(thresholded_padded_mask, args.low_thresh - np.finfo(float).eps, fully_connected=args.fully_connected)
+
+            if args.connect_holes:
+                padded_mask = connect_segmentation_holes(padded_mask, found_contours)
+                found_contours = skimage.measure.find_contours(padded_mask, args.low_thresh - np.finfo(float).eps, fully_connected=args.fully_connected)
+
+            category_contours.append(found_contours)
             category_ids.append(int(args.category_id))
-        for contours, category_id, mask in zip(category_contours, category_ids, masks):
+        original_mask = load_input(mask_entry, normalize=args.norm)
+        for contours, category_id in zip(category_contours, category_ids):
+            logging.info("{} contours in category {}".format(len(contours), category_id))
             # Mask out unnecessary pixels for score calculation
             # Segmentation that were originally holes should have a score of approximately 0
             # Segmentation that were NOT holes should have a score of approximately 1
             # This is relevant for semantic segmentation
-            unpadded_copy = np.zeros(original_mask.shape)
-            unpadded_copy[mask] = 1
             for contour in contours:
+                contour -= padding
                 approximated = skimage.measure.approximate_polygon(contour, args.tolerance)
-                poly_mask = skimage.measure.grid_points_in_poly(original_mask.shape[:2], approximated)
-                # Polygon points found do not lie exactly on the original binary mask
-                if not np.any( poly_mask ):
+
+                r = approximated[:, 0]
+                c = approximated[:, 1]
+                shape = (mask_entry.get('height'), mask_entry.get('width'))
+                if None in shape:
+                    shape = None
+                rr, cc = skimage.draw.polygon(r, c, shape=shape)
+
+                if len(rr) == 0:
+                    # Polygon points found do not lie exactly on the original binary mask
                     logging.info('All polygon points (x, y) lie outside of mask height/width')
                     continue
+
                 segmentation = np.flip(approximated, axis=1).ravel().tolist()
                 points = [segmentation[n:n + 2] for n in range(0, len(segmentation), 2)]
-                area, score = get_area_and_score(unpadded_copy, poly_mask)
-                # Score is rounded only if 'from-mask' is specified, i.e. if the binary mask input are from the SemanticPredictions:0 layer
-                # Otherwise, score is just average of pixel confidence / area
-                if args.category_id == 'from-mask':
-                    score = round(score)
+
+                area = len(rr)
+                score = 0 if is_hole(contour) else get_score(get_pixel_values_at_indices(rr, cc, original_mask), area)
+
                 output_annotations.append({
                     "id"          : len(output_annotations),
                     "image_id"    : original_entry['id'],
@@ -234,14 +183,103 @@ def main(args):
                     "iscrowd"     : 0,
                     "score"       : score,
                 })
-        logging.info(
-            "Processing time for mask {}: {}h {}m {}s".format(curr_id, *pretty_time(time.perf_counter() - tic)))
+        logging.info("Processing time for mask {}: {}h {}m {}s".format(curr_id, *pretty_time(time.perf_counter() - tic)))
 
     json.dump(coco_json, sys.stdout, indent=4)
     sys.exit(0)
 
 
-def load_input(image_entry, padding=0):
+def connect_segmentation_holes(mask: np.ndarray, contours: list, threshold_value: float = 0.5) -> np.ndarray:
+    """
+
+    Args:
+        mask: Mask of segmentation
+        contours: list of N x 2 np.ndarray that contain segmentation polygons of given mask
+        threshold_value: value to use to mask previous contours of the class. Ask Kent for further information
+
+    Returns:
+        Mask that has holes inside a segmentation connected to the closest background pixel
+    """
+    segmentation_holes = find_holes(contours)
+    logging.info("Found {} holes".format(len(segmentation_holes)))
+    # Stores closest background pixel co-ordinate
+    to_points = []
+    # Stores co-ordinate of hole centroid
+    from_points = []
+
+    mask_coords = []
+    for hole_segment in segmentation_holes:
+        logging.info("Connecting holes with lines")
+        first_point = hole_segment[0, :]
+        r = hole_segment[:, 0]
+        c = hole_segment[:, 1]
+
+        rr, cc = skimage.draw.polygon(r, c)
+        mask_coords.append((rr, cc))
+        # Mask polygon segmentation to have same value as current category so it doesn't double back
+        mask[rr, cc] = threshold_value
+
+        min_coords = np.argwhere(mask == 0)
+        min_index = np.square(min_coords - np.array(first_point)).sum(axis=1).argmin()
+        min_coord = min_coords[min_index]
+
+        # Keep reference of centroid and coordinate
+        to_points.append(min_coord)
+        from_points.append(first_point)
+
+    for coord in mask_coords:
+        # Un-mask background pixels
+        mask[coord[0], coord[1]] = 0
+    # Draw the lines to connect a hole with background
+    for from_point, to_point in zip(from_points, to_points):
+        rr, cc = skimage.draw.line(*from_point, *to_point)
+        mask[rr, cc] = 0
+    return mask
+
+
+def find_holes(contours: list) -> list:
+    """
+
+    Args:
+        contours: List of contours (np.ndarray) found on segmentation mask
+
+    Returns:
+        List of contours (np.ndarray) that are holes
+    """
+    holes = []
+    for contour in contours:
+        contour = np.around(contour).astype(dtype=np.int16)
+        if is_hole(contour):
+            holes.append(contour.astype(np.uint16))
+    return holes
+
+
+def is_hole(contour: np.ndarray) -> bool:
+    """
+
+    Args:
+        contour: N x 2 array of (r, c)
+
+    Returns:
+        True if contour is a hole otherwise False
+    """
+    diff_x = np.diff(contour[:, 1], axis=0)
+    sum_y = np.convolve(contour[:, 0], np.ones(2, dtype=np.uint8), mode='valid')
+    prod_x_y = np.multiply(diff_x, sum_y).sum()
+    return True if prod_x_y > 0 else False
+
+
+def load_input(image_entry: dict, padding: int = 0, normalize: bool = False) -> np.ndarray:
+    """
+
+    Args:
+        image_entry: Dictionary style image entry in COCO format
+        padding: Pad image borders by however many pixels specified
+        normalize: Normalize values to 0 - 1. If file extension is png, assumes maximum value is 255 and uses that to normalize
+
+    Returns:
+        np.ndarray representation of image normalized from 0 to 1. If file extension is not valid, returns None
+    """
     width = int(image_entry['width'])
     height = int(image_entry['height'])
     img = np.zeros((height + padding * 2, width + padding * 2))
@@ -249,8 +287,13 @@ def load_input(image_entry, padding=0):
     if ext in {'bin'}:
         img_buf = np.fromfile(image_entry['path'], dtype=np.float32)
         img_buf = np.reshape(img_buf, (height, width))
+        if normalize:
+            min_ = np.min(img_buf)
+            max_ = np.max(img_buf)
+            img_buf = (img_buf - min_) / (max_ - min_)
     elif ext in {'png', 'jpg'}:
-        img_buf = imread(image_entry['path'], dtype=np.float32) / 255
+        img_buf = imread(image_entry['path'], dtype=np.float32)
+        img_buf /= 255
     else:
         return None
     img[padding: padding + height, padding: padding + width] = img_buf[:, :]
@@ -258,19 +301,58 @@ def load_input(image_entry, padding=0):
 
 
 def get_file_ext(path: str) -> str:
+    """
+
+    Args:
+        path: path to file like
+
+    Returns:
+        extension of file like i.e. bin, png, jpg
+    """
     _, ext = os.path.splitext(path)
     ext = ext.lstrip('.')
     return ext
 
 
-def get_area_and_score(original_mask, poly_mask):
-    area = np.count_nonzero(poly_mask)
-    if area == 0: return 0, 0
-    return area, original_mask[poly_mask].sum() / area
+def get_score(sum_: float, area: int) -> float:
+    """
+
+    Args:
+        sum_: Sum of polygon values covered by a segmentation
+        area: Area of segmentation
+
+    Returns:
+        Calculates average score of a segmentation by averaging confidence values over area
+    """
+    return sum_ / area
+
+
+def get_pixel_values_at_indices(rr: np.ndarray, cc: np.ndarray, mask: np.ndarray) -> float:
+    """
+
+    Args:
+        rr: Row indices for segmentation points
+        cc: Column indices for segmentation points
+        mask: Original segmentation mask
+
+    Returns:
+        Sum of pixel values at segmentation points
+    """
+    return mask[rr, cc].sum()
 
 
 def bounding_box(polygon, w=None, h=None):
-    """Return the bounding box of a given polygon"""
+    """
+    Finds bounding box of segmentation from a list of (x, y) points
+
+    Args:
+        polygon: List of (x, y) points of segmentation
+        w:
+        h:
+
+    Returns:
+        Bounding box from points (x, y, width, height)
+    """
     min_x, min_y = np.min(polygon, axis=0)
     max_x, max_y = np.max(polygon, axis=0)
     # Convert to native Python scalars
@@ -288,35 +370,26 @@ def bounding_box(polygon, w=None, h=None):
 
 
 def pretty_time(seconds: float):
-    """ Return seconds as hours minute seconds
+    """
+
+    Args:
+        seconds: Total time in seconds
+
+    Returns:
+        hours, minutes, seconds
     """
     minutes, seconds = divmod(seconds, 60)
     hours, minutes = divmod(minutes, 60)
     return int(hours), int(minutes), seconds
 
 
-def centroid2d(points):
-    """
-
-    Args:
-        points: Nx2 array of points where N is the number of points
-
-    Returns: The centroid of the points
-
-    """
-    assert points.shape[1] == 2, "Expecting polygons to be in the form of [[x, y]] however found {} columns".format(
-        points.shape[1])
-    centroid_y = points[:, 0].sum() / points.shape[0]
-    centroid_x = points[:, 1].sum() / points.shape[0]
-    return centroid_y, centroid_x
-
-
-def get_args():
-    parser = ArgumentParser(
-        description="The utility takes in a coco file and applies the segementations from the mask file provided as a command line argument and outputs the new coco json to stdout. If a binary file is give, assumes values are normalized between 0 and 1.\nThe coco data file is taken from stdin whilst the mask coco file is supplied using a required argument \n eg. data.json | coco-from-segmentation mask.json")
+def get_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('mask_file', type=str, help="Mask JSON File")
     parser.add_argument('-c', '--category-id', type=str,
-                        help="The id of the category to set the mask can be an int or from-mask. from-mask infers category based on how many unique values there are for the pixels in a segmentation mask",
+                        help="The id of the category to set the mask can be an int or from-mask. "
+                             "from-mask infers category based on how many unique values there are for the pixels in a segmentation mask. "
+                             "The pixel values in the .bin mask files are assumed to be normalised. If they are not, specify --normalize",
                         required=True)
     parser.add_argument('-n', '--num-classes', type=int,
                         help="Number of possible classes that can be detected from the network (excluding background). Used in conjunction with from-mask.")
@@ -326,11 +399,12 @@ def get_args():
                         help="The upper score to threshold the image by, default: %(default)s")
     parser.add_argument('-t', '--tolerance', '--polygon-tolerance', type=float, default=0.0,
                         help="Threshold tolerance for polygon precision (see skimage.metrics.approximate_polygon(), default: %(default)s")
-    parser.add_argument('--fully-connected', help="Passed to skimage.measure.find_contours, default: %(default)s",
-                        choices=['low', 'high'], default='low')
-    parser.add_argument('-b', '--fill-above', '--fill-above-thresh', action='store_true',
-                        help="This argument will fill the mask with 1 values if the pixel is above the threshold")
-    parser.add_argument('--connect-holes', action='store_true', help="Connect holes in a segmentation so that they are drawn as background in annotation tool etc.")
+    parser.add_argument('--fully-connected', choices=['low', 'high'], default='low',
+                        help="Passed to skimage.measure.find_contours, default: %(default)s")
+    parser.add_argument('--connect-holes', action='store_true',
+                        help="Connect holes in a segmentation so that they are drawn as background in annotation tool.")
+    parser.add_argument('--norm', '--normalize', action='store_true',
+                        help="Normalize pixel values in mask to be between 0 and 1")
     parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, help="More output to stderr")
     return parser.parse_args()
 
