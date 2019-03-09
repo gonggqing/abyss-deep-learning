@@ -123,24 +123,24 @@ def main(args: argparse.Namespace):
 
                 # list of Nx2 array returned, consisting of n (row, column) points along the contour
                 threshold_value = thresholds[category_id]
-                found_contours = [np.around(contour) for contour in skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
+
+                found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
                 if args.connect_holes:
                     thresholded_padded_mask = connect_segmentation_holes(thresholded_padded_mask, found_contours, class_value=threshold_value)
-                    found_contours = skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)
+                    found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
 
                 category_ids.append(category_id + 1)
                 category_contours.append(found_contours)
         else:
             # Create a copy of the padded mask to mask out other category segmentation's
             thresholded_padded_mask = np.array(padded_mask)
-
             thresholded_padded_mask[thresholded_padded_mask >= args.up_thresh + np.finfo(float).eps] = 0.0
             thresholded_padded_mask[thresholded_padded_mask <= args.low_thresh - np.finfo(float).eps] = 0.0
-            found_contours = [np.around(contour) for contour in skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
 
+            found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
             if args.connect_holes:
                 thresholded_padded_mask = connect_segmentation_holes(thresholded_padded_mask, found_contours)
-                found_contours = skimage.measure.find_contours(thresholded_padded_mask, args.low_thresh - np.finfo(float).eps, fully_connected=args.fully_connected)
+                found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
 
             category_contours.append(found_contours)
             category_ids.append(int(args.category_id))
@@ -156,7 +156,7 @@ def main(args: argparse.Namespace):
                 shape = (mask_entry.get('height'), mask_entry.get('width'))
                 if None in shape:
                     shape = None
-                rr, cc = skimage.draw.polygon(r, c, shape=shape)
+                rr, cc = [i.astype(dtype=np.uint16) for i in skimage.draw.polygon(r, c, shape=shape)]
 
                 if not rr.size:
                     # Valid polygon could not be drawn
@@ -199,34 +199,21 @@ def connect_segmentation_holes(mask: np.ndarray, contours: list, class_value: fl
     for contour in contours:
         if is_hole(contour):
             logging.info("Connecting holes with lines")
-            contour = contour.astype(dtype=np.uint16)
             # Mask polygon segmentation to have same value as current category so it doesn't double back
-            mask_copy[skimage.draw.polygon(contour[:, 0], contour[:, 1])] = class_value
+            rr, cc = [i.astype(dtype=np.uint16) for i in skimage.draw.polygon(contour[:, 0], contour[:, 1])]
+            mask_copy[rr, cc] = class_value
 
             start = contour[0, :]
             end = find_nearest_pixel(start, mask_copy)
-            mask[skimage.draw.line(*start, *end)] = 0
+            rr, cc = [i.astype(dtype=np.uint16) for i in skimage.draw.line(*start, *end)]
+            mask[rr, cc] = 0
     return mask
 
 
 def find_nearest_pixel(start: np.ndarray, mask: np.ndarray, pixel_value: float = 0):
-    min_coords = np.argwhere(mask == pixel_value)
+    min_coords = np.argwhere(mask == pixel_value).astype(np.uint16)
     end = min_coords[np.square(min_coords - start).sum(axis=1).argmin()]
     return end
-
-
-def find_holes(contours: list) -> list:
-    """
-
-    Args:
-        contours: List of contours (np.ndarray) found on segmentation mask
-
-    Returns:
-        List of contours (np.ndarray) that are holes
-    """
-    for contour in contours:
-        if is_hole(contour):
-            yield contour
 
 
 def is_hole(contour: np.ndarray) -> bool:
@@ -240,7 +227,7 @@ def is_hole(contour: np.ndarray) -> bool:
     """
     diff_x = np.diff(contour.astype(dtype=np.int16)[:, 1], axis=0)
     sum_y = np.convolve(contour[:, 0], np.ones(2, dtype=np.uint8), mode='valid')
-    prod_x_y = np.multiply(diff_x, sum_y).sum()
+    prod_x_y = np.multiply(diff_x, sum_y).sum().astype(np.int32)
     return True if prod_x_y > 0 else False
 
 
@@ -257,7 +244,7 @@ def load_input(image_entry: dict, padding: int = 0, normalize: bool = False) -> 
     """
     width = int(image_entry['width'])
     height = int(image_entry['height'])
-    img = np.zeros((height + padding * 2, width + padding * 2))
+    img = np.zeros((height + padding * 2, width + padding * 2), dtype=np.float16)
     ext = get_file_ext(image_entry['path'])
     if ext in {'bin'}:
         img_buf = np.fromfile(image_entry['path'], dtype=np.float32)
@@ -267,7 +254,7 @@ def load_input(image_entry: dict, padding: int = 0, normalize: bool = False) -> 
             max_ = np.max(img_buf)
             img_buf = (img_buf - min_) / (max_ - min_)
     elif ext in {'png', 'jpg'}:
-        img_buf = imread(image_entry['path'], dtype=np.float32)
+        img_buf = imread(image_entry['path'], dtype=np.float16)
         img_buf /= 255
     else:
         return None
@@ -301,14 +288,10 @@ def bounding_box(polygon, w=None, h=None):
     Returns:
         Bounding box from points (x, y, width, height)
     """
-    min_x, min_y = np.min(polygon, axis=0)
-    max_x, max_y = np.max(polygon, axis=0)
+    min_x, min_y = [int(i) for i in np.min(polygon, axis=0)]
+    max_x, max_y = [int(i) for i in np.max(polygon, axis=0)]
     # Convert to native Python scalars
     # Should be a better way to do this I think
-    min_x = min_x.item()
-    min_y = min_y.item()
-    max_x = max_x.item()
-    max_y = max_y.item()
     if w is not None and h is not None:
         min_x = max(0, min_x)
         min_y = max(0, min_y)
