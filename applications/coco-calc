@@ -508,6 +508,8 @@ def assign_from_coco(stdin_coco: COCO, args: argparse.Namespace) -> COCO:
     with open(args.coco) as f:
         command_line_coco = json.load(f)
     key_2_new_id = {image_entry[args.key]: image_entry['id'] for image_entry in command_line_coco['images']}
+    all_image_ids = {img['id'] for img in stdin_coco.dataset['images']}
+    all_ann_ids = {ann['id'] for ann in stdin_coco.dataset['annotations']}
     all_ids = set(range(len(stdin_coco.dataset['images']) + len(command_line_coco['images'])))
     new_ids = {new_id for new_id in key_2_new_id.values()}
     available_ids = all_ids - new_ids
@@ -539,9 +541,11 @@ def assign_from_coco(stdin_coco: COCO, args: argparse.Namespace) -> COCO:
             logging.warning("This annotation has an image that could not be matched")
             ann_entry['image_id'] = old_id_2_new_id[ann_entry['image_id']]
     if args.drop:
-        keep_ids = {img['id'] for img in stdin_coco.dataset['images']} - drop_image_ids
+
+        keep_ids = all_image_ids - drop_image_ids
         stdin_coco.dataset['images'] = [img for img in stdin_coco.dataset['images'] if img['id'] in keep_ids]
-        keep_ids = {ann['id'] for ann in stdin_coco.dataset['annotations']} - drop_ann_ids
+
+        keep_ids = all_ann_ids - drop_ann_ids
         stdin_coco.dataset['annotations'] = [ann for ann in stdin_coco.dataset['annotations'] if ann['id'] in keep_ids]
     return stdin_coco
 
