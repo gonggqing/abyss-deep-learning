@@ -538,10 +538,11 @@ def assign_from_coco(stdin_coco: COCO, args: argparse.Namespace) -> COCO:
                 continue
             logging.warning("This annotation has an image that could not be matched")
             ann_entry['image_id'] = old_id_2_new_id[ann_entry['image_id']]
-    for i in drop_image_ids:
-        del stdin_coco.dataset['images'][i]
-    for i in drop_ann_ids:
-        del stdin_coco.dataset['annotations'][i]
+    if args.drop:
+        keep_ids = {img['id'] for img in stdin_coco.dataset['images']} - drop_image_ids
+        stdin_coco.dataset['images'] = [img for img in stdin_coco.dataset['images'] if img['id'] in keep_ids]
+        keep_ids = {ann['id'] for ann in stdin_coco.dataset['annotations']} - drop_ann_ids
+        stdin_coco.dataset['images'] = [ann for ann in stdin_coco.dataset['annotatinos'] if ann['id'] in keep_ids]
     return stdin_coco
 
 
