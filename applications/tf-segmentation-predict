@@ -30,6 +30,7 @@ import datetime
 import time
 
 import cv2
+(CV2_MAJOR, CV2_MINOR, _) = cv2.__version__.split(".")
 
 
 COLOR_MAP = [
@@ -40,7 +41,6 @@ COLOR_MAP = [
     (1, 0, 1),
     (0, 1, 1),
 ]
-
 
 
 
@@ -89,7 +89,12 @@ def result_to_coco(result_coco, labels, image_meta):
         label = label.astype(np.uint8)
 
 
-        mask_new, contours, hierarchy = cv2.findContours((label).astype(np.uint8), cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+        # mask_new, contours, hierarchy = cv2.findContours((label).astype(np.uint8), cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+        if CV2_MAJOR == "4":
+            contours, hierarchy = cv2.findContours((label).astype(np.uint8), cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+        else:
+            mask_new, contours, hierarchy = cv2.findContours((label).astype(np.uint8), cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+
 
         for contour in contours:
 
@@ -369,7 +374,6 @@ def main(args):
                     args.outputs_tensor,
                     feed_dict={args.inputs_tensor: tile[np.newaxis, ...]})[0]
                 for tile in tile_gen(image, args.tile_size)], args.tile_size, image.shape[:2])
-
 
             if args.output_coco:
                 image_meta = {

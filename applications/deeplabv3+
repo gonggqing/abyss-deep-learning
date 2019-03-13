@@ -32,6 +32,7 @@ parser.add_argument('--train-crop-size', help='[train] The crop size to use in t
 parser.add_argument('--train-freeze-batch-norm', action='store_false', help='[train] Whether or not to freeze the batch norms')
 parser.add_argument('--train-steps', type=int, help='[train] The number of epochs to train for', default=0)
 parser.add_argument('--validate', action='store_true', help='[train] Simultenously run validation after every checkpoint.')
+parser.add_argument('--num-train-gpus', help='[train] The number of GPUs used for training.')
 parser.add_argument('--batch-size', help='[train, eval] The batch size to use in training and evaluation', default=2)
 parser.add_argument('--checkpoint', help='[train, eval] The path to the checkpoint to load before training or evaluation')
 parser.add_argument('--eval-crop-size', help='[train] The crop size to use in evaluation, must be at least as big as the largest image in val set', default=513)
@@ -128,6 +129,7 @@ function do_train(){
   --train_logdir "$LOGDIR" \
   --train_split "train" \
   --training_number_of_steps "$TRAIN_STEPS" \
+  $(optional_flag num_clones "$NUM_TRAIN_GPUS") \
   $(bool_flag initialize_last_layer "$REINITIALIZE_HEAD") \
   --last_layers_contain_logits_only \
   --save_interval_secs 300 \
