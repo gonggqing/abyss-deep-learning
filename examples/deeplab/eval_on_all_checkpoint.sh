@@ -1,6 +1,6 @@
 #!/bin/bash
 LOGDIR=/mnt/ssd1/processed/industry-data/anadarko/gunnison/models/segmentation/deeplab/20190305.2_class_noBN
-DEEPLAB_DIR=/home/users/spo/src/tensorflow_models/research/deeplab
+DEEPLAB_DIR=~/src/tensorflow_models/research/deeplab
 
 
 # Copy the checkpoint to a checkpoint_temp file
@@ -14,7 +14,7 @@ echo "StepNumber,mIOU" > $CSV_RESULTS
 for FILE in $(find $LOGDIR/checkpoints -name *model.ckpt*); do
   if [[ $FILE = *"model.ckpt"*".index" ]]; then
     STEP_NUM=$(echo $(basename $FILE) | sed 's/model.ckpt-//g' | sed 's/.index//g')
-    MODEL_PATH="/mnt/ssd1/processed/industry-data/anadarko/gunnison/models/segmentation/deeplab/20190305.2_class_noBN/checkpoints/model.ckpt-$STEP_NUM"
+    MODEL_PATH=$LOGDIR/checkpoints/model.ckpt-$STEP_NUM
     echo "model_checkpoint_path: \"$MODEL_PATH\" "> $LOGDIR/checkpoint
     CUDA_VISIBLE_DEVICES=0,0 \
     bash ~/src/abyss/deep-learning/applications/deeplabv3+ \
