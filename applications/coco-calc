@@ -542,7 +542,7 @@ def assign_from_coco(stdin_coco: COCO, args: argparse.Namespace) -> COCO:
         keep_ids = {img['id'] for img in stdin_coco.dataset['images']} - drop_image_ids
         stdin_coco.dataset['images'] = [img for img in stdin_coco.dataset['images'] if img['id'] in keep_ids]
         keep_ids = {ann['id'] for ann in stdin_coco.dataset['annotations']} - drop_ann_ids
-        stdin_coco.dataset['images'] = [ann for ann in stdin_coco.dataset['annotations'] if ann['id'] in keep_ids]
+        stdin_coco.dataset['annotations'] = [ann for ann in stdin_coco.dataset['annotations'] if ann['id'] in keep_ids]
     return stdin_coco
 
 
