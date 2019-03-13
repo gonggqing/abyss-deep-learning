@@ -512,27 +512,26 @@ def assign_from_coco(stdin_coco: COCO, args: argparse.Namespace) -> COCO:
     new_ids = {new_id for new_id in key_2_new_id.values()}
     available_ids = all_ids - new_ids
     old_id_2_new_id = {}
-    if not args.drop:
-        for old_id, key in old_id_2_key.items():
-            if key not in key_2_new_id.keys():
-                old_id_2_key[old_id] = available_ids.pop()
-    for image_entry in stdin_coco.dataset['images']:
+    for old_id, key in old_id_2_key.items():
+        if key not in key_2_new_id.keys():
+            old_id_2_key[old_id] = available_ids.pop()
+    for i, image_entry in enumerate(stdin_coco.dataset['images']):
         try:
             image_entry['id'] = key_2_new_id[old_id_2_key[image_entry['id']]]
         except KeyError:
             if args.drop:
-                continue
+                del stdin_coco.dataset['images'][i]
             # current image entry key does not exist in the command line COCO file
             logging.warning("Image entry with id {} and key: value -> {}: {} cannot be found on command line COCO file".format(image_entry['id'], args.key, image_entry[args.key]))
             logging.warning("ID {} will be assigned to image entry with id {}".format(old_id_2_new_id[image_entry['id']], image_entry['id']))
             image_entry['id'] = old_id_2_new_id[image_entry['id']]
 
-    for ann_entry in stdin_coco.dataset['annotations']:
+    for i, ann_entry in enumerate(stdin_coco.dataset['annotations']):
         try:
             ann_entry['image_id'] = key_2_new_id[old_id_2_key[ann_entry['image_id']]]
         except KeyError:
             if args.drop:
-                continue
+                del stdin_coco.dataset['images'][i]
             logging.warning("This annotation has an image that could not be matched")
             ann_entry['image_id'] = old_id_2_new_id[ann_entry['image_id']]
     return stdin_coco
