@@ -506,8 +506,8 @@ def assign_from_coco(coco: COCO, args: argparse.Namespace) -> COCO:
     """
     old_id_2_key = {image_entry['id']: image_entry[args.key] for image_entry in coco.dataset['images']}
     with open(args.coco) as f:
-        command_line_coco = load_coco(f.read().strip())
-    key_2_new_id = {image_entry[args.key]: image_entry['id'] for image_entry in command_line_coco.dataset['images']}
+        command_line_coco = json.load(f)
+    key_2_new_id = {image_entry[args.key]: image_entry['id'] for image_entry in command_line_coco['images']}
     all_ids = set(range(max(len(coco.dataset['images']), len(command_line_coco['images']))))
     new_ids = {new_id for new_id in key_2_new_id.values()}
     available_ids = all_ids - new_ids
