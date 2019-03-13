@@ -1,6 +1,6 @@
 #!/bin/bash
 LOGDIR=/mnt/ssd1/processed/industry-data/anadarko/gunnison/models/segmentation/deeplab/20190305.2_class_noBN
-DEEPLAB_DIR=/home/users/spo/src/tensorflow_models/research/deeplab
+DEEPLAB_DIR=~/src/tensorflow_models/research/deeplab
 
 
 # Copy the checkpoint to a checkpoint_temp file
