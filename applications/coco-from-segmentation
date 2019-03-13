@@ -6,6 +6,7 @@ import os
 import sys
 import time
 from datetime import datetime
+from PIL import Image
 
 import numpy as np
 import skimage
@@ -96,8 +97,11 @@ def main(args: argparse.Namespace):
         if original_entry is None:
             logging.warning('Skipping mask {} as original entry could not be found'.format(curr_id))
             continue
-
-        padded_mask = load_input(mask_entry, padding=padding, normalize=args.norm)
+        height = original_entry.get('height')
+        width = original_entry.get('width')
+        if height is None or width is None:
+            width, height = Image.open(original_entry['path']).size
+        padded_mask = load_input(mask_entry, padding=padding, normalize=args.norm, height=height, width=width)
         if padded_mask is None:
             logging.warning("Unknown file type {} is not supported currently".format(get_file_ext(mask_entry['path'])))
             sys.exit(1)
@@ -239,7 +243,7 @@ def is_hole(contour: np.ndarray) -> bool:
     return True if prod_x_y > 0 else False
 
 
-def load_input(image_entry: dict, padding: int = 0, normalize: bool = False) -> np.ndarray:
+def load_input(image_entry: dict, padding: int = 0, normalize: bool = False, height: int = None, width: int = None) -> np.ndarray:
     """
 
     Args:
@@ -250,8 +254,10 @@ def load_input(image_entry: dict, padding: int = 0, normalize: bool = False) -> 
     Returns:
         np.ndarray representation of image normalized from 0 to 1. If file extension is not valid, returns None
     """
-    width = int(image_entry['width'])
-    height = int(image_entry['height'])
+    if width is None:
+        width = int(image_entry['width'])
+    if height is None:
+        height = int(image_entry['height'])
     img = np.zeros((height + padding * 2, width + padding * 2), dtype=np.float16)
     ext = get_file_ext(image_entry['path'])
     if ext in {'bin'}:
