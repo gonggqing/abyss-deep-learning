@@ -85,8 +85,8 @@ def load_annotations( predicted, truth, category_ids, args ):
             images[image_id][category_id][0].append(np.reshape(segmentation[0], (int(len(segmentation[0]) / 2), 2)))
 
     for i, annotation in enumerate(truth['annotations']):
-        if args.score_threshold is not None and 'score' in annotation and annotation['score'] < args.score_threshold:
-            continue
+        #if args.score_threshold is not None and 'score' in annotation and annotation['score'] < args.score_threshold:
+        #    continue
         image_id = annotation['image_id']
         if image_id not in images:
             images[image_id] = {}
@@ -269,7 +269,7 @@ def confusion_matrix(args):
                 tr, pr = metrics.ious_to_sklearn_pred_true(iou_matrix(p, t), tc, pc, iou_threshold=args.iou_threshold, blank_id=background_id)
             predicted_labels = np.append(predicted_labels, pr)
             truth_labels = np.append(truth_labels, tr)
-            matrix += sklearn.metrics.confusion_matrix(truth_labels, predicted_labels, category_ids).astype(matrix.dtype)
+        matrix = sklearn.metrics.confusion_matrix(truth_labels, predicted_labels, category_ids).astype(matrix.dtype)
 
     else:
         from skimage.draw import polygon
