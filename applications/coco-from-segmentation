@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+__author__ = 'Kent Hu, and Jeff Mohammed'
+__maintainer__ = 'Kent Hu'
+
 import argparse
 import json
 import logging
@@ -52,7 +55,7 @@ def main(args: argparse.Namespace):
     # Empty file check
     buffer = sys.stdin.read().strip()
     if buffer:
-        original_json = json.loads(buffer)
+        image_json = json.loads(buffer)
     else:
         logging.CRITICAL("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
         sys.exit(1)
@@ -67,7 +70,7 @@ def main(args: argparse.Namespace):
             sys.exit(1)
 
     coco_json = {
-        'info'       : original_json.get('info', {
+        'info'       : image_json.get('info', {
             'contributor' : 'Abyss Solutions',
             'total_time'  : '00h00m00s',
             'year'        : str(datetime.now().year),
@@ -76,10 +79,10 @@ def main(args: argparse.Namespace):
             'version'     : '1.0',
             'url'         : 'http://www.abysssolutions.com.au',
         }),
-        'images'     : original_json.get('images', []),
+        'images'     : image_json.get('images', []),
         'annotations': [],
-        'categories' : original_json.get('categories', []),
-        'licenses'   : original_json.get('licenses', [{
+        'categories' : image_json.get('categories', []),
+        'licenses'   : image_json.get('licenses', [{
             'id'  : 0,
             'url' : 'http://creativecommons.org/licenses/by-nc-sa/2.0/',
             'name': 'Attribution-NonCommercial-ShareAlike License',
@@ -87,15 +90,15 @@ def main(args: argparse.Namespace):
     }
 
     padding = 1
-    id_2_original = {entry['id']: entry for entry in original_json['images']}
+    id_2_image = {entry['id']: entry for entry in image_json['images']}
     for mask_entry in mask_json['images']:
         tic = time.perf_counter()
-        curr_id = mask_entry['id']
-        logging.info('Evaluating entry {}'.format(curr_id))
+        mask_id = mask_entry['id']
+        logging.info('Evaluating entry {}'.format(mask_id))
 
-        original_entry = id_2_original.get(curr_id, None)
+        original_entry = id_2_image.get(mask_id, None)
         if original_entry is None:
-            logging.warning('Skipping mask {} as original entry could not be found'.format(curr_id))
+            logging.warning('Skipping mask {} as original entry could not be found'.format(mask_id))
             continue
         height = original_entry.get('height')
         width = original_entry.get('width')
@@ -189,7 +192,7 @@ def main(args: argparse.Namespace):
         if args.save_per_image:
             with open(os.path.join(os.path.dirname(mask_entry['path']), "{}.{}".format(os.path.splitext(mask_entry['file_name'])[0], 'json')), "w") as f:
                 json.dump(coco_json, f, indent=4)
-        logging.info("Processing time for mask {}: {}h {}m {}s".format(curr_id, *pretty_time(time.perf_counter() - tic)))
+        logging.info("Processing time for mask {}: {}h {}m {}s".format(mask_id, *pretty_time(time.perf_counter() - tic)))
 
     if not args.save_per_image:
         json.dump(coco_json, sys.stdout, indent=4)
