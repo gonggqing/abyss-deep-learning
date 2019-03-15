@@ -1,7 +1,9 @@
-'''Metrics for machine learning'''
+"""Metrics for machine learning"""
+from typing import List
+
 import numpy as np
-from scipy.optimize import linear_sum_assignment
 import skimage
+from scipy.optimize import linear_sum_assignment
 
 
 def bbox_iou_matrix(a, b):
@@ -33,10 +35,10 @@ def bbox_iou_matrix(a, b):
     return intersections / (a_areas + b_areas - intersections)
 
 
-def get_bbox_intersection(a, b):
-    ac = np.repeat([a], len(b), axis=0)
+def get_bbox_intersection(bbox_a, bbox_b):
+    ac = np.repeat([bbox_a], len(bbox_b), axis=0)
     ac = np.transpose(ac, axes=(2, 1, 0))
-    bc = np.repeat([b], len(a), axis=0)
+    bc = np.repeat([bbox_b], len(bbox_a), axis=0)
     bc = np.transpose(bc, axes=(2, 0, 1))
     minimums = np.minimum(ac, bc)
     maximums = np.maximum(ac, bc)
@@ -44,36 +46,53 @@ def get_bbox_intersection(a, b):
     return intersections
 
 
-def poly_iou_matrix(a, b):
-    precompute_a = []
-    precompute_b = []
+def poly_iou_matrix(predictions_array: List[np.array], truth_arrays: List[np.array], grid_max_x: int = None, grid_max_y: int = None):
+    """
 
-    # Todo completely re-write me to take in to account lower
-    grid_max_x = 0
-    grid_max_y = 0
-    for elements in zip(a, b):
-        upper_val_x = max(np.max(elements[0][::2]),
-                          np.max(elements[1][::2]))  # Gets Max of X in each poly start at zero jump by two
-        upper_val_y = max(np.max(elements[0][1::2]),
-                          np.max(elements[1][1::2]))  # Gets max of Y in each poly start at 1 jump by two
-        if upper_val_x > grid_max_x:
-            grid_max_x = int(upper_val_x) + 1
-        if upper_val_y > grid_max_y:
-            grid_max_y = int(upper_val_y) + 1
+    Args:
+        grid_max_y: max y value + 1 in list of np.array (can use 'bbox' field in annotation from COCO file)
+        grid_max_x: max x value + 1 in list of np.array (can use 'bbox' field in annotation from COCO file)
+        predictions_array: list of N x 2 np.array of co-ordinate points (x, y)
+        truth_arrays: list of N x 2 np.array of co-ordinate points (x, y)
 
-    for element in a:
-        precompute_a.append(skimage.measure.grid_points_in_poly((grid_max_x, grid_max_y), element))
-    for element in b:
-        precompute_b.append(skimage.measure.grid_points_in_poly((grid_max_x, grid_max_y), element))
+    Returns:
+
+    """
+    precompute_predictions = []
+    precompute_truths = []
+
+    # Todo completely re-write me to take in to account lower offset by lower value?
+    if grid_max_x is None or grid_max_y is None:
+        grid_max_x = 0
+        grid_max_y = 0
+        for array in predictions_array + truth_arrays:
+            # Get max value per row entry in the array
+            upper_val_x, upper_val_y = array.max(axis=0)
+            if upper_val_x > grid_max_x:
+                grid_max_x = int(upper_val_x) + 1
+            if upper_val_y > grid_max_y:
+                grid_max_y = int(upper_val_y) + 1
+
+    grid = np.zeros((grid_max_y, grid_max_x), dtype=np.uint8)
+    for array in predictions_array:
+        grid[skimage.draw.polygon(array[:, 1], array[:, 0], grid.shape)] = 1
+        precompute_predictions.append(np.array(grid))
+        grid[:] = 0
+
+    for array in truth_arrays:
+        grid[skimage.draw.polygon(array[:, 1], array[:, 0], grid.shape)] = 1
+        precompute_truths.append(np.array(grid))
+        grid[:] = 0
 
     result = []
-    for i in range(len(a)):
+    for grid_prediction in precompute_predictions:
         sub_result = []
-        for j in range(len(b)):
-            union = np.logical_or(precompute_a[i], precompute_b[j])
-            intersection = np.logical_and(precompute_a[i], precompute_b[j])
-            if np.count_nonzero(union):
-                sub_result.append(np.count_nonzero(intersection) / np.count_nonzero(union))
+        for grid_truth in precompute_truths:
+            union = np.logical_or(grid_prediction, grid_truth)
+            intersection = np.logical_and(grid_prediction, grid_truth)
+            union_count = np.count_nonzero(union)
+            if union_count:
+                sub_result.append(np.count_nonzero(intersection) / union_count)
             else:
                 sub_result.append(0)
         result.append(sub_result)
@@ -81,24 +100,24 @@ def poly_iou_matrix(a, b):
 
 
 def ious_to_sklearn_pred_true(ious, labels_true, labels_pred, iou_threshold=0., blank_id=0):
-    ''' Convert labelled bboxes to y_true and y_pred that could be consumed directly by sklearn.metrics functions
-    
+    """ Convert labelled bboxes to y_true and y_pred that could be consumed directly by sklearn.metrics functions
+
     example
     -------
     p, t = bbox_to_sklearn_pred_true( bbox_iou_matrix( a, b ), a_labels, b_labels, 0.5 )
     print( sklearn.metrics.confusion_matrix( p, t ) )
-    
+
     parameters
     ----------
     ious: numpy.array, iou matrix as returned by e.g. by bbox_iou_matrix( a, b )
     labels_true: numpy.array, vector of ground truth bbox labels
     labels_pred: numpy.array, vector of predicted bbox labels
     iou_threshold: float, iou threshold
-    
+
     returns
     -------
     numpy.array, numpy.array: y_true, y_pred as in sklearn.metrics
-    '''
+    """
     m = (ious > iou_threshold) * 1
     i = np.nonzero(m)
     fp = np.nonzero(np.max(m, axis=1) == 0)[0]
@@ -109,16 +128,16 @@ def ious_to_sklearn_pred_true(ious, labels_true, labels_pred, iou_threshold=0., 
 
 
 def one_to_one(ious, iou_threshold=None):
-    ''' Match two sets of boxes one to one by IOU on given treshold
-    
+    """ Match two sets of boxes one to one by IOU on given treshold
+
     parameters
     ----------
     ious: numpy.array, iou matrix as returned by e.g. by bbox_iou_matrix( a, b )
-    
+
     returns
     -------
     numpy.array, MxN matrix of matched IOU values
-    '''
+    """
     ious *= (ious >= (0. if iou_threshold is None else iou_threshold))
     rows, cols = linear_sum_assignment(1 - ious)
     result = np.zeros(ious.shape)
@@ -127,17 +146,17 @@ def one_to_one(ious, iou_threshold=None):
 
 
 def one_to_many(ious, iou_threshold=None):
-    ''' Match two sets of boxes one to many on max IOU by IOU on given treshold
-    
+    """ Match two sets of boxes one to many on max IOU by IOU on given treshold
+
     parameters
     ----------
     ious: numpy.array, iou matrix as returned by e.g. by bbox_iou_matrix( a, b )
     iou_threshold: float, iou threshold
-    
+
     returns
     -------
     numpy.array, MxN matrix of matched IOU values
-    '''
+    """
     ious *= (ious >= (0. if iou_threshold is None else iou_threshold))
     flags = np.zeros(ious.shape)
     flags[np.argmax(ious, axis=0), [*range(ious.shape[1])]] = 1
@@ -145,23 +164,23 @@ def one_to_many(ious, iou_threshold=None):
 
 
 def many_to_one(ious, iou_threshold=None):
-    ''' Match two sets of boxes many to one on max IOU by IOU on given treshold
-    
+    """ Match two sets of boxes many to one on max IOU by IOU on given treshold
+
     parameters
     ----------
     ious: numpy.array, iou matrix as returned by e.g. by bbox_iou_matrix( a, b )
     iou_threshold: scalar iou threshold
-    
+
     returns
     -------
     numpy.array, MxN matrix of matched IOU values
-    '''
+    """
     return np.transpose(one_to_many(np.transpose(ious), iou_threshold))
 
 
 def tp_fp_tn_fn(predictions, truth, threshold=None, match=one_to_one, iou_matrix=bbox_iou_matrix):
-    ''' Return TP, FP, TN, FN
-    
+    """ Return TP, FP, TN, FN
+
     parameters
     ----------
     predictions: numpy.array
@@ -171,7 +190,7 @@ def tp_fp_tn_fn(predictions, truth, threshold=None, match=one_to_one, iou_matrix
     threshold: float, IOU threshold
     match: function, how to match
     iou_matrix: function, how to produce iou matrix
-    
+
     returns
     -------
     TP, FP, TN, FN
@@ -179,7 +198,7 @@ def tp_fp_tn_fn(predictions, truth, threshold=None, match=one_to_one, iou_matrix
     FP: numpy.array, 1d; indices of FP in a
     TN: numpy.array, 1d; indices of TN, empty for bounding boxes, since it does not make sense
     FN: numpy.array, 1d; indices of FN in b
-    '''
+    """
     if len(predictions) == 0:
         return [], [], [], [*range(len(*truth))]
     ious = iou_matrix(predictions, truth)
