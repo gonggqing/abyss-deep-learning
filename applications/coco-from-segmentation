@@ -250,6 +250,8 @@ def load_input(image_entry: dict, padding: int = 0, normalize: bool = False, hei
     """
 
     Args:
+        width: width of input image
+        height: height of input image
         image_entry: Dictionary style image entry in COCO format
         padding: Pad image borders by however many pixels specified
         normalize: Normalize values to 0 - 1. If file extension is png, assumes maximum value is 255 and uses that to normalize
