@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+__author__ = 'Kent Hu, and Seva'
+__maintainer__ = 'Kent Hu'
 import argparse
 import copy
 import itertools
@@ -536,8 +538,8 @@ def assign_from_coco(stdin_coco: COCO, args: argparse.Namespace) -> COCO:
             ann_entry['image_id'] = old_id_2_new_id[ann_entry['image_id']]
     if args.drop:
         stdin_coco.dataset['images'] = [img for img in stdin_coco.dataset['images'] if img[args.key] in key_2_new_id.keys()]
-        kept_imgs = {img['id'] for img in stdin_coco.dataset['images']}
-        stdin_coco.dataset['annotations'] = [ann for ann in stdin_coco.dataset['annotations'] if ann['image_id'] in kept_imgs]
+        kept_img_ids = {img['id'] for img in stdin_coco.dataset['images']}
+        stdin_coco.dataset['annotations'] = [ann for ann in stdin_coco.dataset['annotations'] if ann['image_id'] in kept_img_ids]
     return stdin_coco
 
 
@@ -557,7 +559,7 @@ def assign_from_sorted(coco: COCO, args: argparse.Namespace) -> COCO:
     for i, image_entry in enumerate(coco.dataset['images']):
         image_entry['id'] = i
     path_2_new_id = {image_entry['path']: image_entry['id'] for image_entry in coco.dataset['images']}
-    for annotation in coco.dataset['annotations']:
+    for annotation in coco.dataset.get('annotations'):
         annotation['image_id'] = path_2_new_id[old_id_2_path[annotation['image_id']]]
     return coco
 
