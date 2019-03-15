@@ -126,11 +126,11 @@ def main(command_line_args=None):
                 except OSError as err:
                     if err.errno != errno.EEXIST:
                         raise
-                
-                cv2.imwrite(command_line_args.output+"/"+image['path'],cv2_image)
+                output_path = image['path'].split('/')[-1] if command_line_args.basename else image['path']
+                cv2.imwrite(command_line_args.output+"/"+output_path,cv2_image)
             else:
                 if os.path.isfile(image['path']) and not command_line_args.force:
-                    print("coco-draw warning attempting to overwrite images. These images may be potentially your source iamges!!!. Please be careful\napply --froce to override. Exiting.", file=sys.stderr)
+                    print("coco-draw warning attempting to overwrite images. These images may be potentially your source iamges!!!. Please be careful\napply --force to override. Exiting.", file=sys.stderr)
                     sys.exit(1)
                 else:
                     cv2.imwrite(image['path'],cv2_image)
@@ -138,6 +138,7 @@ def main(command_line_args=None):
 def parse_cli():
     parser = ArgumentParser(
         description=DESCRIPTION)
+    parser.add_argument('--basename', action='store_true', help="output image filenames will be basenames of images")
     parser.add_argument('-o', '--output', type=str,
                         help="If specified, sets the output directory of the images, otherwise the current directory will be used as the output")
     parser.add_argument('-c', '--colors','--colours', type=str,
