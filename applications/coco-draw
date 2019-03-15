@@ -112,8 +112,8 @@ def main(command_line_args=None):
                                             command_line_args.image_alpha,
                                             command_line_args.border)
 
-        cv2_image = abyss_deep_learning.draw.text(text_labels,cv2_image,active_color_pallette,font=cv2.FONT_HERSHEY_SIMPLEX, alpha=1.0, image_alpha=1, scale=command_line_args.text_scale,thickness=1)
-        
+        if not args.no_text:
+            cv2_image = abyss_deep_learning.draw.text(text_labels,cv2_image,active_color_pallette,font=cv2.FONT_HERSHEY_SIMPLEX, alpha=1.0, image_alpha=1, scale=command_line_args.text_scale,thickness=1)
         
         if command_line_args.view_only:
             cv2.imshow("View Only",cv2_image)
@@ -135,10 +135,6 @@ def main(command_line_args=None):
                 else:
                     cv2.imwrite(image['path'],cv2_image)
 
-
-
-
-
 def parse_cli():
     parser = ArgumentParser(
         description=DESCRIPTION)
@@ -156,6 +152,7 @@ def parse_cli():
                     help="Only view images, do not write")                      
     parser.add_argument('-b', '--bbox', action='store_true' ,
                         help="If specified, draws only bounding boxes, otherwise will default to segmentation")
+    parser.add_argument('--no-text', action='store_true', help="just draw, do not add text labels")
     parser.add_argument('-t', '--border', type=int, default=1,
                         help="Specifies border thinkness of annotations")
     parser.add_argument('-u', '--annotation-alpha', type=float,default=0.4,
