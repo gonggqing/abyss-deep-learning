@@ -112,7 +112,7 @@ def main(command_line_args=None):
                                             command_line_args.image_alpha,
                                             command_line_args.border)
 
-        if not args.no_text:
+        if not command_line_args.no_text:
             cv2_image = abyss_deep_learning.draw.text(text_labels,cv2_image,active_color_pallette,font=cv2.FONT_HERSHEY_SIMPLEX, alpha=1.0, image_alpha=1, scale=command_line_args.text_scale,thickness=1)
         
         if command_line_args.view_only:
