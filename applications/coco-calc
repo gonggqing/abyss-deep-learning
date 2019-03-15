@@ -514,32 +514,41 @@ def assign_from_coco(stdin_coco: COCO, args: argparse.Namespace) -> COCO:
     new_ids = {new_id for new_id in key_2_new_id.values()}
     available_ids = all_ids - new_ids
     old_id_2_new_id = {}
+    if not args.keep_mismatch:
+        kept_img_ids = set()
+        kept_ann_ids = set()
     for old_id, key in old_id_2_key.items():
         if key not in key_2_new_id.keys():
-            old_id_2_key[old_id] = available_ids.pop()
+            old_id_2_new_id[old_id] = available_ids.pop()
     for i, image_entry in enumerate(stdin_coco.dataset['images']):
         try:
             image_entry['id'] = key_2_new_id[old_id_2_key[image_entry['id']]]
+            if not args.keep_mismatch:
+                kept_img_ids.add(id(image_entry))
         except KeyError:
-            if args.drop:
+            if args.keep_mismatch:
+                # current image entry key does not exist in the command line COCO file
+                logging.warning("Image entry with id {} and key: value -> {}: {} cannot be found on command line COCO file".format(image_entry['id'], args.key, image_entry[args.key]))
+                logging.warning("ID {} will be assigned to image entry with id {}".format(old_id_2_new_id[image_entry['id']], image_entry['id']))
+                image_entry['id'] = old_id_2_new_id[image_entry['id']]
+            else:
                 continue
-            # current image entry key does not exist in the command line COCO file
-            logging.warning("Image entry with id {} and key: value -> {}: {} cannot be found on command line COCO file".format(image_entry['id'], args.key, image_entry[args.key]))
-            logging.warning("ID {} will be assigned to image entry with id {}".format(old_id_2_new_id[image_entry['id']], image_entry['id']))
-            image_entry['id'] = old_id_2_new_id[image_entry['id']]
 
     for i, ann_entry in enumerate(stdin_coco.dataset['annotations']):
         try:
             ann_entry['image_id'] = key_2_new_id[old_id_2_key[ann_entry['image_id']]]
+            if not args.keep_mismatch:
+                kept_ann_ids.add(id(ann_entry))
         except KeyError:
-            if args.drop:
+            if args.keep_mismatch:
+                logging.warning("This annotation has an image that could not be matched")
+                ann_entry['image_id'] = old_id_2_new_id[ann_entry['image_id']]
+            else:
                 continue
-            logging.warning("This annotation has an image that could not be matched")
-            ann_entry['image_id'] = old_id_2_new_id[ann_entry['image_id']]
-    if args.drop:
-        stdin_coco.dataset['images'] = [img for img in stdin_coco.dataset['images'] if img[args.key] in key_2_new_id.keys()]
-        kept_img_ids = {img['id'] for img in stdin_coco.dataset['images']}
-        stdin_coco.dataset['annotations'] = [ann for ann in stdin_coco.dataset['annotations'] if ann['image_id'] in kept_img_ids]
+    
+    if not args.keep_mismatch:
+        stdin_coco.dataset['images'] = [img for img in stdin_coco.dataset['images'] if id(img) in kept_img_ids]
+        stdin_coco.dataset['annotations'] = [ann for ann in stdin_coco.dataset['annotations'] if id(ann) in kept_ann_ids]
     return stdin_coco
 
 
@@ -565,42 +574,44 @@ def assign_from_sorted(coco: COCO, args: argparse.Namespace) -> COCO:
 
 
 def get_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
+    verbose_parser = argparse.ArgumentParser(add_help=False)
+    verbose_parser.add_argument('-v', '--verbose',                  help="More output to stderr", action='store_const', const=logging.INFO)
+
+    parser = argparse.ArgumentParser(description=_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter, parents=[verbose_parser])
     subparsers = parser.add_subparsers(title="Operations", description=_PARSER_DESCRIPTION, help="Available operations")
 
-    parser_crop = subparsers.add_parser('crop',                     help="Crop images and annotations; currently supports only cropping images", description=_CROP_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser_crop = subparsers.add_parser('crop',                     help="Crop images and annotations; currently supports only cropping images", description=_CROP_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter, parents=[verbose_parser])
     parser_crop.add_argument('--fit',                               help="if centre of cropped area to close to border, shift cropped area to fit inside image", action='store_true')
     parser_crop.add_argument('--keep-partial',                      help="keep partially cropped annotations: todo", action='store_true')
     parser_crop.add_argument('--point',                             help="centre of cropped area identified by annotation_type 'point'", action='store_true')
     parser_crop.add_argument('-s', '--size',                        help="<width>,<height> crop size", type=str)
 
-    parser_resize = subparsers.add_parser('resize',                 help="Resize all images and their respective annotations by a scaling factor or to specified width and height", description=_RESIZE_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser_resize = subparsers.add_parser('resize',                 help="Resize all images and their respective annotations by a scaling factor or to specified width and height", description=_RESIZE_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter, parents=[verbose_parser])
     parser_resize_mx = parser_resize.add_mutually_exclusive_group(required=True)
     parser_resize.add_argument('-d', '--digits',                    help="Number of decimal digits in bbox and segmentation coordinates; default: %(default)s", type=int, default=None)
     parser_resize_mx.add_argument('-f', '--factor',                 help="Scale images by a percentage", type=float)
     parser_resize_mx.add_argument('-s', '--size',                   help="[width],[height] output size", type=str)
 
-    parser_remap = subparsers.add_parser('remap',                   help="Remap categories and/or category id", description=_REMAP_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser_remap = subparsers.add_parser('remap',                   help="Remap categories and/or category id", description=_REMAP_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter, parents=[verbose_parser])
     parser_remap.add_argument('mapping',                            help="Dict style string for remapping of either category id/category name to category id/category name", type=str)
     parser_remap.add_argument('--target-categories',                help="Target categories to be used for re-mapping. Same format as default COCO categories list. Default categories is taken from input COCO JSON file", type=str)
     parser_remap.add_argument('--keep-source-categories',           help="If target categories is specified, append target to input categories", action='store_true')
 
-    parser_repath = subparsers.add_parser('repath',                 help="Re-path key value pairs for path for every image in COCO JSON.", description=_REPATH_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser_repath = subparsers.add_parser('repath',                 help="Re-path key value pairs for path for every image in COCO JSON.", description=_REPATH_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter, parents=[verbose_parser])
     parser_repath.add_argument('path',                              help="New path to prepend to each image in data set", type=str)
 
-    parser_new_ids = subparsers.add_parser('assign-new-image-ids',  help="Assign new ids to COCO file from stdin based on ids from COCO file passed as command line argument.", description=_ASSIGN_NEW_IMAGE_IDS_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser_new_ids.add_argument('--drop',                           help="Drop image if the key to match by does not exist from the COCO file passed from command line", action='store_true')
+    parser_new_ids = subparsers.add_parser('assign-new-image-ids',  help="Assign new ids to COCO file from stdin based on ids from COCO file passed as command line argument.", description=_ASSIGN_NEW_IMAGE_IDS_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter, parents=[verbose_parser])
+    parser_new_ids.add_argument('--keep-mismatch',                  help="Keep image if the key to match by does not exist from the COCO file passed from command line, otherwise it is dropped from the output along with its annotations", action='store_true')
 
     subparser_new_ids = parser_new_ids.add_subparsers(dest='assign_method')
-    parser_sort = subparser_new_ids.add_parser('sort',              help="Sort images by a given key and assign new ids based on ordering")
+    parser_sort = subparser_new_ids.add_parser('sort',              help="Sort images by a given key and assign new ids based on ordering", parents=[verbose_parser])
     parser_sort.add_argument('-k', '--key',                         help="Key to sort by. If no key is given, assigned new image ids based on existing ordering", type=str)
 
-    parser_coco = subparser_new_ids.add_parser('coco',              help="Match images from stdin COCO with command line COCO by key and assign new image ids from command line COCO.")
+    parser_coco = subparser_new_ids.add_parser('coco',              help="Match images from stdin COCO with command line COCO by key and assign new image ids from command line COCO.", parents=[verbose_parser])
     parser_coco.add_argument('coco',                                help="COCO file to assign image ids from.", type=str)
     parser_coco.add_argument('-k', '--key',                         help="Key to match by. Default is %(default)s.", type=str, default='path')
 
     parser.add_argument('-m', '--minified',                         help="Disable JSON pretty print", action='store_const', const=None, default=4, dest='indent')
-    parser.add_argument('-v', '--verbose',                          help="More output to stderr", action='store_const', const=logging.INFO)
 
     apply_to_images_args = ['--apply-to-images']
     apply_to_images_kwargs = {'action': 'store_true',
