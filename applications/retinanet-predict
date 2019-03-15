@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-
+__author__ = 'Suchet Bargoti, and Kent Hu'
+__maintainer__ = 'Kent Hu'
 """
 Initiated on 2019-01-10
 
@@ -7,6 +8,7 @@ Initiated on 2019-01-10
 """
 
 import argparse
+import logging
 import os
 import sys
 import time
@@ -15,18 +17,16 @@ import keras
 import keras.models
 import numpy as np
 import tensorflow as tf
-from keras_retinanet import layers
+from abyss_deep_learning.utils import tile_gen
 # Change these to absolute imports if you copy this script outside the keras_retinanet package.
-from keras_retinanet import models
+from keras_retinanet import layers, models
 from keras_retinanet.models import assert_training_model
 from keras_retinanet.models.retinanet import __build_anchors, retinanet
 from keras_retinanet.utils.anchors import AnchorParameters
-from keras_retinanet.utils.config import read_config_file, parse_anchor_parameters
-from keras_retinanet.utils.image import read_image_bgr, preprocess_image, resize_image
+from keras_retinanet.utils.config import parse_anchor_parameters, read_config_file
+from keras_retinanet.utils.image import preprocess_image, read_image_bgr, resize_image
 from keras_retinanet.utils.keras_version import check_keras_version
 from keras_retinanet.utils.visualization import draw_box, draw_caption
-
-from abyss_deep_learning.utils import tile_gen
 
 _DESCRIPTION = """
 Evaluation script for a RetinaNet network.
@@ -208,7 +208,7 @@ def get_args():
         pass
 
     with open(args.images) as f:
-        args.images = f.read().split("\n")
+        args.images = f.read().strip().split("\n")
 
     return args
 
@@ -222,23 +222,22 @@ def draw_result(boxes, scores, labels, image):
     for color_string in color_strings:
         color_rgb_list.append(tuple(webcolors.name_to_rgb(color_string)))
 
-    labels_to_names = {0: 'PF-G', 1: 'PF-L', 2: 'PF-M', 3: 'PF-H'}
-    names_to_labels = {}
-    for k, v in labels_to_names.items():
-        names_to_labels[v] = k
+    def label_to_names(label):
+        return {0: 'PF-G', 1: 'PF-L', 2: 'PF-M', 3: 'PF-H'}[label]
+
+    draw
 
     # visualize detections
     for box, score, label in zip(boxes[0], scores[0], labels[0]):
         # scores are sorted so we can break
-        if score < 0.5:
-            break
-
         #         color = label_color(label)
-        b = box.astype(int)
-        draw_box(image, b, color=color_rgb_list[label])
+        box = box.astype(int)
+        label = int(label)
+        logging.info("{} {} {}".format(box, label, score))
+        draw_box(image, box, color=color_rgb_list[label])
 
         caption = "{} {:.3f}".format(labels_to_names[label], score)
-        draw_caption(image, b, caption)
+        draw_caption(image, box, caption)
 
     fig, ax = plt.subplots(1, 1, figsize=(15, 15))
 
@@ -248,7 +247,10 @@ def draw_result(boxes, scores, labels, image):
 
 
 def main(args=None):
-    script_time = time.perf_counter()
+    logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S',
+                        level=args.verbose)
+    logging.info("--verbose enabled")
     # make sure keras is the minimum required version
     check_keras_version()
 
@@ -274,7 +276,7 @@ def main(args=None):
         anchor_params = parse_anchor_parameters(args.config)
 
     # load the model
-    print_verbose('Loading model, this may take a second...', verbose=True)
+    logging.info('Loading model, this may take a second...')
     model = models.load_model(args.weights, backbone_name=args.backbone)
 
     # optionally convert the model
@@ -288,11 +290,10 @@ def main(args=None):
 
     if args.tile_size is not None:
         # Calculate required values for producing tiles
-        print_verbose("Tiling option has been selected", verbose=True)
+        logging.info("Tiling option has been selected")
 
         if args.stride is None:
-            print_verbose("Stride value has not been given. Set equal to tile_size so that tiled images do not overlap",
-                          verbose=True)
+            logging.warning("Stride value has not been given. Set equal to tile_size so that tiled images do not overlap")
             args.stride = args.tile_size
 
         # Values used for cropping tile from the image
@@ -300,6 +301,9 @@ def main(args=None):
         stride_height, stride_width = args.stride
 
     image_batch_size = args.batch_size if args.tile_size is None else 1
+    if args.show:
+        import cv2
+
     for image_num, image_batch in enumerate(batch_from_images(args.images, image_batch_size)):
         image_time = time.perf_counter()
 
@@ -308,14 +312,11 @@ def main(args=None):
         image_paths = [args.images[image_num] for image_num in image_nums]
         assert len(image_paths) == len(image_nums), "Number of image paths do not match the number of images evaluated"
         for image_num_, image_path in zip(image_nums, image_paths):
-            print_verbose("Processing image {image_num} at {image_path}"
-                          .format(image_num=image_num_, image_path=image_path),
-                          verbose=True)
+            logging.info("Processing image {image_num} at {image_path}".format(image_num=image_num_, image_path=image_path))
 
         # Batching on images
         if args.tile_size is None:
             if args.show:
-                import cv2
                 image_draw = cv2.cvtColor(image_batch[0].copy(), cv2.COLOR_BGR2RGB)
 
             # Preprocess image for network
@@ -333,23 +334,24 @@ def main(args=None):
             annotation_ids = np.repeat(np.expand_dims(np.arange(max_detections), axis=0), num_batches, axis=0).reshape(num_batches, max_detections, 1)
 
             if args.show:
+                logging.info("{}, {}, {}".format(boxes.shape, scores.shape, category_id.shape))
                 draw_result(boxes, scores, category_id, image_draw)
 
             # Join detections, score, and category id together
-            bbox_score_category_output = np.dstack((image_paths_, annotation_ids, boxes, scores, category_id))
-            num_columns = bbox_score_category_output.shape[2]
+            bbox_score_category = np.dstack((image_paths_, annotation_ids, boxes, scores, category_id))
+            num_columns = bbox_score_category.shape[2]
 
             # Select the first n rows specified by --max-detections argument. Default is 300
-            bbox_score_category_output = bbox_score_category_output[:, :max_detections, :]
+            bbox_score_category = bbox_score_category[:, :max_detections, :]
 
             # Flatten from 3d to 2d array
-            bbox_score_category_output = bbox_score_category_output.reshape(num_batches * max_detections, num_columns)
+            bbox_score_category = bbox_score_category.reshape(num_batches * max_detections, num_columns)
 
             # Filter out negative category detections as predictions are fixed size
             if args.remove:
-                bbox_score_category_output = bbox_score_category_output[bbox_score_category_output[:, -1].astype(int) >= 0]
+                bbox_score_category = bbox_score_category[bbox_score_category[:, -1].astype(int) >= 0]
 
-            annotations = bbox_score_category_output
+            annotations = bbox_score_category
 
         # Batching on tiles from images
         else:
@@ -377,10 +379,8 @@ def main(args=None):
                 centroids.append((centroid_y, centroid_x))
             centroids = np.asarray(centroids)
 
+            bbox_score_category_output = None
             for idx, tile_batch in enumerate(batch_from_tiles(tiled_images, args.batch_size)):
-                # print_verbose(tile_num, tile.shape, verbose=True)
-                tile_time = time.perf_counter()
-
                 num_tiles = len(tile_batch)
                 tile_nums = tuple(range(idx * args.batch_size, idx * args.batch_size + num_tiles))
 
@@ -401,34 +401,35 @@ def main(args=None):
 
                 # Run image through network
                 boxes, scores, category_id = model.predict_on_batch(tile_batch)
-
+                if args.show:
+                    pass
                 # Apply scaling to bboxes after resizing
                 boxes = (boxes.T / scales).T
                 scores = np.expand_dims(scores, axis=2)
                 category_id = np.expand_dims(category_id, axis=2)
 
                 # Join detections, score, and category id together
-                bbox_score_category_output = np.dstack((boxes, scores, category_id))
-                num_columns = bbox_score_category_output.shape[2]
+                bbox_score_category = np.dstack((boxes, scores, category_id))
+                num_columns = bbox_score_category.shape[2]
 
                 # Filter out negative category detections as predictions are fixed size
                 if args.remove:
                     # Default value of max_detections is args.max_detections
                     # Integer representing max detection of all batched tiles
-                    max_detections = np.argmin(bbox_score_category_output[:, :, -1] >= 0, axis=1).max()
+                    max_detections = np.argmin(bbox_score_category[:, :, -1] >= 0, axis=1).max()
 
-                bbox_score_category_output = bbox_score_category_output[:, :max_detections, :]
+                bbox_score_category = bbox_score_category[:, :max_detections, :]
 
                 # Reshape from 3d to 2d array
-                bbox_score_category_output = bbox_score_category_output.reshape(num_tiles * max_detections, num_columns)
+                bbox_score_category = bbox_score_category.reshape(num_tiles * max_detections, num_columns)
 
                 # Offset bboxes for this tile with respect to starting index of first tile of image_
-                bbox_score_category_output[:, :4] += np.repeat(offsets, [max_detections] * num_tiles, axis=0)
+                bbox_score_category[:, :4] += np.repeat(offsets, [max_detections] * num_tiles, axis=0)
 
                 if args.filter_overlaps:
                     # Calculate bbox centroid by averaging x1, x2 and y1, y2
-                    centroid_x = np.expand_dims(np.mean(bbox_score_category_output[:, 0:3:2], axis=1), axis=-1)
-                    centroid_y = np.expand_dims(np.mean(bbox_score_category_output[:, 1:4:2], axis=1), axis=-1)
+                    centroid_x = np.expand_dims(np.mean(bbox_score_category[:, 0:3:2], axis=1), axis=-1)
+                    centroid_y = np.expand_dims(np.mean(bbox_score_category[:, 1:4:2], axis=1), axis=-1)
                     bbox_centroids = np.hstack((centroid_y, centroid_x))
 
                     # Expand 2d array of centroids to 3d array for broadcasting of values
@@ -444,25 +445,27 @@ def main(args=None):
                     filtered_detection_ids = np.where(closest_tiles == np.repeat(tile_nums, [max_detections] * num_tiles))[0]
 
                     # Index the valid output annotations
-                    bbox_score_category_output = bbox_score_category_output[filtered_detection_ids, :]
+                    bbox_score_category = bbox_score_category[filtered_detection_ids, :]
 
                 # Filter out negative category detections as predictions are fixed size
                 if args.remove:
-                    bbox_score_category_output = bbox_score_category_output[bbox_score_category_output[:, -1] >= 0]
+                    bbox_score_category = bbox_score_category[bbox_score_category[:, -1] >= 0]
 
-                num_annotations = bbox_score_category_output.shape[0]
-                image_paths_ = np.repeat(image_paths, num_annotations).reshape(num_annotations, 1)
-                annotation_ids = np.arange(num_annotations).reshape(num_annotations, 1)
-                annotations = np.hstack((image_paths_, annotation_ids, bbox_score_category_output))
+                bbox_score_category_output = bbox_score_category if bbox_score_category_output is None else np.vstack((bbox_score_category_output, bbox_score_category))
+
+            num_annotations = bbox_score_category_output.shape[0]
+
+            image_paths_ = np.repeat(image_paths, num_annotations).reshape(num_annotations, 1)
+            annotation_ids = np.arange(num_annotations).reshape(num_annotations, 1)
+            annotations = np.hstack((image_paths_, annotation_ids, bbox_score_category_output))
 
         for image_path in image_paths:
             if args.output_directory_per_image:
-                output_path = os.path.join(args.output_directory_per_image,
-                                           os.path.splitext(os.path.basename(image_path))[0] + '.predictions.csv')
+                output_path = os.path.join(args.output_directory_per_image, os.path.splitext(os.path.basename(image_path))[0] + '.predictions.csv')
                 output_stream = open(output_path, 'w')
             else:
                 output_stream = sys.stdout
-            print_verbose("writing to {}".format(output_path), verbose=True)
+            logging.info("Writing to {}".format(output_path))
             if annotations.shape[0] > 0:
                 image_annotations = annotations[annotations[:, 0] == image_path]
                 if image_annotations.shape[0] > 0:
@@ -470,12 +473,7 @@ def main(args=None):
             if args.output_directory_per_image:
                 output_stream.close()
 
-        print_verbose("processing time for batch {}: {}h {}m {}s"
-                      .format(image_path, *pretty_time(time.perf_counter() - image_time)),
-                      verbose=args.verbose)
-    print_verbose("processing time for script: {}h {}m {}s"
-                  .format(*pretty_time(time.perf_counter() - script_time)),
-                  verbose=True)
+        logging.info("Processing time for batch {}: {}h {}m {}s".format(image_path, *pretty_time(time.perf_counter() - image_time)))
     sys.exit(0)
 
 
