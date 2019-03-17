@@ -26,7 +26,7 @@ from keras_retinanet.utils.anchors import AnchorParameters
 from keras_retinanet.utils.config import parse_anchor_parameters, read_config_file
 from keras_retinanet.utils.image import preprocess_image, read_image_bgr, resize_image
 from keras_retinanet.utils.keras_version import check_keras_version
-from keras_retinanet.utils.visualization import draw_box, draw_caption
+from keras_retinanet.utils.visualization import draw_box, draw_caption, draw_detections
 
 _DESCRIPTION = """
 Evaluation script for a RetinaNet network.
@@ -160,7 +160,7 @@ def get_args():
                              'each image that has detections. If no detections are found in the image then the CSV '
                              'file will be empty. If not specified, detections are output to stdout.')
     parser.add_argument('--show',
-                        help='Show per-image examples in matplotlib',
+                        help='Show per-image examples using matplotlib. Useful for debugging and visualizing first few predictions on images',
                         action='store_true')
     parser.add_argument('--batch-size',
                         help="Number of images to run predictions in a batch at once. Default is %(default)s",
@@ -193,8 +193,9 @@ def get_args():
                              'detections',
                         action='store_true')
     parser.add_argument('-v', '--verbose',
-                        help='More verbose output to stderr',
-                        action='store_true')
+                        action='store_const',
+                        const=logging.INFO,
+                        help="More output to stderr")
     args = parser.parse_args()
 
     try:
@@ -224,8 +225,6 @@ def draw_result(boxes, scores, labels, image):
 
     def label_to_names(label):
         return {0: 'PF-G', 1: 'PF-L', 2: 'PF-M', 3: 'PF-H'}[label]
-
-    draw
 
     # visualize detections
     for box, score, label in zip(boxes[0], scores[0], labels[0]):
@@ -303,6 +302,7 @@ def main(args=None):
     image_batch_size = args.batch_size if args.tile_size is None else 1
     if args.show:
         import cv2
+        import matplotlib.pyplot as plt
 
     for image_num, image_batch in enumerate(batch_from_images(args.images, image_batch_size)):
         image_time = time.perf_counter()
@@ -325,6 +325,9 @@ def main(args=None):
 
             # Run image through network
             boxes, scores, category_id = model.predict_on_batch(image_batch)
+            if args.show:
+                for i in range(num_batches):
+                    draw_results(args.score_threshold, boxes[i], category_id[i], scores[i], image_batch[i])
 
             # Apply scaling to bboxes after resizing
             boxes = (boxes.T / scales).T
@@ -332,10 +335,6 @@ def main(args=None):
             category_id = np.expand_dims(category_id, axis=2)
             image_paths_ = np.repeat(image_paths, max_detections).reshape(num_batches, max_detections, 1)
             annotation_ids = np.repeat(np.expand_dims(np.arange(max_detections), axis=0), num_batches, axis=0).reshape(num_batches, max_detections, 1)
-
-            if args.show:
-                logging.info("{}, {}, {}".format(boxes.shape, scores.shape, category_id.shape))
-                draw_result(boxes, scores, category_id, image_draw)
 
             # Join detections, score, and category id together
             bbox_score_category = np.dstack((image_paths_, annotation_ids, boxes, scores, category_id))
@@ -402,7 +401,9 @@ def main(args=None):
                 # Run image through network
                 boxes, scores, category_id = model.predict_on_batch(tile_batch)
                 if args.show:
-                    pass
+                    for i in range(num_tiles):
+                        draw_results(args.score_threshold, boxes[i], category_id[i], scores[i], tile_batch[i])
+
                 # Apply scaling to bboxes after resizing
                 boxes = (boxes.T / scales).T
                 scores = np.expand_dims(scores, axis=2)
@@ -477,6 +478,17 @@ def main(args=None):
     sys.exit(0)
 
 
+def draw_results(score_threshold, bbox, label, score, image):
+    import matplotlib.pyplot as plt
+    import cv2
+    postprocess_image(image)
+    draw_detections(image, bbox, score, label.astype(dtype=int), label_to_name=str, score_threshold=score_threshold)
+    fig, ax = plt.subplots()
+    ax.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(dtype=int))
+    ax.axis('off')
+    plt.show()
+
+
 def batch_from_images(image_paths: list, batch_size: int):
     """ Group elements from a list of images into individual groups of """
     batch = []
@@ -539,6 +551,11 @@ def preprocess_group_entry(image, image_min_side, image_max_side):
 
     return image, image_scale
 
+def postprocess_image(image):
+    image[..., 0] += 103.939
+    image[..., 1] += 116.779
+    image[..., 2] += 123.68
+    return image
 
 def preprocess_group(image_group, image_min_side, image_max_side):
     """ Preprocess each image
