@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+import logging
+
 __author__ = 'Kent Hu'
 __maintainer__ = 'Kent Hu'
 import argparse
+import csv
 import json
 import os
 import sys
@@ -12,52 +15,52 @@ import pandas as pd
 from PIL import Image
 
 DESCRIPTION = \
-"""
-Generate COCO JSON file from CSV file.
+    """
+    Generate COCO JSON file from CSV file.
+    
+    Required CSV file fields are:
+        video frame classification: file_name,begin_frame,end_frame,caption
+        bounding boxes: file_name,image_id,x1,y1,x2,y2,score,category_id
+            image_id is an optional field
+    """
 
-Required CSV file fields are:
-    video frame classification: file_name,begin_frame,end_frame,caption
-    bounding boxes: file_name,image_id,x1,y1,x2,y2,score,category_id
-        image_id is an optional field
-"""
 
+def main(args):
+    logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S',
+                        level=args.verbose)
+    logging.info("--verbose enabled")
 
-# todo
-# - check whether loaded df is valid, otherwise an obscure error down the line
-
-def main():
-    global ARGS
-    ARGS = get_args()
     # Empty file check
     buffer = sys.stdin.read().strip()
     if buffer:
-        csv = StringIO(buffer)
+        csv_ = StringIO(buffer)
     else:
         raise IOError("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
 
     try:
-        if ARGS.fields:
-            df = pd.read_csv(csv, names=ARGS.fields.split(','), header=None)
+        if args.fields:
+            df = pd.read_csv(csv_, names=args.fields.split(','), header=None)
         else:
-            df = pd.read_csv(csv)
+            df = pd.read_csv(csv_)
     except pd.errors.ParserError as e:
-        die(e, "mismatch in expected and received fields in csv")
-    # todo: check whether df is valid, otherwise an obscure error down the line
+        logging.error(e, "Mismatch in expected and received fields in csv")
+        sys.exit(1)
 
     coco_json = {}
     if all(field in df for field in ['file_name', 'x1', 'y1', 'x2', 'y2', 'category_id']):
-        coco_json = generate_from_bounding_boxes(df)
+        coco_json = generate_from_bounding_boxes(df, args)
     elif all(field in df for field in ['file_name', 'begin_frame', 'end_frame', 'caption']):
-        coco_json = generate_from_video_frames(df)
+        coco_json = generate_from_video_frames(df, args)
     else:
-        die("could not find required fields")
+        logging.error("Could not find required fields")
 
-    json.dump(coco_json, sys.stdout, indent=ARGS.indent)
-    say("done")
-    sys.exit()
+    json.dump(coco_json, sys.stdout, indent=args.indent)
+    sys.exit(0)
 
-def generate_from_bounding_boxes(df): #def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
-    say("generating from bounding boxes")
+
+def generate_from_bounding_boxes(df, args):  # def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
+    logging.info("Generating from bounding boxes")
     coco_json = {
         'info'       : {
             'year'        : int(datetime.now().year),
@@ -71,36 +74,17 @@ def generate_from_bounding_boxes(df): #def generate_from_bounding_boxes(df: pd.D
         'annotations': [],
         'licenses'   : [
             {
-                "id": 0,
+                "id"  : 0,
                 "name": "Attribution-NonCommercial-ShareAlike License",
-                "url": "http://creativecommons.org/licenses/by-nc-sa/2.0/",
+                "url" : "http://creativecommons.org/licenses/by-nc-sa/2.0/",
             }
         ],
+        'categories' : get_categories_from_fd(args.map)
     }
-
-    try:
-        file_name, file_ext = os.path.splitext(ARGS.map)
-        say("trying to open a {} file".format(file_ext))
-        if 'csv' in file_ext:
-            inverted_categories = pd.read_csv(ARGS.map, header=None, index_col=1).to_dict()[0]
-            categories = [{'id': k,
-                           'name': v,
-                           'supercategory': '',
-                           } for k, v in inverted_categories.items()]
-        else:
-            with open(ARGS.map, 'r') as f:
-                categories = json.load(f)['categories']
-        coco_json['categories'] = categories
-    except IOError as e:
-        say("could not read file [{}]; omit categories section in coco output".format(ARGS.map))
-        say(e)
-    except (TypeError, AttributeError):
-        say("no mapping file given, received [{}]; omit categories section in coco output".format(ARGS.map))
 
     seen_imgs = set()
     img_file_name_2_img_id = {}
     for idx, row in df.iterrows():
-        say("dumping annotation {}".format(idx))
         category_id = int(row['category_id'])
         if category_id < 0:
             continue
@@ -116,14 +100,14 @@ def generate_from_bounding_boxes(df): #def generate_from_bounding_boxes(df: pd.D
             try:
                 width, height = Image.open(img_path).size
             except IOError:
-                say("img_path [{}] could not be found".format(img_path))
-                say("trying to use width and height values from command line argument --image-size")
-                if ARGS.image_size:
-                    width, height = ARGS.image_size.split(',')
+                logging.info("img_path [{}] could not be found".format(img_path))
+                logging.info("Using width and height values from command line argument --image-size")
+                if args.image_size:
+                    width, height = args.image_size.split(',')
                 else:
                     width = height = None
-                    say("no width and height values supplied")
-                    say("width and height values will be omitted from image [{}]".format(img_id))
+                    logging.info("no width and height values supplied")
+                    logging.warning("width and height values will be omitted from image [{}]".format(img_id))
 
             img = {
                 'id'           : img_id,
@@ -156,13 +140,36 @@ def generate_from_bounding_boxes(df): #def generate_from_bounding_boxes(df: pd.D
     return coco_json
 
 
+def get_categories_from_fd(mapping):
+    categories = []
+    with open(mapping) as f:
+        buf = f.read().strip()
+        if buf[0] in '{[':
+            categories += json.load(f)['categories']
+        else:
+            buf = buf.split('\n')
+            reader = csv.reader(buf)
+            try:
+                if len(next(reader)) == len(next(reader)) > 1:
+                    for row in buf:
+                        category, id = row.split(',')
+                        categories.append({
+                            'id': id,
+                            'name': category,
+                            'supercategory': '',
+                        })
+            except StopIteration:
+                pass
+    return categories
+
+
 def bbox_to_segmentation(bbox: list) -> list:
     x, y, width, height = bbox
     return [x, y, x + width, y, x + width, y + height, x, y + height]
 
 
-def generate_from_video_frames(df: pd.DataFrame) -> dict:
-    say("generating from video frames")
+def generate_from_video_frames(df: pd.DataFrame, args) -> dict:
+    logging.info("Generating from video frames")
     coco_json = {
         'file_name': '',
         'segments' : [],
@@ -188,19 +195,9 @@ def get_args():
     parser.add_argument('-s', '--image-size', type=str, help="<width>,<height> values to use to give to all images")
     parser.add_argument('-m', '--min', action='store_const', help="Output minimised json", const=None, default=4,
                         dest='indent')
-    parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
+    parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, help="More output to stderr")
     return parser.parse_args()
 
 
-def say(*args, verbose=False, **kwargs):
-    if verbose or ARGS.verbose:
-        print("{}:".format(os.path.basename(__file__)), *args, file=sys.stderr, **kwargs)
-
-
-def die(*args, **kwargs):
-    say(*args, verbose=True, **kwargs)
-    sys.exit(1)
-
-
 if __name__ == '__main__':
-    main()
+    main(get_args())
