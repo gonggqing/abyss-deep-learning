@@ -26,7 +26,7 @@ from keras_retinanet.utils.anchors import AnchorParameters
 from keras_retinanet.utils.config import parse_anchor_parameters, read_config_file
 from keras_retinanet.utils.image import preprocess_image, read_image_bgr, resize_image
 from keras_retinanet.utils.keras_version import check_keras_version
-from keras_retinanet.utils.visualization import draw_box, draw_caption, draw_detections
+from keras_retinanet.utils.visualization import draw_detections
 
 _DESCRIPTION = """
 Evaluation script for a RetinaNet network.
@@ -212,37 +212,6 @@ def get_args():
         args.images = f.read().strip().split("\n")
 
     return args
-
-
-def draw_result(boxes, scores, labels, image):
-    import webcolors
-    import matplotlib.pyplot as plt
-
-    color_strings = ['green', 'blue', 'yellow', 'red']
-    color_rgb_list = []
-    for color_string in color_strings:
-        color_rgb_list.append(tuple(webcolors.name_to_rgb(color_string)))
-
-    def label_to_names(label):
-        return {0: 'PF-G', 1: 'PF-L', 2: 'PF-M', 3: 'PF-H'}[label]
-
-    # visualize detections
-    for box, score, label in zip(boxes[0], scores[0], labels[0]):
-        # scores are sorted so we can break
-        #         color = label_color(label)
-        box = box.astype(int)
-        label = int(label)
-        logging.info("{} {} {}".format(box, label, score))
-        draw_box(image, box, color=color_rgb_list[label])
-
-        caption = "{} {:.3f}".format(labels_to_names[label], score)
-        draw_caption(image, box, caption)
-
-    fig, ax = plt.subplots(1, 1, figsize=(15, 15))
-
-    ax.imshow(image)
-    ax.axis('off')
-    plt.show()
 
 
 def main(args=None):
