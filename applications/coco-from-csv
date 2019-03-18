@@ -154,8 +154,8 @@ def get_categories_from_fd(mapping):
                     for row in buf:
                         category, id = row.split(',')
                         categories.append({
-                            'id': id,
-                            'name': category,
+                            'id': int(id),
+                            'name': str(category),
                             'supercategory': '',
                         })
             except StopIteration:
