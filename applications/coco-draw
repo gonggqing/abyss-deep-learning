@@ -31,10 +31,10 @@ JSON_SAMPLE = """
 
 
 
-def main(command_line_args=None):
+def main(args=None):
     
 
-    if command_line_args.sample_colors:
+    if args.sample_colors:
         print(JSON_SAMPLE)
         return
 
@@ -56,8 +56,8 @@ def main(command_line_args=None):
 
 
     # Colours loops over the category ids and override the colour pallette for a given category id
-    if command_line_args.colors:
-        color_json = json.load(open(command_line_args.colors,"r"))
+    if args.colors:
+        color_json = json.load(open(args.colors,"r"))
         for ent in color_json['colors']:
             for cat in coco_file['categories']:
                 if cat['name'] == ent['name']:
@@ -81,7 +81,7 @@ def main(command_line_args=None):
                 annotation_text = "{}".format(category_dict[annotation['category_id']])
 
             if image['id'] == annotation['image_id']:
-                if command_line_args.bbox:
+                if args.bbox:
                     # convert from x,y,w,h to x1,y1 x2,y2
                     bb_ann = annotation['bbox']
                     labels.append([bb_ann[0], bb_ann[1], bb_ann[0]+bb_ann[2], bb_ann[1]+bb_ann[3], annotation['category_id']-1])
@@ -93,43 +93,49 @@ def main(command_line_args=None):
                         text_labels.append([seg_ann[0][0],seg_ann[0][1],annotation_text,annotation['category_id']-1])
 
 
-        if command_line_args.bbox:
+        if args.bbox:
             cv2_image = abyss_deep_learning.draw.boxes(labels,
                                                        cv2_image,
-                                                       command_line_args.fill,
+                                                       args.fill,
                                                        True,
                                                        active_color_pallette,
-                                                       command_line_args.annotation_alpha,
-                                                       command_line_args.image_alpha,
-                                                       command_line_args.border)                                      
+                                                       args.annotation_alpha,
+                                                       args.image_alpha,
+                                                       args.border)                                      
         else:
             cv2_image = abyss_deep_learning.draw.polygons(labels,
                                             cv2_image,
-                                            command_line_args.fill,
+                                            args.fill,
                                             True,
                                             active_color_pallette,
-                                            command_line_args.annotation_alpha,
-                                            command_line_args.image_alpha,
-                                            command_line_args.border)
+                                            args.annotation_alpha,
+                                            args.image_alpha,
+                                            args.border)
 
-        if not command_line_args.no_text:
-            cv2_image = abyss_deep_learning.draw.text(text_labels,cv2_image,active_color_pallette,font=cv2.FONT_HERSHEY_SIMPLEX, alpha=1.0, image_alpha=1, scale=command_line_args.text_scale,thickness=1)
+        if not args.no_text:
+            cv2_image = abyss_deep_learning.draw.text(text_labels,cv2_image,active_color_pallette,font=cv2.FONT_HERSHEY_SIMPLEX, alpha=1.0, image_alpha=1, scale=args.text_scale,thickness=1)
         
-        if command_line_args.view_only:
+        if args.view_only:
             cv2.imshow("View Only",cv2_image)
             cv2.waitKey(0)
         else:
             # print("not vo")
-            if command_line_args.output:
+            if args.output:
                 try:
-                    os.makedirs(command_line_args.output+"/"+os.path.split(image['path'])[0])
+                    os.makedirs(args.output+"/"+os.path.split(image['path'])[0])
                 except OSError as err:
-                    if err.errno != errno.EEXIST:
-                        raise
-                output_path = image['path'].split('/')[-1] if command_line_args.basename else image['path']
-                cv2.imwrite(command_line_args.output+"/"+output_path,cv2_image)
+                    if err.errno != errno.EEXIST: raise
+                if args.basename:
+                    output_path = image['path'].split('/')[-1]
+                elif not args.path_trim_depth is None:
+                    s = image['path'].split('/')
+                    if len( s ) <= args.path_trim_depth: print("coco-draw: expected path depth of at least " + int( args.path_trim_depth ) + "; got: '" + image['path'] + "'", file=sys.stderr); sys.exit(1)
+                    output_path = '/'.join( s[args.path_trim_depth:] )
+                else:
+                    output_path = image['path']
+                cv2.imwrite(args.output+"/"+output_path,cv2_image)
             else:
-                if os.path.isfile(image['path']) and not command_line_args.force:
+                if os.path.isfile(image['path']) and not args.force:
                     print("coco-draw warning attempting to overwrite images. These images may be potentially your source iamges!!!. Please be careful\napply --force to override. Exiting.", file=sys.stderr)
                     sys.exit(1)
                 else:
@@ -138,7 +144,7 @@ def main(command_line_args=None):
 def parse_cli():
     parser = ArgumentParser(
         description=DESCRIPTION)
-    parser.add_argument('--basename', action='store_true', help="output image filenames will be basenames of images")
+    parser.add_argument('--path-basename', '--basename', action='store_true', help="output image filenames will be basenames of images")
     parser.add_argument('-o', '--output', type=str,
                         help="If specified, sets the output directory of the images, otherwise the current directory will be used as the output")
     parser.add_argument('-c', '--colors','--colours', type=str,
@@ -156,6 +162,8 @@ def parse_cli():
     parser.add_argument('--no-text', action='store_true', help="just draw, do not add text labels")
     parser.add_argument('-t', '--border', type=int, default=1,
                         help="Specifies border thinkness of annotations")
+    parser.add_argument('--path-trim-depth', '--trim-depth', '--depth', type=int,
+                        help="trim the initial portion of a given length from the file path")
     parser.add_argument('-u', '--annotation-alpha', type=float,default=0.4,
                         help="Sets the alpha channel of annotations. value is from 0 to 1")
     parser.add_argument('-v', '--image-alpha', type=float, default=1,
@@ -165,4 +173,4 @@ def parse_cli():
     return parser.parse_args()
 
 if __name__ == '__main__':
-    main(command_line_args=parse_cli())
+    main(args=parse_cli())
