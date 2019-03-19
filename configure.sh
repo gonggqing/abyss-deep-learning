@@ -3,17 +3,17 @@ set -e
 
 [[ $# -lt 1 ]] && { echo "Usage: ./configure [python3 | python2]"; exit 1; }
 
-BASE=$PWD
+BASE="$PWD"
 SRC_DIR=~/src
-COCOTOOLS_DIR=$SRC_DIR/cocoapi
+COCOTOOLS_DIR="$SRC_DIR/cocoapi"
 
 # ## Initialise submodules
 # git submodule update --init --recursive
 
-if [[ ! -e $SRC_DIR ]] ; then
-	mkdir "$SRC_DIR"
+if [[ ! -e "$SRC_DIR" ]] ; then
+	mkdir ""$SRC_DIR""
 fi
-if [[ ! -e $COCOTOOLS_DIR ]] ; then
+if [[ ! -e "$COCOTOOLS_DIR" ]] ; then
   cd "$SRC_DIR"
   git clone https://github.com/cocodataset/cocoapi.git
 fi
@@ -22,7 +22,7 @@ fi
 cd "$COCOTOOLS_DIR/PythonAPI"
 if [[ $1 == python3 ]] ; then
  echo "Building pycocotools for python3"
- sed -r -i 's/python\s/python3 /g' Makefile
+ [[ ! -f Makefile ]] && echo cannot find Makefile, check installation of cocoapi || cat Makefile | sed -e 's#python#python3#g'
 else
  echo "Building pycocotools for python2"
 fi
