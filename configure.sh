@@ -28,6 +28,16 @@ else
 fi
 make && sudo make install
 
+## Install pillow-simd https://github.com/uploadcare/pillow-simd
+if [[ $1 == python3 ]] ; then
+    pip3 uninstall pillow
+    CC="cc -mavx2" pip3 install -U --force-reinstall pillow-simd
+else
+    pip uninstall pillow
+    CC="cc -mavx2" pip install -U --force-reinstall pillow-simd
+fi
+
+
 ## Download Mask RCNN pretrained weights and update remotes
 #mkdir -p "$BASE/abyss_maskrcnn"
 #cd "$BASE/abyss_maskrcnn"
