@@ -9,10 +9,10 @@ import os
 import sys
 import time
 from datetime import datetime
-from PIL import Image
 
 import numpy as np
 import skimage
+from PIL import Image
 from abyss_deep_learning.utils import imread
 
 _DESCRIPTION = """
@@ -25,15 +25,15 @@ examples:
     Generates a COCO file with segmentation annotations inferred from the amount of unique pixels in the mask.
     Holes are connected by drawing a line between the first pixel in the polygon points to the closest background pixel
     e.g. Use for mask JSON that contains paths to segmentation masks from the SemanticPredictions layer
-    
     cat images.json | coco-from-segmentation mask.json -c from-mask -n 2 --connect-holes > segmentations.json
-    
+
     Generates a COCO file with segmentation annotations from pixels above and below certain values.
     e.g. Use for mask JSON that contains paths to segmentation masks from the ResizedBilinear layer
-    
     cat images.json | coco-from-segmentation mask.json -c 1 --lower-threshold 0.3 --upper-threshold 0.8 > segmentations.json
-    
+
 Use --normalize if passing unnormalized .bin file
+
+If -s/--size is not passed, the image will be opened using PIL.Image.open(path) to get image dimensions
 """
 
 np.set_printoptions(threshold=np.inf)

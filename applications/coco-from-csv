@@ -15,14 +15,16 @@ import pandas as pd
 from PIL import Image
 
 DESCRIPTION = \
-    """
-    Generate COCO JSON file from CSV file.
-    
-    Required CSV file fields are:
-        video frame classification: file_name,begin_frame,end_frame,caption
-        bounding boxes: file_name,image_id,x1,y1,x2,y2,score,category_id
-            image_id is an optional field
-    """
+"""
+Generate COCO JSON file from CSV file.
+
+Required CSV file fields are:
+video frame classification: file_name,begin_frame,end_frame,caption
+bounding boxes: file_name,x1,y1,x2,y2,score,category_id
+
+examples
+    cat retina-predictions.csv | coco-from-csv file_name,,x1,y1,x2,y2,score,category_id --map class-mapping.csv > retina-predictions.json
+"""
 
 
 def main(args):

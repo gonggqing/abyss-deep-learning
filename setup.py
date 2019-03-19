@@ -28,6 +28,7 @@ setup(
         "applications/coco-filter-categories",
         "applications/coco-from-csv",
         "applications/coco-from-segmentation",
+        "applications/coco-from-images",
         "applications/coco-from-video",
         "applications/coco-merge",
         "applications/coco-metrics",
