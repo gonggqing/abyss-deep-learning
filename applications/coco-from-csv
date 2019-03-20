@@ -23,7 +23,7 @@ video frame classification: file_name,begin_frame,end_frame,caption
 bounding boxes: file_name,x1,y1,x2,y2,score,category_id
 
 examples
-    cat retina-predictions.csv | coco-from-csv file_name,,x1,y1,x2,y2,score,category_id --map class-mapping.csv > retina-predictions.json
+    cat retina-predictions.csv | coco-from-csv --fields file_name,,x1,y1,x2,y2,score,category_id --map class-mapping.csv > retina-predictions.json
 """
 
 
