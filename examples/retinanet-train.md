@@ -27,25 +27,27 @@ Install missing dependencies with sudo pip3 install later. Apart from tensorflow
 Starting from the coco-boxes.json...
 
 ```bash
-coco-to-retina-csv coco-boxes.train.json retina-annotations/train/ --index-from-zero
+cat coco-boxes.train.json | coco-to-csv annotations -w retinanet > train_annotations.csv
+cat coco-boxes.train.json | coco-to-csv categories -w retinanet > class_mapping.csv
+cat coco-boxes.val.json | coco-to-csv annotations -w retinanet > val_annotations.csv
 ```
-
-Rewrite class_mapping.csv to be more intuitive (PF-G = 0, PF-L = 1, PF-M = 2, PF-H = 3)
 
 If you want:
 Rename retina-annotations/train/ to train_annotations
 
-
 ## Link to images, masks
 
 ```bash
-ln -s "/mnt/rhino/processed/industry-data/anadarko/gunnison/r2s/sphericals/CD -/cubes_small" images
-ln -s "/mnt/rhino/processed/industry-data/anadarko/gunnison/r2s/sphericals/CD -/masks_small" masks  # Optional
+ln -s "/mnt/pond/processed/industry-data/anadarko/gunnison/r2s/sphericals/CD -/cubes_small" images
+ln -s "/mnt/pond/processed/industry-data/anadarko/gunnison/r2s/sphericals/CD -/masks_small" masks  # Optional
 ```
 
 ## Run the training script
 
 Need to calculate steps (num_images/batchsize)
+```bash
+echo "$(cat train_annotations.csv | wc -l) / batchsize" | bc
+```
 
 ```bash
 python3 ~/src/abyss/keras-retinanet/keras_retinanet/bin/train.py --epochs 100 --steps 70 --batch-size 4 \

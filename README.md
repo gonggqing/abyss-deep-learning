@@ -28,7 +28,8 @@ mkdir -p ~/src/abyss
 cd ~/src/abyss
 git clone https://github.com/abyss-solutions/deep-learning.git
 cd deep-learning
-sudo python3 setup.py install
+sudo python3 setup.py install 
+# sudo pip3 install . # Use either but do not mix installation methods
 ```
 
 ### Docker

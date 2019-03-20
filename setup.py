@@ -1,16 +1,16 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 from distutils.core import setup
 
 setup(
     name='Abyss Deep Learning',
-    version="100",
-    description='Abyss Deep Learning',
+    version="1.0.0",
+    description='Scripts and utilities for deep learning. Contains most coco'
+    'scripts and extra utilies for pre-processing',
     author='Abyss Solutions',
     author_email='tech@abysssolutions.com.au',
     url='http://github.com/abyss-solutions/deep-learning',
     packages=[
         'abyss_deep_learning',
-        'abyss_deep_learning.base',
         'abyss_deep_learning.keras',
         'abyss_deep_learning.datasets',
         'abyss_deep_learning.datasets.mrcnn',
@@ -23,11 +23,12 @@ setup(
         "applications/coco-calc",
         "applications/coco-calc-masks",
         "applications/coco-check-data-pollution",
-	"applications/coco-draw",
+        "applications/coco-draw",
         "applications/coco-extract-masks",
         "applications/coco-filter-categories",
         "applications/coco-from-csv",
         "applications/coco-from-segmentation",
+        "applications/coco-from-images",
         "applications/coco-from-video",
         "applications/coco-merge",
         "applications/coco-metrics",

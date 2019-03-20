@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+__author__ = 'Kent Hu'
+__maintainer__ = 'Kent Hu'
+
+import json
+import os
+import sys
+from datetime import datetime
+
+from PIL import Image
+
+_DESCRIPTION = """
+The utility takes in a text file of paths to images to generate a COCO JSON file from.
+
+examples
+    cat images.txt | coco-from-images > images.json
+    ls "$(pwd)"/*.jpg | coco-from-images > images.json
+    coco-from-images < images.txt > images.json
+    coco-from-images < <(ls "$(pwd)"/*.jpg) > images.json
+"""
+
+
+def main():
+    image_paths = sys.stdin.read().strip().split('\n')
+
+    coco_json = {
+        'info'       : {
+            'contributor' : 'Abyss Solutions',
+            'total_time'  : '00h00m00s',
+            'year'        : str(datetime.now().year),
+            'date_created': str(datetime.now()),
+            'description' : 'This is a dataset configured by Abyss Solutions.',
+            'version'     : '1.0',
+            'url'         : 'http://www.abysssolutions.com.au',
+        },
+        'images'     : [],
+        'annotations': [],
+        'categories' : [],
+        'licenses'   : [{
+            'id'  : 0,
+            'url' : 'http://creativecommons.org/licenses/by-nc-sa/2.0/',
+            'name': 'Attribution-NonCommercial-ShareAlike License',
+        }],
+    }
+
+    for i, image_path in enumerate(image_paths):
+        try:
+            width, height = Image.open(image_path).size
+        except OSError:
+            width = height = None
+        coco_json['images'].append(
+            {
+                'id'       : i,
+                'file_name': os.path.basename(image_path),
+                'path'     : image_path,
+                'width'    : width,
+                'height'   : height,
+            }
+        )
+
+    json.dump(coco_json, sys.stdout)
+    sys.exit(0)
+
+
+if __name__ == '__main__':
+    main()

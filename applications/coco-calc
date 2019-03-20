@@ -39,38 +39,17 @@ examples:
 """
 
 _REMAP_DESCRIPTION = """
-Remap categories and/or category id to categories and/or category id.
-
-A JSON string can be passed in or another COCO JSON file that contains categories can be passed in.
-
-If a COCO JSON is passed, as many categories will be matched with the existing COCO JSON and new ids will be assigned 
-from category names that are matched. It is possible, consequently for duplicate ids to occur depending on how the 
-categories are formatted in either COCO file. 
-
-5 use cases:
-    old id to new id
-        "{1:1,2:1,3:1,4:1}" collapses all category ids to one id
-        "{1:0,2:1,3:2,4:3}" change starting index of all categories
-    
-    old id to new category
-        "{1: 'PF', 2:'PF', 3:'PF', 4:'PF'}"                         collapses all categories to a single category
-        "{1: 'PF-L'}"                                               combine category id 1 with PF-L category
-    
-    old category to new id
-        "{'PF-G': 1,'PF-L': 2,'PF-M': 3,'PF-H': 4}"                 change category ordering
-    
-    old category to new category
-        "{'PF-G': 'PF', 'PF-L':'PF', 'PF-M':'PF', 'PF-H':'PF'}"     collapses all categories to a single category
-        "{'PF-G': 'PF-L'}"                                          combine PF-G with PF-L
-
-    a COCO JSON file can also be passed as an argument to [mapping] where the categories list will be used in place 
-    as the mapping.
+Remaps categories entry in a COCO json file based on its own existing
+categories or a --target-categories can be given to remap existing categories
+to new ones
 
 examples
-    cat pf.json | coco-calc remap "{1:1,2:1,3:1,4:1}"
-    cat pf.json | coco-calc remap "{'PF-G':'PF','PF-L':'PF','PF-M':'PF','PF-H':'PF'}" --categories "[{'name':'PF',
-    'id':5}]" 
-    cat predictions.json | coco-calc remap validation.json
+    Remap all categories in pf.json to a single category defined on the command line
+    cat pf.json | coco-calc remap "{1:0, 2:0, 3:0, 4:0}" \
+            --target-categories "[{'id': 0, 'name': 'PF', 'supercategory': ''}]" | sponge pf.json
+
+    Remap category 1 to 0 and category 3 to 4 using the input COCO json as a source of categories to take from
+    cat pf.json | coco-calc remap "{1:0, 3:4}" | sponge pf.json
 """
 
 _RESIZE_DESCRIPTION = """
@@ -145,7 +124,6 @@ def crop(coco: COCO, args) -> COCO:
     output_annotations = []
     for image_data in coco.loadImgs(coco.getImgIds()):
         path = None
-        basenames = set()
         if os.path.isfile(image_data['path']):
             path = image_data['path']
         elif os.path.isfile(os.path.abspath(image_data['path'])):
