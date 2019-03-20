@@ -23,7 +23,14 @@ video frame classification: file_name,begin_frame,end_frame,caption
 bounding boxes: file_name,x1,y1,x2,y2,score,category_id
 
 examples
-    cat retina-predictions.csv | coco-from-csv --fields file_name,,x1,y1,x2,y2,score,category_id --map class-mapping.csv > retina-predictions.json
+    boundding boxes
+        cat retina-predictions.csv | coco-from-csv --fields file_name,,x1,y1,x2,y2,score,category_id --map class-mapping.csv > retina-predictions.json
+        
+    categories
+        cat images.csv | coco-from-csv -f path --categories some-coco.json
+        cat images.csv | coco-from-csv -f path --categories <( echo medium,1; echo high,2 )
+        cat images.csv | coco-from-csv -f path --categories <( echo '[ { "id": 1, "name": "medium" }, { "id": 2, "name": "high" } ]' )
+        cat images.csv | coco-from-csv -f path --categories <( echo '{ "categories": [ { "id": 1, "name": "medium" }, { "id": 2, "name": "high" } ] }' )
 """
 
 
@@ -168,25 +175,29 @@ def generate_from_bounding_boxes(df, args):  # def generate_from_bounding_boxes(
 
 
 def get_categories_from_fd(mapping):
-    categories = []
     if mapping is None:
         logging.warning("no --categories specified, empty catergories will be output")
-        return categories
+        return []
     with open(mapping) as f:
         buf = f.read().strip()
-        if buf[0] in '{[':
-            categories += json.load(f)['categories']
+        if buf[0] in '{':
+            categories = json.loads(buf)['categories']
+        elif buf[0] in '[':
+            categories = json.loads(buf)
         else:
+            categories = []
             buf = buf.split('\n')
             reader = csv.reader(buf)
             try:
                 if len(next(reader)) == len(next(reader)) > 1:
                     for row in buf:
-                        category, id = row.split(',')
+                        s = row.split(',')
+                        if len( s ) < 2: logging.error( "--categories: expected at least <name>,<id>, got: '{}'".format( row ) ); sys.exit(1)
+                        category, id, supercategory = s if len( s ) > 2 else s + ['']
                         categories.append({
                             'id': int(id),
-                            'name': str(category),
-                            'supercategory': '',
+                            'name': category,
+                            'supercategory': supercategory,
                         })
             except StopIteration:
                 pass
@@ -222,7 +233,7 @@ def get_args():
     parser.add_argument('--indent', type=int, help="json indent, if none, output minimised json", default=4)
     parser.add_argument('--map', '--categories',
                         type=str,
-                        help="Path to original COCO json or category mapping csv file of category and category ids")
+                        help="Path to original COCO json or category mapping csv file of category and category ids; csv as <name>,<id>[,<supercategory>]")
     parser.add_argument('-s', '--image-size', type=str, help="<width>,<height> values to use to give to all images")
     parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, help="More output to stderr")
     return parser.parse_args()
