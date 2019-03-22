@@ -11,6 +11,7 @@ from pycocotools.coco import COCO
 from PyQt4 import QtGui, QtCore
 from skimage.color import rgb_colors
 import numpy as np
+from skimage.measure import find_contours, approximate_polygon
 
 
 HELP_STRING_VERBOSE = '''
@@ -33,6 +34,20 @@ TODO:
 
 ### Helpers
 
+def mask_to_polygons(mask):
+    contours = [
+        approximate_polygon(polygon, tolerance=np.radians(15))
+        for polygon in find_contours(mask, 0.5)]
+    return contours
+
+def draw_polygon(array, painter, color, args):
+    assert array.ndim == 2 and array.shape[1] == 2, "draw_polygon takes an array of shape [-1, 2]"
+    polygon = QtGui.QPolygonF() 
+    for x, y in array.tolist():
+        polygon.append(QtCore.QPointF(x, y))
+    painter.setPen(QtGui.QPen(color, args.line_thickness, QtCore.Qt.SolidLine))
+    painter.drawPolygon(polygon)
+
 def draw_annotation(painter, annotation, image_meta, color, category_string, annotation_idx, args):
     bbox = annotation['bbox']
     color = QtGui.QColor(*[i * 255 for i in color])
@@ -46,17 +61,18 @@ def draw_annotation(painter, annotation, image_meta, color, category_string, ann
     # Draw segmentation (polygon or mask) if requested in args.display
     if 'segmentation' in annotation and 'segm' in args.display:
         segmentation = annotation['segmentation']
+        
         if isinstance(segmentation, list): # Polygon
-            rle = COCOmask.frPyObjects(segmentation, image_meta['height'], image_meta['width'])
-            polygon = QtGui.QPolygonF() 
-            for x, y in np.array(segmentation).reshape((-1, 2)).tolist():
-                polygon.append(QtCore.QPointF(x, y))
-            painter.setPen(QtGui.QPen(color, args.line_thickness, QtCore.Qt.SolidLine))
-            painter.drawPolygon(polygon)
+            draw_polygon(np.array(segmentation).reshape((-1, 2)), painter, color, args)
 
         elif isinstance(segmentation, dict): # RLE encoded mask
             rle = segmentation
             mask = COCOmask.decode(rle).astype(np.uint8)[..., np.newaxis]
+            if args.mask_as_poly:
+                segmentation = mask_to_polygons(mask[:, :, 0])
+                for polygon in segmentation:
+                    draw_polygon(polygon[:, ::-1], painter, color, args)
+                return
             mask = np.concatenate([
                 mask * color.blue(),
                 mask * color.green(),
@@ -217,6 +233,7 @@ def parse_arguments(cmd_line=None):
     parser.add_argument('--opacity', help='Opacity of the annotations (in [0, 1], default 0.7)', default=0.7, type=float)
     parser.add_argument('--line-thickness', help='Thickness of the lines, in pixels. (default 3)', default=3, type=int)
     parser.add_argument('--text-size', help='Size of the text in points. (default 12)', default=12, type=int)
+    parser.add_argument('--mask-as-poly', help='Find polygons in the mask instead of showing the mask raster', action='store_true')
     parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, help="More output to stderr")
 
     args = parser.parse_args(args=cmd_line)
