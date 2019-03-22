@@ -17,6 +17,12 @@ import numpy as np
 
 from abyss.bedrock.filesystem.utils import search_path
 
+from skimage.color import rgb_colors
+COLORS = {color: getattr(rgb_colors, color) for color in dir(rgb_colors) if not color.startswith("_")}
+# COLOR_MAP = [COLORS[color] for color in "aqua,coral,violet,blue,red,gold,magenta,green,honeydew".split(",")]
+COLOR_MAP = list(COLORS.values())
+
+
 def bounding_box(polygon):
     '''return the bounding box of a given polygon'''
     min_x, min_y = np.min(polygon, axis=0)
@@ -30,7 +36,7 @@ def poly_from_bbox(bbox):
     return [(min_x, min_y), (min_x, max_y), (max_x, max_y), (max_x, min_y)]
 
 
-def showAnns(self, anns, cat_map, use_bbox=True, use_poly=True, use_text=True):
+def showAnns(self, anns, cat_map, use_bbox=True, use_segm=True, use_text=True):
     """
     Display the specified annotations.
     :param anns (array of object): annotations to display
@@ -48,25 +54,23 @@ def showAnns(self, anns, cat_map, use_bbox=True, use_poly=True, use_text=True):
         axis = plt.gca()
         axis.set_autoscale_on(False)
         polygons = []
-        color = []
+        colors = []
         for ann in anns:
-            c = (np.random.random((1, 3))*0.6+0.4).tolist()[0]
-            if 'segmentation' in ann:
-                if type(ann['segmentation']) == list:
-                    # polygon
+            # color = (np.random.random((1, 3))*0.6+0.4).tolist()[0]
+            color = COLOR_MAP[ann['category_id']]
+            bbox = np.asarray(poly_from_bbox(ann['bbox'])) if 'bbox' in ann else None
+            if use_text and (use_segm or use_bbox):
+                axis.text(np.mean(bbox[:, 0]), np.mean(bbox[:, 1]), cat_map[ann['category_id']])
+            if bbox is not None and use_bbox:
+                polygons.append(Polygon(bbox))
+                colors.append(color)
+            if 'segmentation' in ann and use_segm:
+                if type(ann['segmentation']) == list: # polygon
                     for seg in ann['segmentation']:
-                        if use_poly:
-                            poly = np.array(seg).reshape((int(len(seg)/2), 2))
-                            polygons.append(Polygon(poly))
-                        if use_bbox:
-                            poly = np.asarray(poly_from_bbox(ann['bbox']))
-                            polygons.append(Polygon(poly))
-                        color.append(c)
-                    if use_text:
-                        poly = np.asarray(poly_from_bbox(ann['bbox']))
-                        axis.text(np.mean(poly[:, 0]), np.mean(poly[:, 1]), cat_map[ann['category_id']])
-                else:
-                    # mask
+                        poly = np.array(seg).reshape((int(len(seg)/2), 2))
+                        polygons.append(Polygon(poly))
+                        colors.append(color)
+                else: # mask
                     t = self.imgs[ann['image_id']]
                     if type(ann['segmentation']['counts']) == list:
                         rle = COCOmask.frPyObjects(
@@ -76,12 +80,12 @@ def showAnns(self, anns, cat_map, use_bbox=True, use_poly=True, use_text=True):
                     m = COCOmask.decode(rle)
                     img = np.ones((m.shape[0], m.shape[1], 3))
                     if ann['iscrowd'] == 1:
-                        color_mask = np.array([2.0, 166.0, 101.0])/255
-                    if ann['iscrowd'] == 0:
-                        color_mask = np.random.random((1, 3)).tolist()[0]
+                        color_mask = np.array([2.0, 166.0, 101.0]) / 255
+                    else:
+                        color_mask = color
                     for i in range(3):
                         img[:, :, i] = color_mask[i]
-                    axis.imshow(np.dstack((img, m*0.5)))
+                    axis.imshow(np.dstack((img, m * 0.5)))
             if 'keypoints' in ann and type(ann['keypoints']) == list:
                 # turn skeleton into zero-based index
                 sks = np.array(self.loadCats(
@@ -92,18 +96,18 @@ def showAnns(self, anns, cat_map, use_bbox=True, use_poly=True, use_text=True):
                 v = kp[2::3]
                 for sk in sks:
                     if np.all(v[sk] > 0):
-                        plt.plot(x[sk], y[sk], linewidth=3, color=c)
+                        plt.plot(x[sk], y[sk], linewidth=3, color=color)
                 plt.plot(x[v > 0], y[v > 0], 'o', markersize=8,
-                         markerfacecolor=c, markeredgecolor='k', markeredgewidth=2)
+                         markerfacecolor=color, markeredgecolor='k', markeredgewidth=2)
                 plt.plot(x[v > 1], y[v > 1], 'o', markersize=8,
-                         markerfacecolor=c, markeredgecolor=c, markeredgewidth=2)
+                         markerfacecolor=color, markeredgecolor=color, markeredgewidth=2)
         # p = PatchCollection(polygons, facecolor=color, linewidths=0, alpha=0.4)
         # axis.add_collection(p)
-        p = PatchCollection(polygons, facecolor='none', edgecolors=color, linewidths=2)
+        p = PatchCollection(polygons, facecolor='none', edgecolors=colors, linewidths=2)
         axis.add_collection(p)
     elif dataset_type == 'captions':
         for ann in anns:
-            print(ann['caption'])
+            info(ann['caption'])
 
 
 def info(string):
@@ -124,7 +128,7 @@ def calculate_rgb_means(dataset, image_dir=None):
     def _calc_rgb(_dataset, image, _annotations):
         image_path = image['path'] if 'path' in image else os.path.join(
             image_dir, image['file_name'])
-        print(image_path, file=sys.stderr)
+        info(image_path, file=sys.stderr)
         output_size = (image['height'], image['width'])
         rgb = imread(image_path, output_size=output_size)
         means.append(np.mean(rgb, axis=(0, 1)))
@@ -134,7 +138,7 @@ def calculate_rgb_means(dataset, image_dir=None):
 
 def coco_info(dataset, args):
     if args.verbose:
-        print(args)
+        info(args)
     db_info = {
         'num_images': len(dataset.imgs),
         'num_annotations': len(dataset.anns),
@@ -145,7 +149,7 @@ def coco_info(dataset, args):
     if args.rgb_means:
         db_info['rgb_means'] = calculate_rgb_means(
             dataset, image_dir=args.image_dir)
-    print(json.dumps(db_info))
+    info(json.dumps(db_info))
 
 
 def main(args):
@@ -154,16 +158,13 @@ def main(args):
     args.info = True if args.rgb_means else args.info
     if args.info:
         coco_info(coco_db, args)
-        exit(0)
+        return
     cat_map = {cat['id']: cat['name'] for cat in coco_db.loadCats(coco_db.getCatIds())}
     img_ids = coco_db.getImgIds(imgIds=args.ids, catIds=args.cats)
     # image_sets = [coco_db.getImgIds(catIds=cat) for cat in args.cats]
     # img_ids = list(set([j for i in image_sets for j in i]))
     images = coco_db.loadImgs(ids=img_ids)
     ann_types = args.annotation_type.lower().split(',')
-    use_bbox = 'bbox' in ann_types
-    use_poly = 'segm' in ann_types
-    use_text = 'text' in ann_types
     if not images:
         info("No images with given ids and cats")
         exit(0)
@@ -171,32 +172,28 @@ def main(args):
     info(coco_db.loadCats(args.cats))
     info("Loaded {:d} images".format(len(images)))
     for _i, image in enumerate(images):
-        plt.figure(figsize=(15, 11))
         image_path = image.get('path', None) or image['file_name']
         image_path = search_path(image_path, args.image_dir)
         output_size = (image['width'], image['height'])
         rgb = imread(image_path, output_size=output_size)
         assert rgb.shape[0] == image['height'], "Image height does not match data height"
-        assert rgb.shape[1] == image['width'], "Image height does not match data height"
+        assert rgb.shape[1] == image['width'], "Image width does not match data height"
         ann_ids = coco_db.getAnnIds(imgIds=[image['id']], catIds=args.cats)
         annotations = coco_db.loadAnns(ids=ann_ids)
         if not annotations:
             info("skipping {:s} cause of 0 annotations".format(
                 image['file_name']))
-        # remove duplicates
-        #     groups = []
-        #     uniquekeys = []
-        #     data = sorted(annotations, key=lambda a: a['segmentation'])
-        #     for k, g in itertools.groupby(data, lambda a: a['segmentation']):
-        #         groups.append(list(g))      # Store group iterator as a list
-        #         uniquekeys.append(k)
-        #     annotations = [sorted(g, key=lambda a: a['id'])[0] for g in groups]
+            continue
         info("[{:s} \"{:s}\"] {:d} annotations".format(
             str(image['id']), image['file_name'], len(annotations)))
         if not args.dontshow:
+            plt.figure(figsize=(15, 11))
             plt.imshow(rgb)
             try:
-                showAnns(coco_db, annotations, cat_map, use_bbox=use_bbox, use_poly=use_poly, use_text=use_text)
+                showAnns(coco_db, annotations, cat_map,
+                    use_bbox=('bbox' in ann_types),
+                    use_segm=('segm' in ann_types),
+                    use_text=('text' in ann_types))
                 plt.title("[{:s}] {:s}".format(
                     str(image['id']), image['file_name']))
             except Exception as e:
@@ -219,15 +216,15 @@ def get_args():
     parser.add_argument(
         "--dontshow", help="Filter images by categories, CSV-delimited", action='store_true')
     parser.add_argument(
-        "--info", help="Print coco info and exit", action='store_true')
+        "--info", help="info coco info and exit", action='store_true')
     parser.add_argument(
-        "--rgb-means", help="Print coco rgb means (implies --info)", action='store_true')
+        "--rgb-means", help="info coco rgb means (implies --info)", action='store_true')
     parser.add_argument(
         "--image-dir", help="If images referenced relatively, give the iamge dir", default='.')
     parser.add_argument(
-        "--verbose", help="Print extra --info", action='store_true')
+        "--verbose", help="info extra --info", action='store_true')
     parser.add_argument(
-        "--annotation-type", help="Which annotations to show, one of {bbox, segm}; default 'segm'", type=str, default='segm')
+        "--annotation-type", help="CSV list of annotation types to show {bbox, segm, text}; default 'text,bbox,segm'", type=str, default='text,bbox,segm')
     args = parser.parse_args()
     args.ids = [int(i) for i in args.ids.split(',') if len(i)]
     args.cats = [int(i) for i in args.cats.split(',') if len(i)]

@@ -1,61 +1,137 @@
+
 #!/usr/bin/env python3
 import argparse
+import logging
+import os
 import sys
+from contextlib import redirect_stdout
 
 from pycocotools import mask as COCOmask
 from pycocotools.coco import COCO
-from contextlib import redirect_stdout
-from operator import itemgetter
-import numpy as np
 from PyQt4 import QtGui, QtCore
+from skimage.color import rgb_colors
+import numpy as np
 
 
-help_string_verbose = '''
+HELP_STRING_VERBOSE = '''
 COCO Layer Viewer
 -
 This viewer is designed to allow for easy comparison of various
 coco files by being able to toggle on and off individual sets
-of categories from each file. The tool will also allow for advancing
+of categories from each file. The tool  allow for advancing
 and stepping back between images
 
-TODO: decide how to customiser layer colours, fill and borders
-TODO: decide to put text below each bbox/seg
+TODO: 
+  * Non-randomised colors
+  * Mechanism to ensure different layer's text does not overlap
+  * Use numpad keys to toggle layers
 
 '''
 
-image_container = {}
+
+
+
+### Helpers
+
+def draw_annotation(painter, annotation, image_meta, color, category_string, args):
+    bbox = annotation['bbox']
+    color = QtGui.QColor(*[i * 255 for i in color])
+    # Draw bounding box if requested in args.display
+    if 'bbox' in annotation and 'bbox' in args.display:
+        painter.setPen(QtGui.QPen(color, args.line_thickness, QtCore.Qt.DashLine))
+        painter.drawRect(bbox[0], bbox[1], bbox[2], bbox[3])
+
+    # Draw segmentation (polygon or mask) if requested in args.display
+    if 'segmentation' in annotation and 'segm' in args.display:
+        segmentation = annotation['segmentation']
+        if isinstance(segmentation, list): # Polygon
+            rle = COCOmask.frPyObjects(segmentation, image_meta['height'], image_meta['width'])
+            polygon = QtGui.QPolygonF() 
+            for x, y in np.array(segmentation).reshape((-1, 2)).tolist():
+                polygon.append(QtCore.QPointF(x, y))
+            painter.setPen(QtGui.QPen(color, args.line_thickness, QtCore.Qt.SolidLine))
+            painter.drawPolygon(polygon)
+
+        elif isinstance(segmentation, dict): # RLE encoded mask
+            rle = segmentation
+            mask = COCOmask.decode(rle).astype(np.uint8)[..., np.newaxis]
+            logging.info(color)
+            mask = np.concatenate([
+                mask * color.blue(),
+                mask * color.green(),
+                mask * color.red(), 
+                mask * 255, 
+                ], axis=2).astype(np.uint8)
+
+            image = QtGui.QImage(mask.copy(), mask.shape[1], mask.shape[0], QtGui.QImage.Format_ARGB32)
+            painter.drawImage(
+                QtCore.QRect(0, 0, image_meta['width'], image_meta['height']), image)
+        else:
+            raise ValueError("Unknown segmentation of type " + str(type(segmentation)))
+    if 'text' in args.display:
+        painter.setOpacity(1)
+        for color, offset in zip([QtGui.QColor(0, 0, 0), color], [0, 1]):
+            painter.setPen(QtGui.QPen(color, args.line_thickness, QtCore.Qt.SolidLine))
+            painter.setFont(QtGui.QFont("Helvetica", pointSize=args.text_size, weight=QtGui.QFont.Bold, italic=False))
+            painter.drawText(
+                QtCore.QPointF(bbox[0] + bbox[2] // 10 + offset, bbox[1] + bbox[3] // 10 + offset),
+                category_string)
+        painter.setOpacity(args.opacity)
+
+
+def sanitized_category(category):
+    category = dict(category)
+    for key in category:
+        if isinstance(category[key], list):
+            category[key] = tuple(category[key])
+    return category
+
+
+def serialize_category(category):
+    return "{:s}/{:s}/{:s}".format(category['supercategory'], category['name'], str(category['id']))
+
+
+######### Classes #########
 
 class LayerData:
+    def __init__(self, name):
+        self.layer_name = name
+        self.annotations = [] # This is a standard coco-style list of annotations
+        self.serialized_categories = None # This map associates this layer's category_id to a unique serialised cateogry string
+    
+    def set_categories(self, categories):
+        self.serialized_categories = {
+            category['id']: serialize_category(category)
+            for category in categories}
 
-    def __init__(self):
-        self.layer_name = ""
-        self.category_data = {}
-        self.bbox = []
-        self.segmentation = []
 
 class ViewerImage:
-    def __init__(self, image_id,image_path=None, dims=(0,0)):
+    def __init__(self, image_id, meta, image_path=None, dims=(0, 0)):
         self.image_id = image_id
         self.image_path = image_path
         self.dims = dims
         self.layers = []
-    def add_layer(self):
-        layer = LayerData()
+        self.meta = meta
+    def add_layer(self, name):
+        layer = LayerData(name)
         self.layers.append(layer)
         return layer
 
 
 class Viewport(QtGui.QWidget):
-
-    def __init__(self):
+    def __init__(self, args):
         super(Viewport, self).__init__()
-        self.initialise_ui()
         self.image_pos = 1
+        self.args = args
+        self.image_container = {}
+        self.initialise_ui()
+        self.load_inputs(args.input_files)
+        self.categories_unique = None # This is populated by set_categories, and is a mapping from unique cateogry ID to 
 
     def initialise_ui(self):      
         self.setGeometry(300, 300, 250, 150)
         self.setWindowTitle('coco-viewer')
-        self.view_image  =  QtGui.QLabel()
+        self.view_image = QtGui.QLabel()
         vbox = QtGui.QVBoxLayout()
         vbox.addWidget(self.view_image)
         self.setLayout(vbox)
@@ -63,74 +139,94 @@ class Viewport(QtGui.QWidget):
 
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_D or event.key() == QtCore.Qt.Key_Right:
-            print("Advance")
+            logging.info("Advance")
             self.image_pos += 1
         elif event.key() == QtCore.Qt.Key_A or event.key() == QtCore.Qt.Key_Left:
-            print("Rewind")
+            logging.info("Rewind")
             self.image_pos -= 1
 
-        self.setWindowTitle('coco-viewer - ' + image_container[self.image_pos].image_path)
-        self.view_image.setPixmap(draw_image(self.image_pos))
+        self.setWindowTitle('coco-viewer - ' + self.image_container[self.image_pos].image_path)
+        self.view_image.setPixmap(self.draw_image(self.image_pos, self.args))
         event.accept()
 
+    def set_categories(self, categories):
+        colors = {color: getattr(rgb_colors, color) for color in dir(rgb_colors) if not color.startswith("_")}
+        color_map = list(colors.values())
+        np.random.shuffle(color_map)
+        self.categories_unique = {serialize_category(category): i for i, category in enumerate(categories)}
+        self.colors = {category_string: color_map[i] for i, category_string in enumerate(self.categories_unique)}
 
-def parse_arguments():
+    def load_inputs(self, files):
+        categories = set()
+        for file in files:
+            with redirect_stdout(sys.stderr):
+                coco_db = COCO(file)
+            # Populate Images
+            for idx, image_meta in enumerate(coco_db.imgs.values()):
+                if idx not in self.image_container.keys():
+                    self.image_container[idx] = ViewerImage(
+                        image_meta['id'], image_meta,
+                        image_path=image_meta['file_name'],
+                        dims=(image_meta['width'], image_meta['height']))
+
+                layer = self.image_container[idx].add_layer(os.path.basename(file))
+                # Populate Bounding Box and Segmentation Data
+                layer.annotations = coco_db.loadAnns(coco_db.getAnnIds(image_meta['id']))
+                # Populate Category data for each layer
+                coco_categories = coco_db.loadCats(coco_db.getCatIds())
+                layer.set_categories(coco_categories)
+                try:
+                    categories |= set([tuple(sanitized_category(category).items()) for category in coco_categories])
+                except TypeError as error:
+                    logging.info(coco_categories)
+                    raise
+        categories = [dict(i) for i in categories]
+        self.set_categories(categories)
+
+
+    def draw_image(self, image_id, args, layer_ids=[]):
+        image_view = self.image_container[image_id]
+        image_path = os.path.join(args.image_dir, image_view.image_path)
+        overlayed_image = QtGui.QPixmap(image_path)
+        painter = QtGui.QPainter(overlayed_image)
+        painter.setOpacity(args.opacity)
+
+        for layer in image_view.layers:
+            for annotation in layer.annotations:
+                category_string = layer.serialized_categories[annotation['category_id']]
+                draw_annotation(painter, annotation, image_view.meta, self.colors[category_string], category_string, args)
+
+        return overlayed_image
+
+######## CLI #########
+
+def parse_arguments(cmd_line=None):
     parser = argparse.ArgumentParser(
-        description='COCO Viewer - View Masks and Bounding Boxes overlayed on a series of images.'
+        description='coco-view - View annotations overlayed on a series of images.'
     )
     parser.add_argument('input_files', metavar='json', nargs='+')
-    parser.add_argument('--prefix')
-    return parser.parse_args()
+    parser.add_argument('--image-dir', '--prefix', help="The image directory to use")
+    parser.add_argument('--display', help='CSV list of annotation types to display: {bbox, segm, text}', default='bbox,segm,text')
+    parser.add_argument('--opacity', help='Opacity of the annotations (in [0, 1], default 0.7)', default=0.7, type=float)
+    parser.add_argument('--line-thickness', help='Thickness of the lines, in pixels. (default 3)', default=3, type=int)
+    parser.add_argument('--text_size', help='Size of the text in points. (default 12)', default=12, type=int)
+    parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, help="More output to stderr")
 
+    args = parser.parse_args(args=cmd_line)
 
-def load_inputs(files):
-    for file in files:
-        with redirect_stdout(sys.stderr):
-            coco_db = COCO(file)
-            # Populate Images
-            for idx, v in enumerate(coco_db.imgs.values()):
-                if idx not in image_container.keys():
-                    image_container[idx] = ViewerImage(
-                        v['id'],v['file_name'],(v['width'],v['height']))
+    logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S',
+                        level=args.verbose)
+    logging.info('--verbose enabled')
+    logging.info(args)
+    args.display = args.display.split(',')
+    return args
 
-                layer = image_container[idx].add_layer()
-                # Populate Bounding Box and Segmentation Data
-                for annotation in coco_db.getAnnIds(v['id']):
-                    annotation = coco_db.anns[annotation]
-                    layer.bbox.append((annotation['category_id'],annotation['bbox']))
-                    #layer.segmentation.append((annotation['category_id'],annotation['segmentation']))
-                # Populate Category data for each layer
-                for _,cat in coco_db.cats.items():
-                    layer.category_data[cat['id']] = (cat['id'],cat['name'])
-
-
-def draw_image(image_id,layer_ids=[]):
-    image_data = image_container[image_id]
-    prefix = ""
-    overlayed_image = QtGui.QPixmap(prefix+image_data.image_path)
-    pixmap_painter = QtGui.QPainter(overlayed_image)
-    pixmap_painter.setPen(QtGui.QPen(QtCore.Qt.red))
-
-
-
-    for layer in image_data.layers:
-        for bbox in layer.bbox:
-            pixmap_painter.drawRect(bbox[1][0],bbox[1][1],bbox[1][2],bbox[1][3])
-    
-        for segment in layer.segmentation:
-            print(segment)
-
-
-    return overlayed_image
 
 def main(args):
-    load_inputs(args.input_files)
-
-    
     app = QtGui.QApplication(sys.argv)
-    viewport = Viewport()
+    viewport = Viewport(args)
     sys.exit(app.exec_())
-    
 
 if __name__ == "__main__":
     main(parse_arguments())
