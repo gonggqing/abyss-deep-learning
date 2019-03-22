@@ -33,9 +33,11 @@ TODO:
 
 ### Helpers
 
-def draw_annotation(painter, annotation, image_meta, color, category_string, args):
+def draw_annotation(painter, annotation, image_meta, color, category_string, annotation_idx, args):
     bbox = annotation['bbox']
     color = QtGui.QColor(*[i * 255 for i in color])
+    painter.setOpacity(args.opacity)
+
     # Draw bounding box if requested in args.display
     if 'bbox' in annotation and 'bbox' in args.display:
         painter.setPen(QtGui.QPen(color, args.line_thickness, QtCore.Qt.DashLine))
@@ -55,7 +57,6 @@ def draw_annotation(painter, annotation, image_meta, color, category_string, arg
         elif isinstance(segmentation, dict): # RLE encoded mask
             rle = segmentation
             mask = COCOmask.decode(rle).astype(np.uint8)[..., np.newaxis]
-            logging.info(color)
             mask = np.concatenate([
                 mask * color.blue(),
                 mask * color.green(),
@@ -75,7 +76,7 @@ def draw_annotation(painter, annotation, image_meta, color, category_string, arg
             painter.setFont(QtGui.QFont("Helvetica", pointSize=args.text_size, weight=QtGui.QFont.Bold, italic=False))
             painter.drawText(
                 QtCore.QPointF(bbox[0] + bbox[2] // 10 + offset, bbox[1] + bbox[3] // 10 + offset),
-                category_string)
+                "{:s}:{:d}".format(category_string, annotation_idx))
         painter.setOpacity(args.opacity)
 
 
@@ -124,6 +125,7 @@ class Viewport(QtGui.QWidget):
         self.image_pos = 1
         self.args = args
         self.image_container = {}
+        self.image_ids = []
         self.initialise_ui()
         self.load_inputs(args.input_files)
         self.categories_unique = None # This is populated by set_categories, and is a mapping from unique cateogry ID to 
@@ -138,15 +140,18 @@ class Viewport(QtGui.QWidget):
         self.show()
 
     def keyPressEvent(self, event):
+        logging.info("KEY PRESS EVENT: {:d}".format(event.key()))
         if event.key() == QtCore.Qt.Key_D or event.key() == QtCore.Qt.Key_Right:
-            logging.info("Advance")
             self.image_pos += 1
         elif event.key() == QtCore.Qt.Key_A or event.key() == QtCore.Qt.Key_Left:
-            logging.info("Rewind")
             self.image_pos -= 1
 
-        self.setWindowTitle('coco-viewer - ' + self.image_container[self.image_pos].image_path)
-        self.view_image.setPixmap(self.draw_image(self.image_pos, self.args))
+        image_view = self.image_container[self.image_ids[self.image_pos]]
+        self.setWindowTitle('coco-viewer - ' + image_view.image_path)
+        try:
+            self.view_image.setPixmap(self.draw_image(image_view, self.args))
+        except OSError as error:
+            logging.error(str(error))
         event.accept()
 
     def set_categories(self, categories):
@@ -182,19 +187,21 @@ class Viewport(QtGui.QWidget):
                     raise
         categories = [dict(i) for i in categories]
         self.set_categories(categories)
+        self.image_ids = list(self.image_container.keys())
 
 
-    def draw_image(self, image_id, args, layer_ids=[]):
-        image_view = self.image_container[image_id]
-        image_path = os.path.join(args.image_dir, image_view.image_path)
+    def draw_image(self, image_view, args, layer_ids=[]):
+        image_path = os.path.join(args.image_dir, image_view.image_path) if args.image_dir else image_view.image_path
+        if not os.path.exists(image_path):
+            raise OSError("Image not found: " + image_path)
+
         overlayed_image = QtGui.QPixmap(image_path)
         painter = QtGui.QPainter(overlayed_image)
-        painter.setOpacity(args.opacity)
-
+        
         for layer in image_view.layers:
-            for annotation in layer.annotations:
+            for idx, annotation in enumerate(layer.annotations):
                 category_string = layer.serialized_categories[annotation['category_id']]
-                draw_annotation(painter, annotation, image_view.meta, self.colors[category_string], category_string, args)
+                draw_annotation(painter, annotation, image_view.meta, self.colors[category_string], category_string, idx, args)
 
         return overlayed_image
 
@@ -209,7 +216,7 @@ def parse_arguments(cmd_line=None):
     parser.add_argument('--display', help='CSV list of annotation types to display: {bbox, segm, text}', default='bbox,segm,text')
     parser.add_argument('--opacity', help='Opacity of the annotations (in [0, 1], default 0.7)', default=0.7, type=float)
     parser.add_argument('--line-thickness', help='Thickness of the lines, in pixels. (default 3)', default=3, type=int)
-    parser.add_argument('--text_size', help='Size of the text in points. (default 12)', default=12, type=int)
+    parser.add_argument('--text-size', help='Size of the text in points. (default 12)', default=12, type=int)
     parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, help="More output to stderr")
 
     args = parser.parse_args(args=cmd_line)
