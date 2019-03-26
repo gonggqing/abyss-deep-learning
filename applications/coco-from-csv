@@ -24,7 +24,7 @@ bounding boxes: file_name,x1,y1,x2,y2,score,category_id
 
 examples
     boundding boxes
-        cat retina-predictions.csv | coco-from-csv --fields file_name,,x1,y1,x2,y2,score,category_id --map class-mapping.csv > retina-predictions.json
+        cat retina-predictions.csv | coco-from-csv --fields path,,x1,y1,x2,y2,score,category_id --map class-mapping.csv > retina-predictions.json
         
     categories
         cat images.csv | coco-from-csv -f path --categories some-coco.json
