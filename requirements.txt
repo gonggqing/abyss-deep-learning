@@ -7,3 +7,8 @@ pandas
 scipy
 bidict
 pillow
+keras
+cython
+pycocotools
+keras_retinanet
+tensorflow-gpu

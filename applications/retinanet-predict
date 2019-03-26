@@ -137,7 +137,8 @@ def get_args():
                         help='Path to RetinaNet model weights.')
     parser.add_argument('--convert-model',
                         help='Convert the model to an inference model (ie. the input is a training model).',
-                        action='store_true')
+                        action='store_true',
+                        default=True)
     parser.add_argument('--backbone',
                         help='The backbone of the model. Default is %(default)s',
                         default='resnet50')
