@@ -35,7 +35,8 @@ parser.add_argument('--validate', action='store_true', help='[train] Simultenous
 parser.add_argument('--num-train-gpus', help='[train] The number of GPUs used for training.')
 parser.add_argument('--batch-size', help='[train, eval] The batch size to use in training and evaluation', default=2)
 parser.add_argument('--checkpoint', help='[train, eval] The path to the checkpoint to load before training or evaluation')
-parser.add_argument('--eval-crop-size', help='[train] The crop size to use in evaluation, must be at least as big as the largest image in val set', default=513)
+parser.add_argument('--eval-crop-size', help='[eval] The crop size to use in evaluation, must be at least as big as the largest image in val set', default=513)
+parser.add_argument('--export-crop-size', help='[export] The crop size to use when exporting, must be at least as big as the largest image to be deployed to', default=513)
 parser.add_argument('--export-checkpoint-number', type=int, default=0, help='[export] When exporting a model, the checkpoint number to use, e.g. for model.ckpt-5000, this would be 5000')
 EOF
 
@@ -212,7 +213,7 @@ function do_export(){
   --atrous_rates=18 \
   --output_stride=16 \
   --decoder_output_stride=4 \
-  --eval_crop_size ${CROP_SIZE} --eval_crop_size ${CROP_SIZE} \
+  --crop_size ${EXPORT_CROP_SIZE} --crop_size ${EXPORT_CROP_SIZE} \
   --model_variant "$MODEL" \
   --inference_scales=1.0
  local return_code=$?
