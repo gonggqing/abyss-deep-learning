@@ -11,6 +11,11 @@ from collections import namedtuple
 
 import pandas as pd
 
+pd.set_option('display.max_columns', None)
+pd.set_option('display.max_rows', None)
+pd.set_option('display.expand_frame_repr', False)
+pd.set_option('max_colwidth', -1)
+
 _DESCRIPTION = \
     """
 Read COCO json file piped in from stdin and write to stdout COCO json output.
@@ -70,7 +75,7 @@ def main(args):
         json.dump(data, sys.stdout, indent=args.indent)
         sys.exit(0)
 
-    original_images = copy.deepcopy(data.get('images', [])) if args.keep_images else None   # quick and dirty, ugly
+    original_images = copy.deepcopy(data.get('images', [])) if args.keep_images else None  # quick and dirty, ugly
 
     for annotation in data.get('annotations', []):
         annotation['annotation_id'] = annotation.pop('id')
@@ -96,10 +101,13 @@ def main(args):
         # Not point in having a category data frame as images do not contain a category id field
         df = df_annotations
     try:
-        df = pd.merge(left=df, right=df_images, on='image_id')
+        pass
     except KeyError:
         # Original df was df_annotations, if empty, then assign df_images
         df = df_images if df.empty else df
+    df = pd.merge(left=df, right=df_images, on='image_id')
+    unlabelled_image_df = df_images[~df_images['image_id'].isin(df_annotations['image_id'])]
+    df = pd.concat([df, unlabelled_image_df], sort=True, ignore_index=True)
 
     Keys = namedtuple("Keys", ['ann_keys', 'img_keys', 'cat_keys'])
     keys = Keys(ann_keys=annotation_keys, img_keys=image_keys, cat_keys=category_keys)
@@ -119,9 +127,13 @@ def main(args):
     annotations = []
 
     df_annotations = df[annotation_keys]
+    unlabelled_ids = set(unlabelled_image_df['image_id'])
     if not df_annotations.empty:
         for record in df_annotations.itertuples():
-            annotations.append(record_to_dict(record, 'annotation_id'))
+            annotation = record_to_dict(record, 'annotation_id')
+            if annotation['image_id'] in unlabelled_ids:
+                continue
+            annotations.append(annotation)
 
     categories = []
     df_categories = df[category_keys]
@@ -148,7 +160,6 @@ def create_data_frame(data: dict) -> pd.DataFrame:
     df = pd.DataFrame(data)
     values = {}
     invalid_values = []
-    # TODO: Addressing NaN values, need to find specific JSON file that triggers error
     for column_name in df:
         try:
             values[column_name] = df[column_name].mode()[0]
@@ -162,6 +173,7 @@ def create_data_frame(data: dict) -> pd.DataFrame:
 def drop_duplicates(list_: list):
     def to_tuple(entry_: list):
         return tuple(to_tuple(i) if isinstance(i, list) else i for i in entry_)
+
     return [dict(item) for item in set(to_tuple([list(item) for item in sorted(entry.items())]) for entry in list_)]
 
 
@@ -178,8 +190,11 @@ def eval_on(df: pd.DataFrame, args: argparse.Namespace, keys: namedtuple, on_id:
     df_categories = df[keys.cat_keys].rename(index=str, columns={'category_id': 'id'})
     df_annotations = df[keys.ann_keys].rename(index=str, columns={'annotation_id': 'id'})
 
-    if args.init is not None:
+    try:
         exec(args.init)
+    except TypeError:
+        pass
+
     for a, i, c in zip(df_annotations.itertuples(), df_images.itertuples(), df_categories.itertuples()):
         idx = int(a.Index)
         if eval(args.expression):
@@ -201,15 +216,17 @@ def get_args() -> argparse.Namespace:
                              "associated annotations. If on is 'annotation', then evaluate the expression on a per "
                              "annotation basis and for annotations that satisfy the expression, select all associated "
                              "images.")
-    parser.add_argument('expression', type=str, help="General expression to search for images.",)
+    parser.add_argument('expression', type=str, help="General expression to search for images.", )
     parser.add_argument('-i', '--init', type=str, help="General python code to run at the start of the script")
-    parser.add_argument('-m', '--min', action='store_const', const=None, default=4, dest='indent', help="Disable JSON pretty print.")
-    parser.add_argument('--keep-categories', action='store_true', help='Carry over all categories from original COCO JSON file.')
-    parser.add_argument('--keep-images', action='store_true', help='Carry over all images from original COCO JSON file.')
+    parser.add_argument('-m', '--min', action='store_const', const=None, default=4, dest='indent',
+                        help="Disable JSON pretty print.")
+    parser.add_argument('--keep-categories', action='store_true',
+                        help='Carry over all categories from original COCO JSON file.')
+    parser.add_argument('--keep-images', action='store_true',
+                        help='Carry over all images from original COCO JSON file.')
     parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, help="More output to stderr.")
     return parser.parse_args()
 
 
 if __name__ == '__main__':
     main(get_args())
-
