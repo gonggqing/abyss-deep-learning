@@ -19,8 +19,8 @@ DESCRIPTION = \
 Generate COCO JSON file from CSV file.
 
 Required CSV file fields are:
-video frame classification: file_name,begin_frame,end_frame,caption
-bounding boxes: file_name,x1,y1,x2,y2,score,category_id
+video frame classification: path,begin_frame,end_frame,caption
+bounding boxes: path,x1,y1,x2,y2,score,category_id
 
 examples
     boundding boxes
@@ -57,7 +57,7 @@ def main(args):
     elif all(field in df for field in ['path']):
         coco_json = make_images(df, args)
     else:
-        logging.error("Could not find required fields")
+        logging.error("Could not find required fields\n (path) or\n (path,x1,y1,x2,y2,category_id') or\n ('path','begin_frame','end_frame','caption')")
         sys.exit(1)
 
     json.dump(coco_json, sys.stdout, indent=args.indent)
@@ -75,7 +75,8 @@ def make_image( row, width, height, id ): # todo! reuse in generate_from_boundin
         try:
             width, height = Image.open(image_path).size
         except IOError:
-            logging.warning("could not get image size from [{}]; no image width/height will be in coco".format(image_path))
+            if args.force: logging.warning("could not get image size from [{}]; no image width/height will be in coco".format(image_path))
+            else: logging.error("could not get image size from [{}]; use --force to override".format(image_path)); sys.exit( 1 )
             width = height = None
     if width:
         image['width'] = width
@@ -96,23 +97,8 @@ def make_images(df, args):
 def generate_from_bounding_boxes(df, args):  # def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
     logging.info("Generating from bounding boxes")
     coco_json = {
-        'info'       : {
-            'year'        : int(datetime.now().year),
-            'version'     : '1.0',
-            'description' : 'This is a dataset configured by Abyss Solutions.',
-            'contributor' : 'Abyss Solutions',
-            'url'         : 'http://www.abysssolutions.com.au',
-            'date_created': datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'),
-        },
         'images'     : [],
         'annotations': [],
-        'licenses'   : [
-            {
-                "id"  : 0,
-                "name": "Attribution-NonCommercial-ShareAlike License",
-                "url" : "http://creativecommons.org/licenses/by-nc-sa/2.0/",
-            }
-        ],
         'categories' : get_categories_from_fd(args.map)
     }
 
@@ -140,8 +126,8 @@ def generate_from_bounding_boxes(df, args):  # def generate_from_bounding_boxes(
                     width, height = args.image_size.split(',')
                 else:
                     width = height = None
-                    logging.info("no width and height values supplied")
-                    logging.warning("width and height values will be omitted from image [{}]".format(img_id))
+                    if args.force: logging.warning("width and height values will be omitted from image [{}]".format(img_path))
+                    else: logging.error("width and height are not given for image [{}]; use --force to override".format(img_path)); sys.exit( 1 )
 
             img = {
                 'id'           : img_id,
@@ -233,7 +219,8 @@ def generate_from_video_frames(df: pd.DataFrame, args) -> dict:
 def get_args():
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--fields', '-f', type=str, help="Comma separated field names for CSV file")
-    parser.add_argument('--indent', type=int, help="json indent, if none, output minimised json", default=4)
+    parser.add_argument('--force', action='store_true', help="ignore warnings")
+    parser.add_argument('--indent', type=int, help="json indent, if none, output minimised json default: %(default)s", default=4)
     parser.add_argument('--map', '--categories',
                         type=str,
                         help="Path to original COCO json or category mapping csv file of category and category ids; csv as <name>,<id>[,<supercategory>]")

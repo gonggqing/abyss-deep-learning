@@ -2,6 +2,7 @@
 __author__ = 'Kent Hu'
 __maintainer__ = 'Kent Hu'
 
+import argparse
 import json
 import os
 import sys
@@ -20,36 +21,32 @@ examples
 """
 
 
-def main():
+def main(args):
+    
     image_paths = sys.stdin.read().strip().split('\n')
 
     coco_json = {
-        'info'       : {
-            'contributor' : 'Abyss Solutions',
-            'total_time'  : '00h00m00s',
-            'year'        : str(datetime.now().year),
-            'date_created': str(datetime.now()),
-            'description' : 'This is a dataset configured by Abyss Solutions.',
-            'version'     : '1.0',
-            'url'         : 'http://www.abysssolutions.com.au',
-        },
+
         'images'     : [],
         'annotations': [],
-        'categories' : [],
-        'licenses'   : [{
-            'id'  : 0,
-            'url' : 'http://creativecommons.org/licenses/by-nc-sa/2.0/',
-            'name': 'Attribution-NonCommercial-ShareAlike License',
-        }],
+        'categories' : []
+
     }
 
     for i, image_path in enumerate(image_paths):
         try:
             width, height = Image.open(image_path).size
         except OSError:
-            width = height = None
+            
+            if(args.force):
+                print("coco-from-images: WARNING image not found '{}' - width and height will be null".format(image_path), file=sys.stderr)
+                width = height = None
+            else:
+                print("coco-from-images: ERROR image not found '{}' - use --force to override".format(image_path), file=sys.stderr)
+                sys.exit(1)
+
         coco_json['images'].append(
-            {
+             {
                 'id'       : i,
                 'file_name': os.path.basename(image_path),
                 'path'     : image_path,
@@ -58,9 +55,17 @@ def main():
             }
         )
 
-    json.dump(coco_json, sys.stdout)
+    json.dump(coco_json, sys.stdout, indent=args.indent)
     sys.exit(0)
 
 
+def get_args():
+
+    parser = argparse.ArgumentParser(description=_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--force', '-f', action="store_true", help="Force running without checking images (width and height will be null)")
+    parser.add_argument('--indent', type=int, help="json indent, if none, output minimised json default: %(default)s", default=4)
+    return parser.parse_args()
+
+
 if __name__ == '__main__':
-    main()
+    main(get_args())
