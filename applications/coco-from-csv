@@ -182,6 +182,9 @@ def get_categories_from_fd(mapping):
         buf = f.read().strip()
         if buf[0] in '{':
             categories = json.loads(buf)['categories']
+            for category in categories:
+                if 'supercategory' not in category:
+                    category['supercategory'] = ''
         elif buf[0] in '[':
             categories = json.loads(buf)
         else:
