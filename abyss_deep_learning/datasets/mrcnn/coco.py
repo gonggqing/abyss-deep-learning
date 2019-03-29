@@ -1,4 +1,4 @@
-from abyss_deep_learning.datasets import coco
+from abyss_deep_learning.datasets.coco import *
 from mrcnn.utils import Dataset as MatterportMrcnnDataset
 
 class InstSegDataset(CocoDataset, ImageDatatype, MatterportMrcnnDataset):
