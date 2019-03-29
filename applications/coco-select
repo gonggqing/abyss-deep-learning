@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 __author__ = 'Kent Hu, and Seva'
 __maintainer__ = 'Kent Hu'
 import argparse
@@ -137,9 +138,15 @@ def main(args):
 
     categories = []
     df_categories = df[category_keys]
+    for category in data.get('categories', []):
+        category['id'] = category.pop('category_id')
+    hashed_categories = set(to_tuple([list(item) for item in sorted(entry.items())]) for entry in data.get('categories', []))
     if not df_categories.empty:
         for record in df_categories.itertuples():
-            categories.append(record_to_dict(record, 'category_id'))
+            category = record_to_dict(record, 'category_id')
+            tuple_category = to_tuple([list(item) for item in sorted(category.items())])
+            if tuple_category in hashed_categories:
+                categories.append(category)
 
     data['annotations'] = drop_duplicates(annotations)
     data['images'] = original_images if args.keep_images else drop_duplicates(images)
@@ -170,10 +177,11 @@ def create_data_frame(data: dict) -> pd.DataFrame:
     return df
 
 
-def drop_duplicates(list_: list):
-    def to_tuple(entry_: list):
-        return tuple(to_tuple(i) if isinstance(i, list) else i for i in entry_)
+def to_tuple(entry_: list):
+    return tuple(to_tuple(i) if isinstance(i, list) else i for i in entry_)
 
+
+def drop_duplicates(list_: list):
     return [dict(item) for item in set(to_tuple([list(item) for item in sorted(entry.items())]) for entry in list_)]
 
 
