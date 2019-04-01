@@ -157,6 +157,11 @@ def main(args):
     else:
         data['categories'] = drop_duplicates(categories)
 
+    for annotation in data['annotations']:
+        annotation['category_id'] = int(annotation['category_id'])
+
+    for category in data['categories']:
+        category['id'] = int(category['id'])
     logging.info("Printing to stdout")
     json.dump(data, sys.stdout, indent=args.indent)
     logging.info("Done in {elapsed_time}s".format(elapsed_time=time.perf_counter() - tic))
