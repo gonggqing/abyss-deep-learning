@@ -360,8 +360,8 @@ def resize(coco: COCO, args) -> COCO:
                     logging.error('coco-calc: resize: expected unique image filenames, got duplicated "{}"'.format(new_path))
                     sys.exit(1)
                 paths.add(new_path)
-                image_entry['path'] = new_path
                 resized_img = imread(image_entry['path'], output_size=(image_entry['width'], image_entry['height']))
+                image_entry['path'] = new_path
                 logging.info("Saving image to {}".format(new_path))
                 Image.fromarray(resized_img).save(new_path)
             else:
