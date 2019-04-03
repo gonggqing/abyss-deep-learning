@@ -91,7 +91,7 @@ def make_images(df, args):
         'images'     : [],
     }
     width, height = args.image_size.split(',')
-    for idx, row in df.iterrows(): coco_json['images'].append( make_image( row, width, height, len(coco_json['images']) ) )
+    for idx, row in df.iterrows(): coco_json['images'].append( make_image( row, int(width), int(height), len(coco_json['images']) ) )
     return coco_json
 
 def generate_from_bounding_boxes(df, args):  # def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
