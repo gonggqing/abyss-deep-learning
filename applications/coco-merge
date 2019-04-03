@@ -79,6 +79,8 @@ def main():
                     })
                     name_and_super_2_new_id[name_and_super] = new_id
                     seen_categories.add(name_and_super)
+                elif category['id'] not in category_old_id_2_name_and_super.keys():
+                    category_old_id_2_name_and_super[category['id']] = name_and_super
         except KeyError:
             pass
 
