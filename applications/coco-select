@@ -64,12 +64,17 @@ def main(args):
     logging.info("Search expressions is [{}]".format(args.expression))
 
     # Empty file check
-    buffer = sys.stdin.read().strip()
-    if buffer:
-        data = json.loads(buffer)
+    if(len(args.input_file) > 0):
+        with open(args.input_file, 'r') as file_handle:
+            buffer = file_handle.read().strip()
+            data = json.loads(buffer)
     else:
-        logging.error("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
-        sys.exit(1)
+        buffer = sys.stdin.read().strip()
+        if buffer:
+            data = json.loads(buffer)
+        else:
+            logging.error("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
+            sys.exit(1)
 
     if args.on == 'annotations' and len(data.get('annotations', [])) == 0:
         logging.warning("Got empty annotations, input passed through to stdout")
@@ -231,6 +236,7 @@ def get_args() -> argparse.Namespace:
                              "images.")
     parser.add_argument('expression', type=str, help="General expression to search for images.", )
     parser.add_argument('-i', '--init', type=str, help="General python code to run at the start of the script")
+    parser.add_argument('-in', '--input_file', type=str, help="Read COCO JSON from file (default stdin)", default="")
     parser.add_argument('-m', '--min', action='store_const', const=None, default=4, dest='indent',
                         help="Disable JSON pretty print.")
     parser.add_argument('--keep-categories', action='store_true',
