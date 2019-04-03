@@ -334,7 +334,7 @@ def main(args=None):
             num_tiles_y = int(np.floor((image_height - tile_height) / stride_height + 1))
             num_tiles_x = int(np.floor((image_width - tile_width) / stride_width + 1))
 
-            assert args.batch_size <= (num_tiles_x * num_tiles_y), "Batching can only be performed on tiles from an image, not across tiles from different images"
+            assert args.batch_size <= (num_tiles_x * num_tiles_y), "Batching can only be performed on tiles from an image, not across tiles from different images {} {}".format(num_tiles_x, num_tiles_y)
 
             # Calculations for centroids used to evaluate overlapping bboxes for different tiles
             centroids = []
