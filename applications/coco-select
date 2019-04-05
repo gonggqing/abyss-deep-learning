@@ -215,7 +215,7 @@ def eval_on(df: pd.DataFrame, args: argparse.Namespace, keys: namedtuple, on_id:
 
     for a, i, c in zip(df_annotations.itertuples(), df_images.itertuples(), df_categories.itertuples()):
         idx = int(a.Index)
-        if eval(args.expression):
+        if eval(args.expression, locals()):
             ids.add(df.iloc[idx][on_id])
 
     # Index later so that indexing into list doesn't go out of bounds as df shrinks
