@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import logging
+
 __author__ = 'Kent Hu, and Jamie McColl'
 __maintainer__ = 'Kent Hu'
 import argparse
@@ -7,8 +9,7 @@ import os
 import sys
 from operator import itemgetter
 
-DESCRIPTION = \
-    """
+DESCRIPTION = """
 Read coco.json file(s) defined on command line.
 
 Duplicate image file names are removed as well as duplicate annotations.
@@ -24,7 +25,7 @@ i.e. if dataset has two annotations ->
                     "category_id": 1,       |                   "category_id": 1, 
                     "bbox": [0,0,0,0],      |                   "bbox": [0,0,0,0],
                 }                           |                }
-The second annotation will be removed as their exists duplicate category id and bbox 
+The second annotation will be removed as there exists duplicate category id and bbox 
 
 Output merged coco json contents in stdout.
 
@@ -33,11 +34,33 @@ examples:
 """
 
 
-def main():
-    global ARGS
-    ARGS = get_args()
+def main(args):
+    logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S',
+                        level=args.loglevel)
+    info = []
+    try:
+        with open(args.file) as f:
+            try:
+                info = json.load(f).get('info')
+            except json.decoder.JSONDecodeError:
+                logging.warning("Could not interpret {} as a JSON".format(args.file))
+    except FileNotFoundError:
+        logging.warning("Could not find JSON file {}".format(args.file))
+    except TypeError:
+        try:
+            with open(args.json_files[0]) as f:
+                try:
+                    info = json.load(f).get('info')
+                except json.decoder.JSONDecodeError:
+                    logging.warning("Could not interpret {} as a JSON".format(args.file))
+        except IndexError:
+            logging.warning("At least one JSON file has to be given")
+        except FileNotFoundError:
+            logging.warning("Could not find JSON file {}".format(args.file))
+        except TypeError:
+            logging.warning("Expected <path/to/file>, got {}".format(args.json_files[0]))
 
-    info = None  # Grabs first available info segment if no specific json_file is given
     images = []  # Merged images
     annotations = []  # Merged annotations
     categories = []  # Merged categories
@@ -49,28 +72,31 @@ def main():
     seen_categories = set()  # Filter out duplicate categories/supercategories
     seen_images = set()  # Filter out duplicate images
 
-    for json_file_path in ARGS.json_files:
-        say("loading {}".format(json_file_path))
-        old_ds = load_dataset(json_file_path)
-        if old_ds is None:
+    for json_file in args.json_files:
+        logging.info("Loading {}".format(json_file))
+        try:
+            with open(json_file) as f:
+                try:
+                    dataset = json.load(f)
+                except json.decoder.JSONDecodeError:
+                    logging.warning("Could not interpret {} as a JSON".format(json_file))
+                    continue
+        except FileNotFoundError:
+            logging.warning("Could not find JSON file {}".format(json_file))
+            continue
+        except TypeError:
+            logging.warning("Expected <path/to/file>, got {}".format(repr(json_file)))
             continue
 
-        if info is None:
-            try:
-                info = old_ds['info']
-            except KeyError:
-                pass
-
         # Add new categories
-        try:
-            for category in old_ds['categories']:
+        for category in dataset.get('categories', []):
+            if args.handle_duplicates:
                 # Check to see if category name and supercategory exists in merged categories
                 name = category['name']
                 supercategory = category['supercategory']
                 name_and_super = (name, supercategory)
                 if name_and_super not in seen_categories:
-                    # new_id = len(categories) + 1 # todo? coco-calc: add operations to offset various ids? don't hack it here!
-                    new_id = category['id'] if ARGS.keep_category_ids else len(categories)
+                    new_id = category['id'] if args.keep_category_ids else len(categories)
                     category_old_id_2_name_and_super[category['id']] = name_and_super
                     categories.append({
                         'id': new_id,
@@ -81,109 +107,84 @@ def main():
                     seen_categories.add(name_and_super)
                 elif category['id'] not in category_old_id_2_name_and_super.keys():
                     category_old_id_2_name_and_super[category['id']] = name_and_super
-        except KeyError:
-            pass
+            else:
+                categories.append(category)
 
-        say("merging {}".format(json_file_path))
-        for image in old_ds['images']:
-            img_file_name, img_ext = os.path.splitext(os.path.basename(image.get("path", image['file_name'])))
+        for image in dataset.get('images', []):
+            if args.handle_duplicates:
+                img_file_name, img_ext = os.path.splitext(os.path.basename(image.get("path", image['file_name'])))
 
-            old_id = image['id']
-            old_id_2_path[old_id] = img_file_name
+                old_id = image['id']
+                old_id_2_path[old_id] = img_file_name
 
-            if img_file_name not in seen_images:
-                seen_images.add(img_file_name)
-                new_id = len(images) # new_id = len(images) + 1 # todo? coco-calc: add operations to offset various ids? don't hack it here!
-                path_2_new_id[img_file_name] = new_id
-                image['id'] = new_id
+                if img_file_name not in seen_images:
+                    seen_images.add(img_file_name)
+                    new_id = len(images)
+                    path_2_new_id[img_file_name] = new_id
+                    image['id'] = new_id
+                    images.append(image)
+            else:
                 images.append(image)
 
-        for ann in old_ds['annotations']:
-            old_id = ann['image_id']
-            img_file_name = old_id_2_path[old_id]
-            new_id = path_2_new_id[img_file_name]
-            ann['image_id'] = new_id
-            ann['category_id'] = name_and_super_2_new_id[category_old_id_2_name_and_super[ann['category_id']]]
-            del ann['id']
+        for ann in dataset.get('annotations', []):
+            if args.handle_duplicates:
+                old_id = ann['image_id']
+                img_file_name = old_id_2_path[old_id]
+                new_id = path_2_new_id[img_file_name]
+                ann['image_id'] = new_id
+                ann['category_id'] = name_and_super_2_new_id[category_old_id_2_name_and_super[ann['category_id']]]
+                del ann['id']
             annotations.append(ann)
 
-        try:
-            for license in old_ds['licenses']:
-                licenses.append(license)
-        except KeyError:
-            pass
+        for license_ in dataset.get('licenses', []):
+            license_['id'] = len(licenses)
+            licenses.append(license_)
 
     # Remove duplicate annotations
     annotations = [dict(item) for item in set(to_tuple([list(i) for i in sorted(ann.items())]) for ann in annotations)]
-    licenses = [dict(item) for item in set(to_tuple([list(i) for i in sorted(license.items())]) for license in
+    licenses = [dict(item) for item in set(to_tuple([list(i) for i in sorted(license_.items())]) for license_ in
                                            licenses)]
 
     # Sort annotations by image id
     annotations.sort(key=itemgetter('image_id'))
+    # Sort images by id
+    images.sort(key=itemgetter('id'))
 
-    # Assign annotation ids
-    tmp_annotations = annotations.copy()
-    annotations.clear()
-
-    for idx, ann in enumerate(tmp_annotations):
-        ann['id'] = idx # ann['id'] = idx + 1 # todo? coco-calc: add operations to offset various ids? don't hack it here!
-        annotations.append(ann)
-
-    if ARGS.file_name:
-        info = load_dataset(ARGS.file_name)['info']
+    for id_, ann in enumerate(annotations):
+        ann['id'] = id_
 
     merged_data_set = {
         'images': images,
         'annotations': annotations,
-        'categories': categories
+        'categories': categories,
+        'info': info,
+        'licenses': licenses,
     }
-    if not info is None: merged_data_set['info'] = info
-    if not licenses is None: merged_data_set['licenses'] = licenses
-    json.dump(merged_data_set, sys.stdout, indent=ARGS.indent)
-    say("done")
-    sys.exit()
 
-
-def say(*arg, verbose=False, **kwargs):
-    if ARGS.verbose or verbose:
-        print("{}:".format(os.path.basename(__file__)), *arg, file=sys.stderr, **kwargs)
-
-
-def die(*args, **kwargs):
-    say(*args, verbose=True, **kwargs)
-    sys.exit(1)
-
-
-def load_dataset(json_file_path):
-    in_dataset = None
-    with open(json_file_path, 'r') as file_handle:
-        buffer = file_handle.read().strip()
-        if buffer:
-            try:
-                in_dataset = json.loads(buffer)
-            except json.decoder.JSONDecodeError:
-                say("skipping {} as it could not be properly interpreted as a json file".format(json_file_path), verbose=True)
-        else:
-            say("skipping {} as it contains received empty characters {}".format(json_file_path, repr(buffer)), verbose=True)
-    return in_dataset
+    json.dump(merged_data_set, sys.stdout, indent=4)
 
 
 def get_args():
-    """Get args from the command line args"""
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('json_files', nargs='*', type=str, help="JSON files to merge together into one json")
-    parser.add_argument('-f', '--file_name', nargs=1, type=str, help="COCO json file to copy info to new dataset, "
-                                                                     "default is the first json file")
-    parser.add_argument('--keep-category-ids', '--keep-categories', '-k', action='store_true', help="keep categories as in input files, i.e. expect that all files to merge have the same set of categories")
-    parser.add_argument('-m', '--min', action='store_const', help="Output minimised json", const=None, default=4,
-                        dest='indent')
-    parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
+    parser.add_argument('-f', '--file', nargs=1, type=str,
+                        help="COCO json file to copy info to new dataset. Default is the first json file")
+    parser.add_argument('--keep-category-ids', '--keep-categories', '-k', action='store_true',
+                        help="Keep categories as in input files. "
+                             "i.e. expect that all files to merge have the same set of categories")
+    parser.add_argument('--handle-duplicates', action='store_true',
+                        help="Handle duplicate image, annotation, category and license ids by reassigning them from 0")
+    logging_group = parser.add_mutually_exclusive_group()
+    logging_group.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, dest='loglevel',
+                               help="Verbose output to stderr")
+    logging_group.add_argument('-d', '--debug', action='store_const', const=logging.DEBUG, dest='loglevek',
+                               help="Debug output to stderr")
     return parser.parse_args()
 
 
-def to_tuple(lst: list):
-    return tuple(to_tuple(i) if isinstance(i, list) else i for i in lst)
+def to_tuple(list_: list):
+    return tuple(to_tuple(i) if isinstance(i, list) else i for i in list_)
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main(get_args()))
