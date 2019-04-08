@@ -239,12 +239,20 @@ class CocoDataset(object):
             annotation.update(other)
         self.annotations.append(annotation)
 
-    def split(self, splits, seed=None, verbose=False):
+    def split(self, splits, seed=None, exact_split=False, verbose=False):
         image_set = set([img['id'] for img in self.images])
         datasets = []
         np.random.seed(seed)
-        for split in splits:
-            num_choices = int(np.floor(len(self.images) * split))
+        splits = list(splits)
+        for counter, split in enumerate(splits):
+            if(not exact_split):
+                if(counter == len(splits)-1):
+                    num_choices = len(image_set)
+                else:
+                    num_choices = int(np.round(len(self.images) * split))
+            else:
+                num_choices = int(np.floor(len(self.images) * split))
+
             if verbose:
                 print("{:d} images, choosing {:d}".format(
                     len(image_set), num_choices), file=sys.stderr)

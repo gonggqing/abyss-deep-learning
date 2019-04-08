@@ -137,8 +137,8 @@ def generate_from_bounding_boxes(df, args):  # def generate_from_bounding_boxes(
                 'path'         : img_path,
             }
             if width and height:
-                img['width'] = width
-                img['height'] = height
+                img['width'] = int(width)
+                img['height'] = int(height)
             coco_json['images'].append(img)
             img_file_name_2_img_id[img_file_name] = img_id
 
