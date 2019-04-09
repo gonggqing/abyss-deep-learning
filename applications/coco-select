@@ -3,11 +3,15 @@
 __author__ = 'Kent Hu, and Seva'
 __maintainer__ = 'Kent Hu'
 import argparse
+import array
 import copy
 import json
 import logging
+import math
+import numbers
 import sys
 import time
+import typing
 from collections import namedtuple
 
 import pandas as pd
@@ -58,7 +62,7 @@ examples:
 def main(args):
     logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S',
-                        level=args.verbose)
+                        level=args.loglevel)
     # pd.set_option('display.expand_frame_repr', False)
     tic = time.perf_counter()
     logging.info("Search expressions is [{}]".format(args.expression))
@@ -139,6 +143,8 @@ def main(args):
             annotation = record_to_dict(record, 'annotation_id')
             if annotation['image_id'] in unlabelled_ids:
                 continue
+            # Remove nan fields
+            annotation = {key: val for key, val in annotation.items() if not isinstance(val, float) or (isinstance(val, float) and not math.isnan(val))}
             annotations.append(annotation)
 
     categories = []
@@ -152,7 +158,6 @@ def main(args):
             tuple_category = to_tuple([list(item) for item in sorted(category.items())])
             if tuple_category in hashed_categories:
                 categories.append(category)
-
     data['annotations'] = drop_duplicates(annotations)
     data['images'] = original_images if args.keep_images else drop_duplicates(images)
 
@@ -162,11 +167,22 @@ def main(args):
     else:
         data['categories'] = drop_duplicates(categories)
 
+    for image in data['images']:
+        for key, val in image.items():
+            # Convert id to integer and check that it is a valid argument to int()
+            if 'id' in key and isinstance(val, (str, typing.ByteString, array.array, numbers.Number)):
+                image[key] = int(val)
+
     for annotation in data['annotations']:
-        annotation['category_id'] = int(annotation['category_id'])
+        for key, val in annotation.items():
+            if 'id' in key and isinstance(val, (str, typing.ByteString, array.array, numbers.Number)):
+                annotation[key] = int(val)
 
     for category in data['categories']:
-        category['id'] = int(category['id'])
+        for key, val in category.items():
+            if 'id' in key and isinstance(val, (str, typing.ByteString, array.array, numbers.Number)):
+                category[key] = int(val)
+
     logging.info("Printing to stdout")
     json.dump(data, sys.stdout, indent=args.indent)
     logging.info("Done in {elapsed_time}s".format(elapsed_time=time.perf_counter() - tic))
@@ -243,7 +259,9 @@ def get_args() -> argparse.Namespace:
                         help='Carry over all categories from original COCO JSON file.')
     parser.add_argument('--keep-images', action='store_true',
                         help='Carry over all images from original COCO JSON file.')
-    parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, help="More output to stderr.")
+    logging_group = parser.add_mutually_exclusive_group()
+    logging_group.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, dest='loglevel', help="Verbose output to stderr.")
+    logging_group.add_argument('-d', '--debug', action='store_const', const=logging.DEBUG, dest='loglevel', help="Debug output to stderr")
     return parser.parse_args()
 
 
