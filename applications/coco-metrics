@@ -112,7 +112,7 @@ def load_annotations(predicted, truth, category_ids, args):
     return images
 
 
-def plot_confusion_matrix(m, classes, normalized=False):
+def plot_confusion_matrix(m, classes, normalized=False, save_fig=False):
     import matplotlib.pyplot as plt
     plt.imshow(m, interpolation='nearest', cmap=plt.cm.Blues)
     plt.title('confusion matrix')
@@ -125,10 +125,16 @@ def plot_confusion_matrix(m, classes, normalized=False):
     for i, j in itertools.product(range(m.shape[0]), range(m.shape[1])):
         plt.text(j, i, format(m[i, j], fmt), horizontalalignment="center",
                  color="white" if m[i, j] > thresh else "black")
-    plt.tight_layout()
     plt.ylabel('True label')
     plt.xlabel('Predicted label')
-    plt.show()
+    plt.tight_layout()
+    if save_fig:
+        if normalized:
+            plt.savefig('confusion_matrix_normalized.png')
+        else:
+            plt.savefig('confusion_matrix.png')
+    else:
+        plt.show()
 
 
 def bbox_to_segmentation(box):
@@ -348,11 +354,11 @@ def confusion_matrix(args):
 
     if args.suppress_background:
         matrix[0, 0] = 0
-    if args.plot:
+    if args.plot or args.save_figure:
         classes = ['BG']
         for category in truths['categories']:
             classes.append(category['name'])
-        plot_confusion_matrix(matrix, classes, args.normalize)
+        plot_confusion_matrix(matrix, classes, normalized=args.normalize, save_fig=args.save_figure)
 
     if not args.csv_output_per_image:
         np.savetxt(sys.stdout, matrix, delimiter=',', fmt=fmt)
@@ -497,12 +503,13 @@ def get_args() -> argparse.Namespace:
     confusion_matrix_parser.add_argument('--normalize', action='store_true', help="normalize confusion matrix")
     confusion_matrix_parser.add_argument('--plot', action='store_true',
                                          help="plot confusion matrix, convenience option")
+    confusion_matrix_parser.add_argument('--save-figure', action='store_true',
+                                         help="save plotted confusion matrix, convenience option")
     confusion_matrix_parser.add_argument('--suppress-background', action='store_true',
                                          help="Set BG,BG predictions to 0 in output confusion")
     confusion_matrix_parser.add_argument('--score-threshold', default=0.5, type=float,
                                          help="score threshold: default: %(default)s")
     confusion_matrix_parser.add_argument('--truth', '-t', type=str, help="ground truth coco.json file", required=True)
-
     confusion_matrix_parser.add_argument('--csv-output-per-image', action='store_true',
                                          help="output to stdout the confusion values on a per image basis")
     confusion_matrix_parser.add_argument('--header', '--head', action='store_true',
