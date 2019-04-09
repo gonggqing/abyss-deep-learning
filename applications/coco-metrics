@@ -142,9 +142,16 @@ def bbox_to_segmentation(box):
 
 
 def confusion(args):
-    predicted = json.loads(sys.stdin.read())
-    f = open(args.truth)
-    truth = json.loads(f.read())
+
+    if (args.input_file is not None):
+        with open(args.input_file, 'r') as f:
+            predicted = json.load(f)
+    else:
+        predicted = json.load(sys.stdin)
+
+    with open(args.truth) as f:
+        truth = json.load(f)
+    
     category_ids = []
     for c in truth['categories']:
         category_ids.append(c['id'])
@@ -240,7 +247,11 @@ def confusion(args):
 
 def confusion_matrix(args):
     import sklearn.metrics
-    predicted = json.load(sys.stdin)
+    if (args.input_file is not None):
+        with open(args.input_file, 'r') as f:
+            predicted = json.load(f)
+    else:
+        predicted = json.load(sys.stdin)
     with open(args.truth) as f:
         truths = json.load(f)
     category_ids = []
@@ -498,8 +509,9 @@ def get_args() -> argparse.Namespace:
     matching_group.add_argument('--polygons', '--poly', '-p', action='store_true', help="match polygons")
     matching_group.add_argument('--pixels', '--pixel', action='store_true',
                                 help="match predictions and ground truth by a per pixel basis")
+    confusion_matrix_parser.add_argument('--input_file', '--input', help="read predictions from input (default STDIN)")
     confusion_matrix_parser.add_argument('--iou-threshold', default=0.5, type=float,
-                                         help="iou threshold; default: %(default)s")
+                                         help="iou threshold; default: %(default)s")    
     confusion_matrix_parser.add_argument('--normalize', action='store_true', help="normalize confusion matrix")
     confusion_matrix_parser.add_argument('--plot', action='store_true',
                                          help="plot confusion matrix, convenience option")
@@ -521,6 +533,7 @@ def get_args() -> argparse.Namespace:
                                              parents=[verbose_parser])
     confusion_parser.set_defaults(func=confusion)
     confusion_parser.add_argument('--bounding-boxes', '--bbox', '-b', action='store_true', help="match bounding boxes")
+    confusion_parser.add_argument('--input_file', help="read predictions from input (default STDIN)")
     confusion_parser.add_argument('--iou-threshold', default=0.5, type=float,
                                   help="iou threshold; default: %(default)s")
     confusion_parser.add_argument('--iou-as-score', action='store_true',
