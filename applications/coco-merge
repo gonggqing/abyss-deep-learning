@@ -10,12 +10,14 @@ import sys
 from operator import itemgetter
 
 DESCRIPTION = """
-Read coco.json file(s) defined on command line.
+Read coco.json file(s) defined on command line and 
+merge together 'images', 'annotations', 'categories' and 'licenses' array.
 
-Duplicate image file names are removed as well as duplicate annotations.
+Entries in the 'images' array with duplicate file names are removed.
+Entries in the 'annotations' array with duplicate keys, except for id, are removed 
 
-Images are removed on a per image basis on the image name
-i.e. if dataset has two images that have file name 0001.jpeg and 0001.png, one will be discarded as
+Images are removed on a per image basis on the file name
+i.e. if dataset has two images that have file name 0001.jpeg and 0001.png, one will be discarded
      if dataset has two images that have file name 0001.jpeg and 0002.jpeg, none will be discarded
      
 Annotations are removed on a per annotation basis on the annotation meta data excluding the unique identifier 'id'
@@ -27,6 +29,11 @@ i.e. if dataset has two annotations ->
                 }                           |                }
 The second annotation will be removed as there exists duplicate category id and bbox 
 
+If --handle-duplicate-ids is specified, then all image, annotation, and category ids will be reindexed from 0
+
+Use case is when coco-1.json contains image-1.png with id 0 and coco-2.json contains image-2.png with id 0
+then image-1.png will be given id 0 and image-2.png will be given id 1 as the 'id' key should be unique 
+
 Output merged coco json contents in stdout.
 
 examples:
@@ -35,7 +42,7 @@ examples:
 
 
 def main(args):
-    logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
+    logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(lineno)d: %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S',
                         level=args.loglevel)
     info = []
@@ -90,10 +97,14 @@ def main(args):
 
         # Add new categories
         for category in dataset.get('categories', []):
-            if args.handle_duplicates:
+            if not isinstance(category, dict):
+                continue
+            if args.handle_duplicate_ids:
                 # Check to see if category name and supercategory exists in merged categories
-                name = category['name']
-                supercategory = category['supercategory']
+                name = category.get('name', '')
+                supercategory = category.get('supercategory', '')
+                if name == '' and supercategory == '':
+                    continue
                 name_and_super = (name, supercategory)
                 if name_and_super not in seen_categories:
                     new_id = category['id'] if args.keep_category_ids else len(categories)
@@ -109,9 +120,24 @@ def main(args):
                     category_old_id_2_name_and_super[category['id']] = name_and_super
             else:
                 categories.append(category)
+                try:
+                    id_ = int(category['id'])
+                except KeyError:
+                    logging.error("Expected 'id' key, found only {}".format(category.keys()))
+                except ValueError:
+                    logging.error("Could not interpret {} as an integer".format(category['id']))
+                else:
+                    if id_ in seen_categories:
+                        logging.warning("Found duplicate category ids for id {}".format(id_))
+                    else:
+                        seen_categories.add(id_)
 
         for image in dataset.get('images', []):
-            if args.handle_duplicates:
+            if not isinstance(image, dict):
+                logging.warning("Expected type dict, got type {}".format(type(image)))
+                continue
+
+            if args.handle_duplicate_ids:
                 img_file_name, img_ext = os.path.splitext(os.path.basename(image.get("path", image['file_name'])))
 
                 old_id = image['id']
@@ -125,9 +151,24 @@ def main(args):
                     images.append(image)
             else:
                 images.append(image)
+                try:
+                    id_ = int(image['id'])
+                except KeyError:
+                    logging.error("Expected 'id' key, found only {}".format(image.keys()))
+                except ValueError:
+                    logging.error("Could not interpret {} as an integer".format(image['id']))
+                else:
+                    if id_ in seen_images:
+                        logging.warning("Found duplicate image ids for id {}".format(id_))
+                    else:
+                        seen_images.add(id_)
 
         for ann in dataset.get('annotations', []):
-            if args.handle_duplicates:
+            if not isinstance(ann, dict):
+                logging.warning("Expected type dict, got type {}".format(type(ann)))
+                continue
+
+            if args.handle_duplicate_ids:
                 old_id = ann['image_id']
                 img_file_name = old_id_2_path[old_id]
                 new_id = path_2_new_id[img_file_name]
@@ -137,6 +178,10 @@ def main(args):
             annotations.append(ann)
 
         for license_ in dataset.get('licenses', []):
+            if not isinstance(license_, dict):
+                logging.warning("Expected type dict, got type {}".format(type(license_)))
+                continue
+
             license_['id'] = len(licenses)
             licenses.append(license_)
 
@@ -172,7 +217,7 @@ def get_args():
     parser.add_argument('--keep-category-ids', '--keep-categories', '-k', action='store_true',
                         help="Keep categories as in input files. "
                              "i.e. expect that all files to merge have the same set of categories")
-    parser.add_argument('--handle-duplicates', action='store_true',
+    parser.add_argument('--handle-duplicate-ids', action='store_true',
                         help="Handle duplicate image, annotation, category and license ids by reassigning them from 0")
     logging_group = parser.add_mutually_exclusive_group()
     logging_group.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, dest='loglevel',
