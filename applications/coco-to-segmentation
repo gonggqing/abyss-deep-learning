@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import logging
+import os
+import sys
+from typing import Union
+
+import numpy as np
+from skimage.draw import polygon
+from PIL import Image
+from abyss_deep_learning.utils import imread
+
+__author__ = 'Kent Hu'
+__maintainer__ = 'Kent Hu'
+
+_DESCRIPTION = """
+The utility takes in a coco file of images and segmentation annotation 
+and produces mask files of segmentations for each image in a similar structure to fabric-segmentation-predict. 
+One directory per mask file will be produced.
+A coco file of images of each mask will be produced and dumped to stdout
+
+
+examples:
+    cat coco.json | coco-to-segmentation > masks.json
+"""
+
+
+def main(args: argparse.Namespace):
+    logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)03d: %(levelname)s: %(lineno)s: %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S',
+                        level=args.loglevel)
+    # Empty file check
+    buffer = sys.stdin.read().strip()
+    if buffer:
+        try:
+            coco = json.loads(buffer)
+        except json.decoder.JSONDecodeError as e:
+            logging.critical("Malformed JSON passed in")
+            raise e
+    else:
+        logging.CRITICAL("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
+        return
+
+    assert isinstance(coco.get('images', []), list)
+    assert isinstance(coco.get('annotations', []), list)
+
+    image_id_to_ann_id = {}
+    for i, annotation in enumerate(coco.get('annotations', [])):
+        try:
+            image_id_to_ann_id[annotation['image_id']].append(i)
+        except KeyError:
+            try:
+                image_id_to_ann_id[annotation['image_id']] = []
+            except KeyError:
+                logging.error("Annotation {} is missing key <image_id>".format(annotation))
+
+    for image_entry in coco.get('images', []):
+        try:
+            dirname, _ = os.path.splitext(os.path.basename(image_entry[args.dirname]))
+            os.makedirs(dirname, mode=0o644, exist_ok=args.permissive)
+        except OSError:
+            logging.error("Directory name {} exists already, use --permissive".format(dirname))
+            return 1
+        img = load_entry(image_entry)
+        for annotation_id in image_id_to_ann_id[image_entry['id']]:
+            annotation = coco['annotations'][annotation_id]
+            for segmentation in annotation.get('segmentation', [[]]):
+                img[polygon(segmentation[::2], segmentation[1::2])] = annotation.get('category_id', 0)
+        if args.save_as == 'bin':
+            path = save_as_bin(img, dirname)
+        elif args.save_as == 'png':
+            path = save_as_png(img, dirname)
+        elif args.save_as == 'both':
+            save_as_bin(img, dirname)
+            path = save_as_png(img, dirname)
+        image_entry['file_name'] = os.path.basename(path)
+        image_entry['path'] = path
+
+    json.dump(coco, sys.stdout)
+    return 0
+
+
+def save_as_bin(img: np.ndarray, dirname: str):
+    path = os.path.join(dirname, '0.bin')
+    img.tofile(path)
+    return path
+
+
+def save_as_png(img: np.ndarray, dirname: str):
+    path = os.path.join(dirname, '0.png')
+    Image.fromarray(normalize(img).astype('uint8')).save(path)
+    return path
+
+
+def load_entry(image_entry: dict) -> Union[np.ndarray, None]:
+    """
+
+    Args:
+        image_entry: Dictionary style image entry in COCO format
+
+    Returns:
+        np.ndarray representation of image normalized from 0 to 1. If file extension is not valid, returns None
+    """
+    try:
+        width, height = Image.open(image_entry.get('path')).size
+    except AttributeError:
+        try:
+            width = int(image_entry['width'])
+            height = int(image_entry['height'])
+        except KeyError:
+            logging.error(
+                "Could not generate a mask file as neither image could be found nor height and width were provided")
+            return None
+    finally:
+        return np.zeros((height, width), dtype=np.uint8)
+
+
+def normalize(arr):
+    """
+    Linear normalization
+    http://en.wikipedia.org/wiki/Normalization_%28image_processing%29
+    """
+    arr = arr.astype(float)
+    # Do not touch the alpha channel
+    minval = arr.min()
+    maxval = arr.max()
+    if minval != maxval:
+        arr -= minval
+        arr *= (255.0 / (maxval - minval))
+    return arr
+
+
+def get_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('-f', '--file', help="Pass COCO JSON as command line argument."
+                                             "If specified, does not read from stdin.")
+    parser.add_argument('-n', '--dirname', choices=['id', 'file_name'], default='file_name',
+                        help="Naming scheme for image directory")
+    parser.add_argument('-p', '--permissive', action='store_true',
+                        help="Permissive option to potentially overwrite mask file in a directory if it already exists for an image")
+    parser.add_argument('-s', '--save-as', choices=['bin', 'png', 'both'], default='bin',
+                        help="File type to save mask as.")
+    logging_group = parser.add_mutually_exclusive_group()
+    logging_group.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, dest='loglevel',
+                               help="Verbose output to stderr")
+    logging_group.add_argument('-d', '--debug', action='store_const', const=logging.DEBUG, dest='loglevel',
+                               help="Debug output to stderr")
+    return parser.parse_args()
+
+
+if __name__ == '__main__':
+    sys.exit(main(get_args()))
