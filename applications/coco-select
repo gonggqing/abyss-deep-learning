@@ -161,10 +161,7 @@ def main(args):
     data['annotations'] = drop_duplicates(annotations)
     data['images'] = original_images if args.keep_images else drop_duplicates(images)
 
-    if args.keep_categories:
-        for category in data['categories']:
-            category['id'] = category.pop('category_id')
-    else:
+    if not args.keep_categories:
         data['categories'] = drop_duplicates(categories)
 
     for image in data['images']:
