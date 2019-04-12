@@ -45,7 +45,8 @@ def get_bbox_intersection(bbox_a, bbox_b):
     intersections = np.maximum(minimums[3] - maximums[1], 0) * np.maximum(minimums[2] - maximums[0], 0)
     return intersections
 
-def poly_intersections(first: List[np.array], second: List[np.array], grid_max_x: int = None, grid_max_y: int = None):
+
+def poly_intersection_area(first: List[np.array], second: List[np.array], grid_max_x: int = None, grid_max_y: int = None):
     """
     parameters
     ----------
@@ -54,48 +55,61 @@ def poly_intersections(first: List[np.array], second: List[np.array], grid_max_x
         grid_max_y: max y value + 1 in list of np.array (can use 'bbox' field in annotation from COCO file)
         grid_max_x: max x value + 1 in list of np.array (can use 'bbox' field in annotation from COCO file)
 
-    Returns:
+    returns
+    -------
+        numpy.array, numpy.array, numpy.array: first polygon areas list, second polygon areas list, intersection areas matrix
 
     """
-    first_predictions = []
+    precompute_first = []
     precompute_second = []
-
-    # Todo completely re-write me to take in to account lower offset by lower value?
-    if grid_max_x is None or grid_max_y is None:
+    if grid_max_x is None or grid_max_y is None: # Todo completely re-write me to take in to account lower offset by lower value?
         grid_max_x = 0
         grid_max_y = 0
         for array in first + second:
             # Get max value per row entry in the array
             upper_val_x, upper_val_y = array.max(axis=0)
-            if upper_val_x > grid_max_x:
-                grid_max_x = int(upper_val_x) + 1
-            if upper_val_y > grid_max_y:
-                grid_max_y = int(upper_val_y) + 1
-
+            if upper_val_x > grid_max_x: grid_max_x = int(upper_val_x) + 1
+            if upper_val_y > grid_max_y: grid_max_y = int(upper_val_y) + 1
     grid = np.zeros((grid_max_y, grid_max_x), dtype=np.uint8)
     for array in first:
         grid[skimage.draw.polygon(array[:, 1], array[:, 0], grid.shape)] = 1
-        first_predictions.append(np.array(grid))
+        precompute_first.append(np.array(grid))
         grid[:] = 0
-
     for array in second:
         grid[skimage.draw.polygon(array[:, 1], array[:, 0], grid.shape)] = 1
         precompute_second.append(np.array(grid))
         grid[:] = 0
+    first_areas = np.zeros( ( len( first ) ) )
+    second_areas = np.zeros( ( len( second ) ) )
+    for i in range( len( precompute_first ) ): first_areas[i] = np.count_nonzero( precompute_first[i] )
+    for i in range( len( precompute_second ) ): second_areas[i] = np.count_nonzero( precompute_second[i] )
+    intersections = np.zeros( ( len( first ), len( second ) ) )
+    for i in range( len( precompute_first ) ): # todo: can it be done in my numpyish way?
+        for j in range( len( precompute_second ) ):
+            intersections[i,j] = np.count_nonzero( np.logical_and( precompute_first[i], precompute_second[j] ) )
+    return first_areas, second_areas, intersections
 
-    result = []
-    for grid_prediction in first_predictions:
-        sub_result = []
-        for grid_truth in precompute_second:
-            union = np.logical_or(grid_prediction, grid_truth)
-            intersection = np.logical_and(grid_prediction, grid_truth)
-            union_count = np.count_nonzero(union)
-            if union_count:
-                sub_result.append(np.count_nonzero(intersection) / union_count)
-            else:
-                sub_result.append(0)
-        result.append(sub_result)
-    return np.array(result)
+def poly_iou_matrix_new_and_beautiful_to_debug(predictions_array: List[np.array], truth_arrays: List[np.array], grid_max_x: int = None, grid_max_y: int = None):
+    """
+
+    Args:
+        grid_max_y: max y value + 1 in list of np.array (can use 'bbox' field in annotation from COCO file)
+        grid_max_x: max x value + 1 in list of np.array (can use 'bbox' field in annotation from COCO file)
+        predictions_array: list of N x 2 np.array of co-ordinate points (x, y)
+        truth_arrays: list of N x 2 np.array of co-ordinate points (x, y)
+
+    Returns:
+        numpy.array: iou matrix with rows corresponding to the first input and columns to the second
+
+    """
+    first, second, intersections = poly_intersection_area( predictions_array, truth_arrays, grid_max_x, grid_max_y )
+    first = np.transpose( np.repeat( [ first ], axis = 0 ) )
+    second = np.repeat( [ second ], axis = 0 )
+    result = np.zeros( intersections.shape )
+    unions = first + second - intersections
+    iou = np.divide( intersections, unions, where = unions != 0 ) # if union is zero, intersection will be zero, too
+    return iou    
+
 
 def poly_iou_matrix(predictions_array: List[np.array], truth_arrays: List[np.array], grid_max_x: int = None, grid_max_y: int = None):
     """
