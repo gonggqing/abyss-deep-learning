@@ -16,15 +16,15 @@ from PIL import Image
 from abyss_deep_learning.utils import imread
 
 _DESCRIPTION = """
-The utility takes in a coco file and applies the segmentations from the mask file provided as a command line argument 
-and outputs the new coco json to stdout. If a binary file is give, assumes values are normalized between 0 and 1.
-The coco data file is taken from stdin whilst the mask coco file is supplied using a required argument 
-eg. data.json | coco-from-segmentation mask.json
+The utility takes in a COCO file and applies segmentations from the mask file provided as a command line argument 
+and outputs the new COCO json to stdout. If a binary file is given, values are assumed to be normalized between 0 and 1.
+The COCO data file is taken from stdin whilst the mask coco file is supplied using a required argument, 
+e.g.: cat data.json | coco-from-segmentation mask.json
 
 examples: 
     Generates a COCO file with segmentation annotations inferred from the amount of unique pixels in the mask.
     Holes are connected by drawing a line between the first pixel in the polygon points to the closest background pixel
-    e.g. Use for mask JSON that contains paths to segmentation masks from the SemanticPredictions layer
+    e.g.: Use for mask JSON that contains paths to segmentation masks from the SemanticPredictions layer
     cat images.json | coco-from-segmentation mask.json -c from-mask -n 2 --connect-holes > segmentations.json
 
     Generates a COCO file with segmentation annotations from pixels above and below certain values.
