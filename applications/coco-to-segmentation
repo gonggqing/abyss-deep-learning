@@ -129,7 +129,7 @@ def normalize(arr):
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('-f', '--input', help="Pass COCO JSON as command line argument."
+    parser.add_argument('-i', '--input', help="Pass COCO JSON as command line argument."
                                              "If specified, does not read from stdin.")
     parser.add_argument('-n', '--dirname', choices=['id', 'file_name'], default='file_name',
                         help="Naming scheme for image directory")
