@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-__author__ = 'Kent Hu, and Seva'
-__maintainer__ = 'Kent Hu'
+__author__ = 'Kent Hu, Vsevolod Vlaskine'
 import argparse
 import copy
 import itertools

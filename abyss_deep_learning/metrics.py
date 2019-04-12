@@ -45,6 +45,57 @@ def get_bbox_intersection(bbox_a, bbox_b):
     intersections = np.maximum(minimums[3] - maximums[1], 0) * np.maximum(minimums[2] - maximums[0], 0)
     return intersections
 
+def poly_intersections(first: List[np.array], second: List[np.array], grid_max_x: int = None, grid_max_y: int = None):
+    """
+    parameters
+    ----------
+        first: list of N x 2 np.array of co-ordinate points (x, y)
+        second: list of N x 2 np.array of co-ordinate points (x, y)
+        grid_max_y: max y value + 1 in list of np.array (can use 'bbox' field in annotation from COCO file)
+        grid_max_x: max x value + 1 in list of np.array (can use 'bbox' field in annotation from COCO file)
+
+    Returns:
+
+    """
+    first_predictions = []
+    precompute_second = []
+
+    # Todo completely re-write me to take in to account lower offset by lower value?
+    if grid_max_x is None or grid_max_y is None:
+        grid_max_x = 0
+        grid_max_y = 0
+        for array in first + second:
+            # Get max value per row entry in the array
+            upper_val_x, upper_val_y = array.max(axis=0)
+            if upper_val_x > grid_max_x:
+                grid_max_x = int(upper_val_x) + 1
+            if upper_val_y > grid_max_y:
+                grid_max_y = int(upper_val_y) + 1
+
+    grid = np.zeros((grid_max_y, grid_max_x), dtype=np.uint8)
+    for array in first:
+        grid[skimage.draw.polygon(array[:, 1], array[:, 0], grid.shape)] = 1
+        first_predictions.append(np.array(grid))
+        grid[:] = 0
+
+    for array in second:
+        grid[skimage.draw.polygon(array[:, 1], array[:, 0], grid.shape)] = 1
+        precompute_second.append(np.array(grid))
+        grid[:] = 0
+
+    result = []
+    for grid_prediction in first_predictions:
+        sub_result = []
+        for grid_truth in precompute_second:
+            union = np.logical_or(grid_prediction, grid_truth)
+            intersection = np.logical_and(grid_prediction, grid_truth)
+            union_count = np.count_nonzero(union)
+            if union_count:
+                sub_result.append(np.count_nonzero(intersection) / union_count)
+            else:
+                sub_result.append(0)
+        result.append(sub_result)
+    return np.array(result)
 
 def poly_iou_matrix(predictions_array: List[np.array], truth_arrays: List[np.array], grid_max_x: int = None, grid_max_y: int = None):
     """
@@ -97,7 +148,6 @@ def poly_iou_matrix(predictions_array: List[np.array], truth_arrays: List[np.arr
                 sub_result.append(0)
         result.append(sub_result)
     return np.array(result)
-
 
 def ious_to_sklearn_pred_true(ious, labels_true, labels_pred, iou_threshold=0., blank_id=0):
     """ Convert labelled bboxes to y_true and y_pred that could be consumed directly by sklearn.metrics functions
