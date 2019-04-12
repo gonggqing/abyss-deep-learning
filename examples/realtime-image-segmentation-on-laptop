@@ -1,10 +1,36 @@
 #!/bin/bash
 
+# cv-cat --camera "resize=906,513;crop=196,0,513,513;timestamp;view" --output no-header \
+#     | csv-thin 0.1 --deterministic --binary s[$(( 513 * 513 * 3 ))] \
+#     | tensor-cat --frozen-graph /mnt/pond/processed/industry-data/anadarko/gunnison/segmentation/models/best/frozen_inference_graph.pb \
+#                  --input ImageTensor:0 \
+#                  --input-shape 1,513,513,3 \
+#                  --output SemanticPredictions:0 \
+#     | cv-cat --input "rows=513;cols=513;type=i;no-header" \
+#           "brightness=50000;timestamp;view;null"
+
+
 cv-cat --camera "resize=906,513;crop=196,0,513,513;timestamp;view" --output no-header \
     | csv-thin 0.1 --deterministic --binary s[$(( 513 * 513 * 3 ))] \
     | tensor-cat --frozen-graph /mnt/pond/processed/industry-data/anadarko/gunnison/segmentation/models/best/frozen_inference_graph.pb \
                  --input ImageTensor:0 \
                  --input-shape 1,513,513,3 \
                  --output SemanticPredictions:0 \
-    | cv-cat --input "rows=513;cols=513;type=i;no-header" \
-          "brightness=50000;timestamp;view;null"
+                 --keep-input \
+    | python -c "
+import numpy as np
+import sys
+
+while True:
+    a = np.fromfile( sys.stdin, np.uint8, 513 * 513 * 3 )
+    a = a.reshape( ( 513, 513, 3 ) )
+    a = np.transpose( a, ( 2, 0, 1 ) )
+    b = np.fromfile( sys.stdin, np.uint32, 513 * 513 )
+    b = b.reshape( ( 513, 513 ) )
+    a[0] = a[0] * ( b == 0 )
+    a[1] = a[1] * ( b == 0 ) + 255 * ( b == 1 )
+    a[2] = a[2] * ( b == 0 ) + 255 * ( b != 0 )
+    a = np.transpose( a, ( 1, 2, 0 ) )
+    a.tofile( sys.stdout )
+" \
+    | cv-cat --input "rows=513;cols=513;type=3ub;no-header" "resize=1.5;view;null"
