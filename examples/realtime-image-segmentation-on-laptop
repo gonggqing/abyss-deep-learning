@@ -1,16 +1,15 @@
 #!/bin/bash
 
-# cv-cat --camera "resize=906,513;crop=196,0,513,513;timestamp;view" --output no-header \
-#     | csv-thin 0.1 --deterministic --binary s[$(( 513 * 513 * 3 ))] \
-#     | tensor-cat --frozen-graph /mnt/pond/processed/industry-data/anadarko/gunnison/segmentation/models/best/frozen_inference_graph.pb \
-#                  --input ImageTensor:0 \
-#                  --input-shape 1,513,513,3 \
-#                  --output SemanticPredictions:0 \
-#     | cv-cat --input "rows=513;cols=513;type=i;no-header" \
-#           "brightness=50000;timestamp;view;null"
+# your may want to run something like
+#     realtime-image-segmentation-on-laptop --file my.mp4 "resize=513,513;view"
+#     (remove csv-thin, if you don't need thinning"
+# or camera may output image of different size, you may want to resize and crop differently, etc
 
-
-cv-cat --camera "resize=906,513;crop=196,0,513,513;timestamp;view" --output no-header \
+if [[ -n "$1" ]]; then
+    cv-cat "$@" --output no-header
+else
+    cv-cat --camera "resize=906,513;crop=196,0,513,513;timestamp;view" --output no-header
+fi \
     | csv-thin 0.1 --deterministic --binary s[$(( 513 * 513 * 3 ))] \
     | tensor-cat --frozen-graph /mnt/pond/processed/industry-data/anadarko/gunnison/segmentation/models/best/frozen_inference_graph.pb \
                  --input ImageTensor:0 \
@@ -29,7 +28,7 @@ while True:
     b = b.reshape( ( 513, 513 ) )
     a[0] = a[0] * ( b == 0 )
     a[1] = a[1] * ( b == 0 ) + 255 * ( b == 1 )
-    a[2] = a[2] * ( b == 0 ) + 255 * ( b != 0 )
+    a[2] = a[2] * ( b == 0 ) + 255 * np.logical_or( b == 1, b == 2 )
     a = np.transpose( a, ( 1, 2, 0 ) )
     a.tofile( sys.stdout )
 " \
