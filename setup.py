@@ -39,6 +39,7 @@ setup(
         "applications/coco-split",
         "applications/coco-stats",
         "applications/coco-to-csv",
+        "applications/coco-to-segmentation",
         "applications/coco-to-tfrecord",
         "applications/coco-to-voc",
         "applications/coco-view",
