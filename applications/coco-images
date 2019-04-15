@@ -60,8 +60,10 @@ function filter_run()
               done \
             | name-value-from-csv --fields "path,id,width,height" --prefix images --line-number
         comma_status_ok || die "failed"
-        cat "$options_coco" | name-value-convert | grep -v "^images" | grep -v '^annotations=""'
-    } | name-value-convert --to json
+        cat "$options_coco" | name-value-convert | grep -v "^images"
+    } \
+      | name-value-convert --to json \
+      | sed 's#"annotations": ""#"annotations": []#'
     comma_status_ok || die "failed"
     say "done"
 }
