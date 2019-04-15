@@ -63,7 +63,7 @@ function filter_run()
         cat "$options_coco" | name-value-convert | grep -v "^images"
     } \
       | name-value-convert --to json \
-      | sed 's#"annotations": ""#"annotations": []#'
+      | sed -e 's#"annotations": ""#"annotations": []#' -e 's#"categories": ""#"categories": []#'
     comma_status_ok || die "failed"
     say "done"
 }
