@@ -30,6 +30,7 @@ setup(
         "applications/coco-from-segmentation",
         "applications/coco-from-images",
         "applications/coco-from-video",
+        "applications/coco-images",
         "applications/coco-merge",
         "applications/coco-metrics",
         "applications/coco-overlay-masks",
