@@ -32,8 +32,6 @@ examples:
     cat images.json | coco-from-segmentation mask.json -c 1 --lower-threshold 0.3 --upper-threshold 0.8 > segmentations.json
 
 Use --normalize if passing unnormalized .bin file
-
-If -s/--size is not passed, the image will be opened using PIL.Image.open(path) to get image dimensions
 """
 
 np.set_printoptions(threshold=np.inf)
@@ -104,7 +102,7 @@ def main(args: argparse.Namespace):
         width = original_entry.get('width')
         if height is None or width is None:
             width, height = Image.open(original_entry['path']).size
-        padded_mask = load_input(mask_entry, padding=padding, normalize=args.norm, height=height, width=width)
+        padded_mask = load_input(mask_entry, args.input_format, padding=padding, normalize=args.norm, height=height, width=width)
         if padded_mask is None:
             logging.warning("Unknown file type {} is not supported currently".format(get_file_ext(mask_entry['path'])))
             sys.exit(1)
@@ -246,7 +244,7 @@ def is_hole(contour: np.ndarray) -> bool:
     return True if prod_x_y > 0 else False
 
 
-def load_input(image_entry: dict, padding: int = 0, normalize: bool = False, height: int = None, width: int = None) -> np.ndarray:
+def load_input(image_entry: dict, input_format: 'str', padding: int = 0, normalize: bool = False, height: int = None, width: int = None) -> np.ndarray:
     """
 
     Args:
@@ -266,7 +264,7 @@ def load_input(image_entry: dict, padding: int = 0, normalize: bool = False, hei
     img = np.zeros((height + padding * 2, width + padding * 2), dtype=np.float16)
     ext = get_file_ext(image_entry['path'])
     if ext in {'bin'}:
-        img_buf = np.fromfile(image_entry['path'], dtype=np.float32)
+        img_buf = np.fromfile(image_entry['path'], dtype=input_format)
         img_buf = np.reshape(img_buf, (height, width))
         if normalize:
             min_ = np.min(img_buf)
@@ -357,6 +355,8 @@ def get_args() -> argparse.Namespace:
                         help="Normalize pixel values in mask to be between 0 and 1")
     parser.add_argument('--save-per-image', action='store_true',
                         help="Output COCO JSON for each image at location mask['path'] as mask['file_name'].png")
+    parser.add_argument('--input-format', choices=np.sctypeDict.keys(), type=str, default='uint32',
+                        help="Specify input format of binary file to read in as. Default is %(default)s")
     parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, help="More output to stderr")
     return parser.parse_args()
 
