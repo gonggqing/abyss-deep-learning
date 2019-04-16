@@ -166,7 +166,7 @@ def get_args() -> argparse.Namespace:
                         help="Permissive option to potentially overwrite mask file in a directory if it already exists for an image")
     parser.add_argument('-s', '--save-as', choices=['bin', 'png', 'both'], default='bin',
                         help="File type to save mask as. Default is %(default)s")
-    parser.add_argument('--output-format', type=str, choices=np.sctypeDict.keys(), default='uint8',
+    parser.add_argument('--output-format', type=str, choices=np.sctypeDict.keys(), default='uint32',
                         help="Specify output data type of bin file. Default is %(default)s")
     logging_group = parser.add_mutually_exclusive_group()
     logging_group.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, dest='loglevel',
