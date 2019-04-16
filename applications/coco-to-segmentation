@@ -88,7 +88,7 @@ def main(args: argparse.Namespace):
         for annotation_id in image_id_to_ann_id[image_entry['id']]:
             annotation = coco['annotations'][annotation_id]
             for segmentation in annotation.get('segmentation', [[]]):
-                img[polygon(segmentation[::2], segmentation[1::2])] = annotation['category_id']
+                img[polygon(segmentation[1::2], segmentation[::2])] = annotation['category_id']
         bin_path = png_path = None
         if save_bin:
             bin_path = save_as_bin(img.astype(args.output_format), dir_name)
