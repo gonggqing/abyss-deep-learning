@@ -103,9 +103,11 @@ def poly_iou_matrix_new_and_beautiful_to_debug(predictions_array: List[np.array]
 
     """
     first, second, intersections = poly_intersection_area( predictions_array, truth_arrays, grid_max_x, grid_max_y )
-    first = np.transpose( np.repeat( [ first ], axis = 0 ) )
-    second = np.repeat( [ second ], axis = 0 )
-    result = np.zeros( intersections.shape )
+    len_first = len(first)
+    len_second = len(second)
+    first = np.transpose( np.repeat( [ first ], len_second, axis = 0 ) )
+    second = np.repeat( [ second ], len_first, axis = 0 )
+    #result = np.zeros( intersections.shape )
     unions = first + second - intersections
     iou = np.divide( intersections, unions, where = unions != 0 ) # if union is zero, intersection will be zero, too
     return iou    
