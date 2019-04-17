@@ -120,7 +120,7 @@ def poly_intersection_area(first: List[np.array], second: List[np.array], grid_m
     return first_areas, second_areas, np.array(intersections)
 
 
-def poly_iou_matrix_new_and_beautiful_to_debug(predictions_array: List[np.array], truth_arrays: List[np.array],
+def poly_iou_matrix(predictions_array: List[np.array], truth_arrays: List[np.array],
                                                grid_max_x: int = None, grid_max_y: int = None):
     """
 
@@ -145,7 +145,7 @@ def poly_iou_matrix_new_and_beautiful_to_debug(predictions_array: List[np.array]
     return iou
 
 
-def poly_iou_matrix(predictions_array: List[np.array], truth_arrays: List[np.array], grid_max_x: int = None,
+def poly_iou_matrix_deprecated(predictions_array: List[np.array], truth_arrays: List[np.array], grid_max_x: int = None,
                     grid_max_y: int = None):
     """
 
