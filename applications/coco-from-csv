@@ -23,7 +23,7 @@ video frame classification: path,begin_frame,end_frame,caption
 bounding boxes: path,x1,y1,x2,y2,score,category_id
 
 examples
-    boundding boxes
+    bounding boxes
         cat retina-predictions.csv | coco-from-csv --fields path,,x1,y1,x2,y2,score,category_id --map class-mapping.csv > retina-predictions.json
         
     categories
@@ -91,7 +91,7 @@ def make_images(df, args):
         'images'     : [],
     }
     width, height = args.image_size.split(',')
-    for idx, row in df.iterrows(): coco_json['images'].append( make_image( row, width, height, len(coco_json['images']) ) )
+    for idx, row in df.iterrows(): coco_json['images'].append( make_image( row, int(width), int(height), len(coco_json['images']) ) )
     return coco_json
 
 def generate_from_bounding_boxes(df, args):  # def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
@@ -137,8 +137,8 @@ def generate_from_bounding_boxes(df, args):  # def generate_from_bounding_boxes(
                 'path'         : img_path,
             }
             if width and height:
-                img['width'] = width
-                img['height'] = height
+                img['width'] = int(width)
+                img['height'] = int(height)
             coco_json['images'].append(img)
             img_file_name_2_img_id[img_file_name] = img_id
 
@@ -168,6 +168,9 @@ def get_categories_from_fd(mapping):
         buf = f.read().strip()
         if buf[0] in '{':
             categories = json.loads(buf)['categories']
+            for category in categories:
+                if 'supercategory' not in category:
+                    category['supercategory'] = ''
         elif buf[0] in '[':
             categories = json.loads(buf)
         else:

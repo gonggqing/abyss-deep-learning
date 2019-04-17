@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
+
 __author__ = 'Kent Hu, and Seva'
 __maintainer__ = 'Kent Hu'
 import argparse
+import array
 import copy
 import json
 import logging
+import math
+import numbers
 import sys
 import time
+import typing
 from collections import namedtuple
 
 import pandas as pd
@@ -57,18 +62,23 @@ examples:
 def main(args):
     logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S',
-                        level=args.verbose)
+                        level=args.loglevel)
     # pd.set_option('display.expand_frame_repr', False)
     tic = time.perf_counter()
     logging.info("Search expressions is [{}]".format(args.expression))
 
     # Empty file check
-    buffer = sys.stdin.read().strip()
-    if buffer:
-        data = json.loads(buffer)
+    if(len(args.input_file) > 0):
+        with open(args.input_file, 'r') as file_handle:
+            buffer = file_handle.read().strip()
+            data = json.loads(buffer)
     else:
-        logging.error("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
-        sys.exit(1)
+        buffer = sys.stdin.read().strip()
+        if buffer:
+            data = json.loads(buffer)
+        else:
+            logging.error("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
+            sys.exit(1)
 
     if args.on == 'annotations' and len(data.get('annotations', [])) == 0:
         logging.warning("Got empty annotations, input passed through to stdout")
@@ -133,22 +143,42 @@ def main(args):
             annotation = record_to_dict(record, 'annotation_id')
             if annotation['image_id'] in unlabelled_ids:
                 continue
+            # Remove nan fields
+            annotation = {key: val for key, val in annotation.items() if not isinstance(val, float) or (isinstance(val, float) and not math.isnan(val))}
             annotations.append(annotation)
 
     categories = []
     df_categories = df[category_keys]
+    for category in data.get('categories', []):
+        category['id'] = category.pop('category_id')
+    hashed_categories = set(to_tuple([list(item) for item in sorted(entry.items())]) for entry in data.get('categories', []))
     if not df_categories.empty:
         for record in df_categories.itertuples():
-            categories.append(record_to_dict(record, 'category_id'))
-
+            category = record_to_dict(record, 'category_id')
+            tuple_category = to_tuple([list(item) for item in sorted(category.items())])
+            if tuple_category in hashed_categories:
+                categories.append(category)
     data['annotations'] = drop_duplicates(annotations)
     data['images'] = original_images if args.keep_images else drop_duplicates(images)
 
-    if args.keep_categories:
-        for category in data['categories']:
-            category['id'] = category.pop('category_id')
-    else:
+    if not args.keep_categories:
         data['categories'] = drop_duplicates(categories)
+
+    for image in data['images']:
+        for key, val in image.items():
+            # Convert id to integer and check that it is a valid argument to int()
+            if 'id' in key and isinstance(val, (str, typing.ByteString, array.array, numbers.Number)):
+                image[key] = int(val)
+
+    for annotation in data['annotations']:
+        for key, val in annotation.items():
+            if 'id' in key and isinstance(val, (str, typing.ByteString, array.array, numbers.Number)):
+                annotation[key] = int(val)
+
+    for category in data['categories']:
+        for key, val in category.items():
+            if 'id' in key and isinstance(val, (str, typing.ByteString, array.array, numbers.Number)):
+                category[key] = int(val)
 
     logging.info("Printing to stdout")
     json.dump(data, sys.stdout, indent=args.indent)
@@ -170,10 +200,11 @@ def create_data_frame(data: dict) -> pd.DataFrame:
     return df
 
 
-def drop_duplicates(list_: list):
-    def to_tuple(entry_: list):
-        return tuple(to_tuple(i) if isinstance(i, list) else i for i in entry_)
+def to_tuple(entry_: list):
+    return tuple(to_tuple(i) if isinstance(i, list) else i for i in entry_)
 
+
+def drop_duplicates(list_: list):
     return [dict(item) for item in set(to_tuple([list(item) for item in sorted(entry.items())]) for entry in list_)]
 
 
@@ -197,7 +228,7 @@ def eval_on(df: pd.DataFrame, args: argparse.Namespace, keys: namedtuple, on_id:
 
     for a, i, c in zip(df_annotations.itertuples(), df_images.itertuples(), df_categories.itertuples()):
         idx = int(a.Index)
-        if eval(args.expression):
+        if eval(args.expression, locals()):
             ids.add(df.iloc[idx][on_id])
 
     # Index later so that indexing into list doesn't go out of bounds as df shrinks
@@ -218,13 +249,16 @@ def get_args() -> argparse.Namespace:
                              "images.")
     parser.add_argument('expression', type=str, help="General expression to search for images.", )
     parser.add_argument('-i', '--init', type=str, help="General python code to run at the start of the script")
+    parser.add_argument('-in', '--input_file', type=str, help="Read COCO JSON from file (default stdin)", default="")
     parser.add_argument('-m', '--min', action='store_const', const=None, default=4, dest='indent',
                         help="Disable JSON pretty print.")
     parser.add_argument('--keep-categories', action='store_true',
                         help='Carry over all categories from original COCO JSON file.')
     parser.add_argument('--keep-images', action='store_true',
                         help='Carry over all images from original COCO JSON file.')
-    parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, help="More output to stderr.")
+    logging_group = parser.add_mutually_exclusive_group()
+    logging_group.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, dest='loglevel', help="Verbose output to stderr.")
+    logging_group.add_argument('-d', '--debug', action='store_const', const=logging.DEBUG, dest='loglevel', help="Debug output to stderr")
     return parser.parse_args()
 
 

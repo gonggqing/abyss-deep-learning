@@ -1,0 +1,79 @@
+#!/bin/bash
+
+function say() { echo "coco-images: $operation: $@" >&2; }
+function saymore() { (( !options_verbose )) || say $@; }
+function die() { say $@; exit 1; }
+source $( type -p comma-application-util ) || die "comma-application-util not found; it's likely tha you need to install comma"
+source $( type -p comma-name-value-util ) || die "comma-name-value-util not found; it's likely tha you need to install comma"
+
+function usage()
+{
+    cat <<eof >&2
+
+usage: coco-images <operation> <options>
+
+operations
+    filter: apply (almost) arbitrary cv-cat-style filter, e.g. for channel 1.bin, output to 1.filtered.bin
+            only .bin image type is supported now, but it is easy to add 
+        options
+$( filter_options | sed 's#^#            #' )
+        example
+            coco-images filter --coco my-coco.json --expr "normalize=all;erode=circle,10;dilate=circle,10" --permissive --type i
+
+eof
+    exit
+}
+
+function filter_options()
+{
+    cat <<eof
+--coco=<filename>; input coco filename
+--expression,--expr,-e=<expression>; expression, whatever cv-cat can take, see cv-cat --help --verbose, limitation: resize not supported
+--output-suffix=<suffix>; default=bin; output filename suffix
+--permissive; skip non-existent files
+--type=<type>; default=f; image type: f for float32, i for int32, ub for uint8, etc, same as in cv-cat
+eof
+}
+
+function filter_run()
+{
+    {
+        cat "$options_coco" \
+            | name-value-convert \
+            | grep "^images" \
+            | name-value-to-csv --fields "path,id,width,height" --prefix images \
+            | csv-quote --unquote \
+            | while IFS=, read path id width height; do
+                  if [[ ! -e "$path" ]]; then
+                      say "file not found: '$path'"
+                      (( options_permissive )) || die "please use --permissive to skip"
+                  fi
+                  if [[ -z "$width" || -z "$height" ]]; then
+                      say "width or height missing for: '$path'"
+                      (( options_permissive )) || die "please use --permissive to skip"
+                  fi
+                  output_path=$( sed "s#\.bin\$#.$options_output_suffix#" <<< "$path" )
+                  cat "$path" \
+                      | cv-cat --input "no-header;rows=$height;cols=$width;type=$options_type" "$options_expression" \
+                      | sponge "$output_path"
+                  echo "$output_path,$id,$width,$height"
+              done \
+            | name-value-from-csv --fields "path,id,width,height" --prefix images --line-number
+        comma_status_ok || die "failed"
+        cat "$options_coco" | name-value-convert | grep -v "^images"
+    } \
+      | name-value-convert --to json \
+      | sed -e 's#"annotations": ""#"annotations": []#' -e 's#"categories": ""#"categories": []#'
+    comma_status_ok || die "failed"
+    say "done"
+}
+
+[[ -n "$1" ]] || usage
+comma_options_help $@ && usage
+operation="$1"
+[[ $( type -t ${operation}_run ) == "function" ]] || die "expected operation, got '$operation'" # quick and dirty
+if [[ $( type -t ${operation}_options ) == "function" ]]; then
+    operation_options=$( ${operation}_options | comma-options-to-name-value "$@" ) || die "invalid options"
+    eval "$( grep -v '^"' <<< "$operation_options" | sed 's#^#options_#' | comma_path_value_mangle )"
+fi
+${operation}_run

@@ -11,4 +11,4 @@ keras
 cython
 pycocotools
 keras_retinanet
-tensorflow-gpu
+tensorflow-gpu==1.9.0
