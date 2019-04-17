@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from abyss_deep_learning.metrics import poly_intersection_area
+from abyss_deep_learning.metrics import poly_intersection_area, do_overlap
 
 __author__ = 'Kent Hu, Vsevolod Vlaskine'
 import argparse
@@ -115,101 +115,104 @@ def main(args):
 
 
 def crop(coco: COCO, args) -> COCO:
-    from abyss_deep_learning.utils import imread
-    logging.info("crop operation selected")
-    if args.keep_partial:
-        logging.error('coco-calc crop --keep-partial: TODO')
-        sys.exit(1)
-    width, height = map(int, args.size.split(','))
+    from abyss_deep_learning.utils import imread, imwrite
+    logging.info("Cropping selected")
+    crop_width, crop_height = [int(i) for i in args.size.split(',')]
     if args.apply_to_images:
-        os.makedirs(os.path.join(os.getcwd(), args.image_output_dir), exist_ok=True)
+        os.makedirs(args.image_output_dir, exist_ok=True)
     output_images = []
     output_annotations = []
-    for image_data in coco.loadImgs(coco.getImgIds()):
-        path = None
-        if os.path.isfile(image_data['path']):
-            path = image_data['path']
-        elif os.path.isfile(os.path.abspath(image_data['path'])):
-            path = image_data['path']
+    for image_entry in coco.dataset['images']:
+        if os.path.isfile(image_entry['path']):
+            path = image_entry['path']
         else:
-            logging.error("File not found: [{}]".format(image_data['path']))
+            logging.error("Image not found: {}".format(image_entry['path']))
             sys.exit(1)
-        basename = os.path.basename(image_data['path'])
-        stubname = os.path.join(os.getcwd(), args.image_output_dir, '.'.join(basename.split('.')[:-1]))
-        do_crop = False
+        basename = os.path.basename(path)
+        file_name, _ = os.path.splitext(basename)
+        stub_name = os.path.join(args.image_output_dir, file_name)
         if args.point:
-            annotations = coco.loadAnns(coco.getAnnIds(image_data['id']))
-            for a in annotations:
-                if a['annotation_type'] == 'point':
-                    do_crop = True
-                    break
-        if not do_crop:
-            continue
-        image = imread(image_data['path'])
-        if args.point:
-            annotations = coco.loadAnns(coco.getAnnIds(image_data['id']))
-            for a in annotations:
-                if a['annotation_type'] != 'point':
-                    continue  # todo: point selection quick and dirty for now; implement better usage semantics
-                x = int(a['bbox'][0]) - int(width / 2)
-                y = int(a['bbox'][1]) - int(height / 2)
+            annotations = coco.loadAnns(coco.getAnnIds(image_entry['id']))
+            if not any(annotation['annotation_type'] == 'point' for annotation in annotations):
+                continue
+            image = imread(image_entry['path'])
+            for annotation in annotations:
+                # Find crops from points defined in 'annotations'
+                try:
+                    if annotation['annotation_type'] != 'point':
+                        continue  # todo: point selection quick and dirty for now; implement better usage semantics
+                except KeyError:
+                    logging.warning("Please annotate crop points using the point tool in abyss-annotation-tool")
+                x = int(annotation['bbox'][0]) - int(crop_width / 2)
+                y = int(annotation['bbox'][1]) - int(crop_height / 2)
                 if args.fit:
-                    x = min(max(x, 0), image_data['width'] - width)
-                    y = min(max(y, 0), image_data['height'] - height)
-                elif x < 0 or y < 0 or x >= image_data['width'] - width or y >= image_data['height'] - height:
-                    logging.warning(
-                        "coco-calc: crop: discarded annotation with patch beyond image dimensions (or please use --fit): annotation id:",
-                        a['id'], "image:", image_data['path'])
+                    # Align image to border if crop goes out of image width or height
+                    x = min(max(x, 0), image_entry['width'] - crop_width)
+                    y = min(max(y, 0), image_entry['height'] - crop_height)
+                elif x < 0 or y < 0 or x >= image_entry['width'] - crop_width or y >= image_entry['height'] - crop_height:
+                    logging.warning("coco-calc: crop: discarded annotation with patch beyond image dimensions (or please use --fit to align the crop to border): annotation id: {} image: {}".format(annotation['id'], image_entry['path']))
                     continue
-                cropped = image[y: y + height, x: x + width]
-                path = stubname + '.' + str(a['id']) + '.png'
-                i = copy.deepcopy(image_data)
-                i['file_name'] = os.path.basename(path)
-                i['path'] = path
-                i['id'] = len(output_images)
-                i['height'] = height
-                i['width'] = width
-                output_images.append(i)
-                for a in annotations:
-                    if a['annotation_type'] == 'point':
+                cropped = image[y: y + crop_height, x: x + crop_width]
+                path = stub_name + '.' + str(annotation['id']) + '.png'
+                cropped_image_entry = copy.deepcopy(image_entry)
+                cropped_image_entry['file_name'] = os.path.basename(path)
+                cropped_image_entry['path'] = path
+                cropped_image_entry['id'] = len(output_images)
+                cropped_image_entry['height'] = crop_height
+                cropped_image_entry['width'] = crop_width
+                output_images.append(cropped_image_entry)
+                for annotation in annotations:
+                    if annotation.get('annotation_type') == 'point':
                         continue  # todo: better semantics
-                    b = copy.deepcopy(a)
-                    if 'bbox' in a:
-                        x0 = a['bbox'][0] - x
-                        y0 = a['bbox'][1] - y
-                        x1 = x0 + a['bbox'][2]
-                        y1 = y0 + a['bbox'][3]
-                        if x0 < 0 or y0 < 0 or x1 > (width - 1) or y1 > (height - 1):
+                    cropped_annotation = copy.deepcopy(annotation)
+                    try:
+                        x0, y0, width, height = annotation['bbox']
+                        x0 -= x
+                        y0 -= y
+                        if do_overlap((x0, y0, x0 + width, y0 + height), (0, 0, crop_width, crop_height)):
+                            if not args.keep_partial and (x0 < 0 or y0 < 0 or x0 + width >= crop_width or y0 + height >= crop_height):
+                                logging.warning("Skipping bbox {}, specify --keep-partial to keep partial cropped bbox".format(annotation['id']))
+                                continue
+                            if x0 < 0:
+                                width += x0
+                                x0 = 0
+                            if y0 < 0:
+                                height += y0
+                                y0 = 0
+                            width = min(crop_width - x0, width)
+                            height = min(crop_height - y0, height)
+                            cropped_annotation['bbox'] = [x0, y0, width, height]
+                        else:
                             continue
-                        b['bbox'] = [x0, y0, a['bbox'][2], a['bbox'][3]]
-                    if 'segmentation' in a:
-                        if isinstance(a['segmentation'], dict):
-                            print('coco-calc crop: RLE: todo; discarded', file=sys.stderr);
-                            continue
-                        if isinstance(a['segmentation'], list):
-                            fits_into_crop = True
-                            u = []
-                            for s in a['segmentation']:
-                                t = []
-                                for xs, ys in grouper(s, 2):
+                    except KeyError:
+                        pass  # Missing bbox entry
+                    try:
+                        if isinstance(annotation['segmentation'], list):
+                            cropped_segmentation = []
+                            for segmentation in annotation['segmentation']:
+                                polygon = []
+                                for xs, ys in grouper(segmentation, 2):
                                     xs -= x
                                     ys -= y
-                                    if xs < 0 or ys < 0 or xs > (width - 1) or ys > (height - 1):
-                                        fits_into_crop = False
+                                    if not args.keep_partial and (xs < 0 or ys < 0 or xs >= crop_width or ys >= crop_height):
+                                        logging.warning("Skipping segmentation {}, specify --keep-partial to keep partial cropped segmentation".format(annotation['id']))
                                         break
-                                    t += [xs, ys]
-                                if not fits_into_crop:
-                                    break
-                                u.append(t)
-                            if not fits_into_crop:
-                                continue
-                            b['segmentation'] = u
-                    b['id'] = len(output_annotations)
-                    b['image_id'] = i['id']
-                    output_annotations.append(b)
+                                    xs = min(max(0, xs), crop_width)
+                                    ys = min(max(0, ys), crop_height)
+                                    polygon += [xs, ys]
+                                else:
+                                    cropped_segmentation.append(polygon)
+                            cropped_annotation['segmentation'] = cropped_segmentation
+                        elif isinstance(annotation['segmentation'], dict):
+                            logging.warning('coco-calc crop: TODO RLE annotations, currently discards')
+                            continue
+                    except KeyError:
+                        pass  # Missing segmentation entry
+                    cropped_annotation['id'] = len(output_annotations)
+                    cropped_annotation['image_id'] = cropped_image_entry['id']
+                    output_annotations.append(cropped_annotation)
                 if args.apply_to_images:
-                    from PIL import Image
-                    Image.fromarray(cropped).save(path)
+                    imwrite(cropped, path)
     coco.dataset['images'] = output_images
     coco.dataset['annotations'] = output_annotations
     return coco
