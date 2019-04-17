@@ -583,8 +583,8 @@ def intersection(coco: COCO, args: argparse.Namespace):
             command_line_coco.loadAnns(command_line_coco.getAnnIds(imgIds=command_line_image_entry['id']))
         ]
         first, second, intersections = poly_intersection_area(polygons, command_line_polygons)
-        first = first.astype(dtype=np.uint)
-        second = second.astype(dtype=np.uint)
+        first = np.array(first, dtype=np.uint)
+        second = np.array(second, dtype=np.uint)
         intersections = intersections.astype(dtype=np.uint)
         first_indexes, second_indexes = np.where(intersections != 0)
         for i, j in zip(list(first_indexes), list(second_indexes)):

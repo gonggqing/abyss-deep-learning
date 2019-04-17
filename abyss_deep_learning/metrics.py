@@ -1,5 +1,5 @@
 """Metrics for machine learning"""
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 import skimage
@@ -46,7 +46,22 @@ def get_bbox_intersection(bbox_a, bbox_b):
     return intersections
 
 
-def poly_intersection_area(first: List[np.array], second: List[np.array], grid_max_x: int = None, grid_max_y: int = None):
+def do_overlap(bbox_a: Tuple[int, int, int, int], bbox_b: Tuple[int, int, int, int]):
+    """
+    Args:
+        bbox_a: (x1, y1, x2, y2) where <x1>,<y1> is top left and <x2>,<y2> is bottom right
+        bbox_b: (x1, y1, x2, y2) where <x1>,<y1> is top left and <x2>,<y2> is bottom right
+
+    Returns:
+        True if a overlaps b
+    """
+    assert len(bbox_a) == 4, "There should be 4 values in bbox_a"
+    assert len(bbox_b) == 4, "There should be 4 values in bbox_b"
+    return not(bbox_a[0] > bbox_b[2] or bbox_b[0] > bbox_a[2] or bbox_a[3] < bbox_b[1] or bbox_b[3] < bbox_a[1])
+
+
+def poly_intersection_area(first: List[np.array], second: List[np.array], grid_max_x: int = None,
+                           grid_max_y: int = None):
     """
     parameters
     ----------
@@ -62,7 +77,7 @@ def poly_intersection_area(first: List[np.array], second: List[np.array], grid_m
     """
     precompute_first = []
     precompute_second = []
-    if grid_max_x is None or grid_max_y is None: # Todo completely re-write me to take in to account lower offset by lower value?
+    if grid_max_x is None or grid_max_y is None:  # Todo completely re-write me to take in to account lower offset by lower value?
         grid_max_x = 0
         grid_max_y = 0
         for array in first + second:
@@ -71,25 +86,42 @@ def poly_intersection_area(first: List[np.array], second: List[np.array], grid_m
             if upper_val_x > grid_max_x: grid_max_x = int(upper_val_x) + 1
             if upper_val_y > grid_max_y: grid_max_y = int(upper_val_y) + 1
     grid = np.zeros((grid_max_y, grid_max_x), dtype=np.uint8)
+    first_areas = []
+    second_areas = []
+    first_bboxes = []
+    second_bboxes = []
     for array in first:
-        grid[skimage.draw.polygon(array[:, 1], array[:, 0], grid.shape)] = 1
+        r = array[:, 1]
+        c = array[:, 0]
+        first_bboxes.append((min(c), min(r), max(c), max(r)))
+        rr, cc = skimage.draw.polygon(r, c, grid.shape)
+        first_areas.append(len(rr))
+        grid[rr, cc] = 1
         precompute_first.append(np.array(grid))
         grid[:] = 0
     for array in second:
-        grid[skimage.draw.polygon(array[:, 1], array[:, 0], grid.shape)] = 1
+        r = array[:, 1]
+        c = array[:, 0]
+        second_bboxes.append((min(c), min(r), max(c), max(r)))
+        rr, cc = skimage.draw.polygon(r, c, grid.shape)
+        second_areas.append(len(rr))
+        grid[rr, cc] = 1
         precompute_second.append(np.array(grid))
         grid[:] = 0
-    first_areas = np.zeros( ( len( first ) ) )
-    second_areas = np.zeros( ( len( second ) ) )
-    for i in range( len( precompute_first ) ): first_areas[i] = np.count_nonzero( precompute_first[i] )
-    for i in range( len( precompute_second ) ): second_areas[i] = np.count_nonzero( precompute_second[i] )
-    intersections = np.zeros( ( len( first ), len( second ) ) )
-    for i in range( len( precompute_first ) ): # todo: can it be done in my numpyish way?
-        for j in range( len( precompute_second ) ):
-            intersections[i,j] = np.count_nonzero( np.logical_and( precompute_first[i], precompute_second[j] ) )
-    return first_areas, second_areas, intersections
+    # intersections = np.zeros((len(first), len(second)))
+    intersections = []
+    for i in range(len(precompute_first)):  # todo: can it be done in my numpyish way?
+        tmp = []
+        first_bbox = first_bboxes[i]
+        for j in range(len(precompute_second)):
+            second_bbox = second_bboxes[j]
+            tmp.append(np.count_nonzero(np.logical_and(precompute_first[i], precompute_second[j])) if do_overlap(first_bbox, second_bbox) else 0)
+        intersections.append(tmp)
+    return first_areas, second_areas, np.array(intersections)
 
-def poly_iou_matrix_new_and_beautiful_to_debug(predictions_array: List[np.array], truth_arrays: List[np.array], grid_max_x: int = None, grid_max_y: int = None):
+
+def poly_iou_matrix_new_and_beautiful_to_debug(predictions_array: List[np.array], truth_arrays: List[np.array],
+                                               grid_max_x: int = None, grid_max_y: int = None):
     """
 
     Args:
@@ -102,18 +134,19 @@ def poly_iou_matrix_new_and_beautiful_to_debug(predictions_array: List[np.array]
         numpy.array: iou matrix with rows corresponding to the first input and columns to the second
 
     """
-    first, second, intersections = poly_intersection_area( predictions_array, truth_arrays, grid_max_x, grid_max_y )
+    first, second, intersections = poly_intersection_area(predictions_array, truth_arrays, grid_max_x, grid_max_y)
     len_first = len(first)
     len_second = len(second)
-    first = np.transpose( np.repeat( [ first ], len_second, axis = 0 ) )
-    second = np.repeat( [ second ], len_first, axis = 0 )
-    #result = np.zeros( intersections.shape )
+    first = np.transpose(np.repeat([first], len_second, axis=0))
+    second = np.repeat([second], len_first, axis=0)
+    # result = np.zeros( intersections.shape )
     unions = first + second - intersections
-    iou = np.divide( intersections, unions, where = unions != 0 ) # if union is zero, intersection will be zero, too
-    return iou    
+    iou = np.divide(intersections, unions, where=unions != 0)  # if union is zero, intersection will be zero, too
+    return iou
 
 
-def poly_iou_matrix(predictions_array: List[np.array], truth_arrays: List[np.array], grid_max_x: int = None, grid_max_y: int = None):
+def poly_iou_matrix(predictions_array: List[np.array], truth_arrays: List[np.array], grid_max_x: int = None,
+                    grid_max_y: int = None):
     """
 
     Args:
@@ -164,6 +197,7 @@ def poly_iou_matrix(predictions_array: List[np.array], truth_arrays: List[np.arr
                 sub_result.append(0)
         result.append(sub_result)
     return np.array(result)
+
 
 def ious_to_sklearn_pred_true(ious, labels_true, labels_pred, iou_threshold=0., blank_id=0):
     """ Convert labelled bboxes to y_true and y_pred that could be consumed directly by sklearn.metrics functions
