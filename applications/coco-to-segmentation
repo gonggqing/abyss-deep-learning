@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import sys
+from numbers import Number
 from typing import Union
 
 import numpy as np
@@ -17,9 +18,16 @@ __maintainer__ = 'Kent Hu'
 _DESCRIPTION = """
 The utility takes in a coco file of images and segmentation annotation 
 and produces mask files of segmentations for each image in a similar structure to fabric-segmentation-predict. 
-One directory per mask file will be produced. Mask file format will be either png or bin, default is bin. If bin,
-values of the bin file are just category id of pixel. If png, values of the pixels are category ids 
-normalized from 0 to 255. If both, output JSON will contain image entries with path to the png files.
+
+One directory per mask file will be produced. 
+
+Mask file format will be either png or bin, default is bin. 
+
+If bin, values of the bin file are just category id of pixel. 
+If png, values of the pixels are category ids normalized from 0 to 255. 
+If both, output JSON will contain image entries with path to the png files.
+
+Assumes category id of segmentations range from 1 to --num-classes <n>.
 
 A coco file of images of each mask will be produced and dumped to stdout
 
@@ -63,6 +71,7 @@ def main(args: argparse.Namespace):
         except KeyError:
             try:
                 image_id_to_ann_id[annotation['image_id']] = []
+                image_id_to_ann_id[annotation['image_id']].append(i)
             except KeyError:
                 logging.error("Annotation {} is missing key <image_id>".format(annotation))
     save_bin = args.save_as == 'bin' or args.save_as == 'both'
@@ -93,7 +102,7 @@ def main(args: argparse.Namespace):
         if save_bin:
             bin_path = save_as_bin(img.astype(args.output_format), dir_name)
         if save_png:
-            png_path = save_as_png(img, dir_name)
+            png_path = save_as_png(Image.fromarray(normalize(img, args.num_classes)), dir_name)
         path = png_path if bin_path is None else bin_path
         entry = copy.deepcopy(image_entry)
         entry['file_name'] = os.path.basename(path)
@@ -110,9 +119,9 @@ def save_as_bin(img: np.ndarray, dir_name: str):
     return path
 
 
-def save_as_png(img: np.ndarray, dir_name: str):
+def save_as_png(img: Image.Image, dir_name: str):
     path = os.path.join(dir_name, '0.png')
-    Image.fromarray(normalize(img)).save(path)
+    img.save(path)
     return path
 
 
@@ -140,7 +149,7 @@ def load_entry(image_entry: dict) -> Union[np.ndarray, None]:
         return np.zeros((height, width), dtype=np.uint8)
 
 
-def normalize(arr: np.ndarray) -> np.ndarray:
+def normalize(arr: np.ndarray, max_val: Number = None) -> np.ndarray:
     """
     Linear normalization from 0 to 255
     http://en.wikipedia.org/wiki/Normalization_%28image_processing%29
@@ -148,7 +157,8 @@ def normalize(arr: np.ndarray) -> np.ndarray:
     arr = arr.astype(float)
     # Do not touch the alpha channel
     min_val = arr.min()
-    max_val = arr.max()
+    if max_val is None:
+        max_val = arr.max()
     return arr.astype(np.uint8) if min_val == max_val else ((arr - min_val) * (255.0 / (max_val - min_val))).astype(np.uint8)
 
 
@@ -156,18 +166,20 @@ def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--depth', type=int, default=1,
                         help="TODO! depth to name output directories, e.g. --depth 1: 'a/b/c/d' -> 'd', --depth 3: 'a/b/c/d' -> 'b/c/d' etc")
-    parser.add_argument('-n', '--dirname', choices=['id', 'file_name'], default='file_name',
+    parser.add_argument('--dirname', '--dir', choices=['id', 'file_name'], default='file_name',
                         help="Naming scheme for image directory. Default is %(default)s")
+    parser.add_argument('-n', '--num-classes', type=int, required=True,
+                        help="Number of possible classes that can be detected from the network (excluding background).")
     parser.add_argument('-i', '--input',
                         help="Pass COCO JSON as command line argument. If specified, does not read from stdin.")
+    parser.add_argument('-s', '--save-as', choices=['bin', 'png', 'both'], default='bin',
+                        help="File type to save mask as. Default is %(default)s")
+    parser.add_argument('-f', '--output-format', type=str, choices=np.sctypeDict.keys(), default='uint32',
+                        help="Specify output data type of bin file. Default is %(default)s")
     parser.add_argument('--keep-annotations', action='store_true',
                         help="Keep original annotations in the output coco")
     parser.add_argument('-p', '--permissive', action='store_true',
                         help="Permissive option to potentially overwrite mask file in a directory if it already exists for an image")
-    parser.add_argument('-s', '--save-as', choices=['bin', 'png', 'both'], default='bin',
-                        help="File type to save mask as. Default is %(default)s")
-    parser.add_argument('--output-format', type=str, choices=np.sctypeDict.keys(), default='uint32',
-                        help="Specify output data type of bin file. Default is %(default)s")
     logging_group = parser.add_mutually_exclusive_group()
     logging_group.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, dest='loglevel',
                                help="Verbose output to stderr")
