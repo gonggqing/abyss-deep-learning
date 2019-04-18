@@ -569,29 +569,42 @@ def assign_from_sorted(coco: COCO, args: argparse.Namespace) -> COCO:
 
 
 def intersection(coco: COCO, args: argparse.Namespace):
-    if args.output_fields:
-        print("image/id,first/id,first/area,second/id,second/area,intersection/area")
     with open(args.file) as f:
         command_line_coco = load_coco(f.read().strip())
     for image_entry in coco.dataset['images']:
         command_line_image_entry = command_line_coco.loadImgs(ids=image_entry['id']).pop()
-        polygons = [
+        stdin_annotations = coco.loadAnns(coco.getAnnIds(imgIds=image_entry['id']))
+        stdin_polygons = [
             np.reshape(np.array(annotation['segmentation'][0]), (len(annotation['segmentation'][0]) // 2, 2)) for
-            annotation in
-            coco.loadAnns(coco.getAnnIds(imgIds=image_entry['id']))
+            annotation in stdin_annotations
         ]
+        command_line_annotations = command_line_coco.loadAnns(command_line_coco.getAnnIds(imgIds=command_line_image_entry['id']))
         command_line_polygons = [
             np.reshape(np.array(annotation['segmentation'][0]), (len(annotation['segmentation'][0]) // 2, 2)) for
-            annotation in
-            command_line_coco.loadAnns(command_line_coco.getAnnIds(imgIds=command_line_image_entry['id']))
+            annotation in command_line_annotations
         ]
-        first, second, intersections = poly_intersection_area(polygons, command_line_polygons)
-        first = np.array(first, dtype=np.uint)
-        second = np.array(second, dtype=np.uint)
-        intersections = intersections.astype(dtype=np.uint)
-        first_indexes, second_indexes = np.where(intersections != 0)
-        for i, j in zip(list(first_indexes), list(second_indexes)):
-            print(",".join(str(k) for k in (image_entry['id'], i, first[i], j, second[j], intersections[i, j])))
+        stdin_areas, command_line_areas, intersection_areas = poly_intersection_area(stdin_polygons, command_line_polygons)
+        stdin_areas = np.array(stdin_areas, dtype=np.uint)
+        command_line_areas = np.array(command_line_areas, dtype=np.uint)
+        intersection_areas = intersection_areas
+        if args.output_non_intersecting == '-':
+            if args.output_fields:
+                print("image/id,first/id,first/category_id,first/area")
+            first_indexes, _ = np.where(intersection_areas == 0)
+            for i in np.unique(first_indexes).tolist():
+                print(",".join(str(j) for j in (image_entry['id'], stdin_annotations[i]['id'], stdin_annotations[i]['category_id'], stdin_areas[i])))
+        elif args.output_non_intersecting == 'cl':
+            if args.output_fields:
+                print("image/id,second/id,second/category_id,second/area")
+            _, second_indexes = np.where(intersection_areas == 0)
+            for i in np.unique(second_indexes).tolist():
+                print(",".join(str(j) for j in (image_entry['id'], command_line_annotations[i]['id'], command_line_annotations[i]['category_id'], command_line_areas[i])))
+        else:
+            if args.output_fields:
+                print("image/id,first/id,first/category_id,first/area,second/id,second/category_id,second/area,intersection/area")
+            first_indexes, second_indexes = np.where(intersection_areas != 0)
+            for i, j in zip(list(first_indexes), list(second_indexes)):
+                print(",".join(str(k) for k in (image_entry['id'], stdin_annotations[i]['id'], stdin_annotations[i]['category_id'], stdin_areas[i], command_line_annotations[j]['id'], command_line_annotations[j]['category_id'], command_line_areas[j], intersection_areas[i, j])))
     sys.exit(0)
 
 
@@ -649,12 +662,14 @@ def get_args() -> argparse.Namespace:
                                           parents=[verbose_parser])
     parser_repath.add_argument('path', help="New path to prepend to each image in data set", type=str)
 
-    parser_intersection = subparsers.add_parser('intersection', help='TODO: Ask Kent or Seva',
+    parser_intersection = subparsers.add_parser('intersection', help='Output intersecting polygons along with the polygon areas and the intersection area',
                                                 description=_INTERSECT_DESCRIPTION,
                                                 formatter_class=argparse.RawDescriptionHelpFormatter,
                                                 parents=[verbose_parser])
-    parser_intersection.add_argument('--output-fields', help="print output csv fields to stdout and exit")
+    parser_intersection.add_argument('--output-non-intersecting', choices=['-', 'cl'], help="Output non-intersecting polygons from either stdin or command line JSON.")
+    parser_intersection.add_argument('--output-fields', action='store_true', help="print output csv fields to stdout and exit")
     parser_intersection.add_argument('--file', help="JSON file to match intersecting polygons with")
+
 
     parser_new_ids = subparsers.add_parser('assign-new-image-ids',
                                            help="Assign new ids to COCO file from stdin based on ids from COCO file passed as command line argument.",
