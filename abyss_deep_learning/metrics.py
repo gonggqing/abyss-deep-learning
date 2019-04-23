@@ -117,7 +117,7 @@ def poly_intersection_area(first: List[np.array], second: List[np.array], grid_m
             second_bbox = second_bboxes[j]
             tmp.append(np.count_nonzero(np.logical_and(precompute_first[i], precompute_second[j])) if do_overlap(first_bbox, second_bbox) else 0)
         intersections.append(tmp)
-    return first_areas, second_areas, np.array(intersections)
+    return first_areas, second_areas, np.array(intersections, dtype=np.uint)
 
 
 def poly_iou_matrix(predictions_array: List[np.array], truth_arrays: List[np.array],
