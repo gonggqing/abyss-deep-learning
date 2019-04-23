@@ -106,12 +106,15 @@ def main(args):
         format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
     )
     logging.info("-v/--verbose enabled.")
+    if args.output_fields:
+        print(args.output_fields, file=sys.stdout)
+        return 0
     coco = args.func(load_coco(sys.stdin.read()), args)
     if coco.dataset is None:
         logging.warning("Output coco is empty.")
     else:
         json.dump(coco.dataset, sys.stdout, indent=args.indent)
-    sys.exit(0)
+    return 0
 
 
 def crop(coco: COCO, args) -> COCO:
@@ -149,8 +152,11 @@ def crop(coco: COCO, args) -> COCO:
                     # Align image to border if crop goes out of image width or height
                     x = min(max(x, 0), image_entry['width'] - crop_width)
                     y = min(max(y, 0), image_entry['height'] - crop_height)
-                elif x < 0 or y < 0 or x >= image_entry['width'] - crop_width or y >= image_entry['height'] - crop_height:
-                    logging.warning("coco-calc: crop: discarded annotation with patch beyond image dimensions (or please use --fit to align the crop to border): annotation id: {} image: {}".format(annotation['id'], image_entry['path']))
+                elif x < 0 or y < 0 or x >= image_entry['width'] - crop_width or y >= image_entry[
+                    'height'] - crop_height:
+                    logging.warning(
+                        "coco-calc: crop: discarded annotation with patch beyond image dimensions (or please use --fit to align the crop to border): annotation id: {} image: {}".format(
+                            annotation['id'], image_entry['path']))
                     continue
                 cropped = image[y: y + crop_height, x: x + crop_width]
                 path = stub_name + '.' + str(annotation['id']) + '.png'
@@ -170,8 +176,11 @@ def crop(coco: COCO, args) -> COCO:
                         x0 -= x
                         y0 -= y
                         if do_overlap((x0, y0, x0 + width, y0 + height), (0, 0, crop_width, crop_height)):
-                            if not args.keep_partial and (x0 < 0 or y0 < 0 or x0 + width >= crop_width or y0 + height >= crop_height):
-                                logging.warning("Skipping bbox {}, specify --keep-partial to keep partial cropped bbox".format(annotation['id']))
+                            if not args.keep_partial and (
+                                    x0 < 0 or y0 < 0 or x0 + width >= crop_width or y0 + height >= crop_height):
+                                logging.warning(
+                                    "Skipping bbox {}, specify --keep-partial to keep partial cropped bbox".format(
+                                        annotation['id']))
                                 continue
                             if x0 < 0:
                                 width += x0
@@ -194,8 +203,11 @@ def crop(coco: COCO, args) -> COCO:
                                 for xs, ys in grouper(segmentation, 2):
                                     xs -= x
                                     ys -= y
-                                    if not args.keep_partial and (xs < 0 or ys < 0 or xs >= crop_width or ys >= crop_height):
-                                        logging.warning("Skipping segmentation {}, specify --keep-partial to keep partial cropped segmentation".format(annotation['id']))
+                                    if not args.keep_partial and (
+                                            xs < 0 or ys < 0 or xs >= crop_width or ys >= crop_height):
+                                        logging.warning(
+                                            "Skipping segmentation {}, specify --keep-partial to keep partial cropped segmentation".format(
+                                                annotation['id']))
                                         break
                                     xs = min(max(0, xs), crop_width)
                                     ys = min(max(0, ys), crop_height)
@@ -578,33 +590,39 @@ def intersection(coco: COCO, args: argparse.Namespace):
             np.reshape(np.array(annotation['segmentation'][0]), (len(annotation['segmentation'][0]) // 2, 2)) for
             annotation in stdin_annotations
         ]
-        command_line_annotations = command_line_coco.loadAnns(command_line_coco.getAnnIds(imgIds=command_line_image_entry['id']))
+        command_line_annotations = command_line_coco.loadAnns(
+            command_line_coco.getAnnIds(imgIds=command_line_image_entry['id']))
         command_line_polygons = [
             np.reshape(np.array(annotation['segmentation'][0]), (len(annotation['segmentation'][0]) // 2, 2)) for
             annotation in command_line_annotations
         ]
-        stdin_areas, command_line_areas, intersection_areas = poly_intersection_area(stdin_polygons, command_line_polygons)
+        stdin_areas, command_line_areas, intersection_areas = poly_intersection_area(stdin_polygons,
+                                                                                     command_line_polygons)
         stdin_areas = np.array(stdin_areas, dtype=np.uint)
         command_line_areas = np.array(command_line_areas, dtype=np.uint)
         intersection_areas = intersection_areas
         if args.output_non_intersecting == '-':
-            if args.output_fields:
-                print("image/id,first/id,first/category_id,first/area")
-            first_indexes, _ = np.where(intersection_areas == 0)
-            for i in np.unique(first_indexes).tolist():
-                print(",".join(str(j) for j in (image_entry['id'], stdin_annotations[i]['id'], stdin_annotations[i]['category_id'], stdin_areas[i])))
+            first_indexes = np.where(~intersection_areas.any(axis=1))[0]
+            for i in first_indexes.tolist():
+                print(",".join(str(j) for j in (
+                    image_entry['path'], image_entry['id'], stdin_annotations[i]['id'],
+                    stdin_annotations[i]['category_id'], stdin_areas[i])))
         elif args.output_non_intersecting == 'cl':
-            if args.output_fields:
-                print("image/id,second/id,second/category_id,second/area")
-            _, second_indexes = np.where(intersection_areas == 0)
-            for i in np.unique(second_indexes).tolist():
-                print(",".join(str(j) for j in (image_entry['id'], command_line_annotations[i]['id'], command_line_annotations[i]['category_id'], command_line_areas[i])))
+            second_indexes = np.where(~intersection_areas.any(axis=1))[1]
+            for i in second_indexes.tolist():
+                print(",".join(str(j) for j in (
+                    image_entry['path'], image_entry['id'], command_line_annotations[i]['id'],
+                    command_line_annotations[i]['category_id'],
+                    command_line_areas[i])))
         else:
-            if args.output_fields:
-                print("image/id,first/id,first/category_id,first/area,second/id,second/category_id,second/area,intersection/area")
             first_indexes, second_indexes = np.where(intersection_areas != 0)
             for i, j in zip(list(first_indexes), list(second_indexes)):
-                print(",".join(str(k) for k in (image_entry['id'], stdin_annotations[i]['id'], stdin_annotations[i]['category_id'], stdin_areas[i], command_line_annotations[j]['id'], command_line_annotations[j]['category_id'], command_line_areas[j], intersection_areas[i, j])))
+                print(",".join(str(k) for k in (
+                    image_entry['path'], image_entry['id'], stdin_annotations[i]['id'],
+                    stdin_annotations[i]['category_id'], stdin_areas[i],
+                    command_line_annotations[j]['id'], command_line_annotations[j]['category_id'],
+                    command_line_areas[j],
+                    intersection_areas[i, j])))
     sys.exit(0)
 
 
@@ -662,14 +680,17 @@ def get_args() -> argparse.Namespace:
                                           parents=[verbose_parser])
     parser_repath.add_argument('path', help="New path to prepend to each image in data set", type=str)
 
-    parser_intersection = subparsers.add_parser('intersection', help='Output intersecting polygons along with the polygon areas and the intersection area',
+    parser_intersection = subparsers.add_parser('intersection',
+                                                help='Output intersecting polygons along with the polygon areas and the intersection area',
                                                 description=_INTERSECT_DESCRIPTION,
                                                 formatter_class=argparse.RawDescriptionHelpFormatter,
                                                 parents=[verbose_parser])
-    parser_intersection.add_argument('--output-non-intersecting', choices=['-', 'cl'], help="Output non-intersecting polygons from either stdin or command line JSON.")
-    parser_intersection.add_argument('--output-fields', action='store_true', help="print output csv fields to stdout and exit")
+    parser_intersection.add_argument('--output-non-intersecting', choices=['-', 'cl'],
+                                     help="Output non-intersecting polygons from either stdin or command line JSON.")
+    parser_intersection.add_argument('--output-fields', action='store_const',
+                                     const="image/path,image/id,first/id,first/category_id,first/area,second/id,second/category_id,second/area,intersection/area",
+                                     help="print output csv fields to stdout and exit")
     parser_intersection.add_argument('--file', help="JSON file to match intersecting polygons with")
-
 
     parser_new_ids = subparsers.add_parser('assign-new-image-ids',
                                            help="Assign new ids to COCO file from stdin based on ids from COCO file passed as command line argument.",
@@ -731,4 +752,4 @@ class Verbose:
 
 
 if __name__ == '__main__':
-    main(get_args())
+    sys.exit(main(get_args()))
