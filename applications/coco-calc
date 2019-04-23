@@ -106,9 +106,12 @@ def main(args):
         format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
     )
     logging.info("-v/--verbose enabled.")
-    if args.output_fields:
-        print(args.output_fields, file=sys.stdout)
-        return 0
+    try:
+        if args.output_fields:
+            print(args.output_fields, file=sys.stdout)
+            return 0
+    except AttributeError:
+        pass
     coco = args.func(load_coco(sys.stdin.read()), args)
     if coco.dataset is None:
         logging.warning("Output coco is empty.")
