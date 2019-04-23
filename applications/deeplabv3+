@@ -27,7 +27,7 @@ parser.add_argument('--image-format', help='[init] The image format of the files
 parser.add_argument('--eval-dataset', help='[init] The path to the image directory for the COCO JSON (init only)')
 parser.add_argument('--learning-rate', type=float, help='[train] The base learning rate (default 1e-4, use 1e-3 for scratch training)', default=1e-4)
 parser.add_argument('--model', help='[train] One of {xception_65, mobilenet_v2}', default='xception_65')
-parser.add_argument('--reinitialize-head', action='store_true', help='[train] Clear the class specific layers to allow for a transfer learning to a new class set.')
+parser.add_argument('--reinitialize-head', action='store_false', help='[train] Clear the class specific layers to allow for a transfer learning to a new class set.')
 parser.add_argument('--train-crop-size', help='[train] The crop size to use in training and evaluation', default=513)
 parser.add_argument('--train-freeze-batch-norm', action='store_false', help='[train] Whether or not to freeze the batch norms')
 parser.add_argument('--train-steps', type=int, help='[train] The number of epochs to train for', default=0)
