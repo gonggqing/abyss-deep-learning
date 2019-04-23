@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-__author__ = 'Kent Hu, and Jeff Mohammed'
-__maintainer__ = 'Kent Hu'
-
 import argparse
 import json
 import logging
@@ -9,22 +6,28 @@ import os
 import sys
 import time
 from datetime import datetime
+from numbers import Number
+from typing import Union
 
 import numpy as np
 import skimage
 from PIL import Image
+
 from abyss_deep_learning.utils import imread
 
+__author__ = 'Kent Hu, and Jeff Mohammed'
+__maintainer__ = 'Kent Hu'
+
 _DESCRIPTION = """
-The utility takes in a coco file and applies the segmentations from the mask file provided as a command line argument 
-and outputs the new coco json to stdout. If a binary file is give, assumes values are normalized between 0 and 1.
-The coco data file is taken from stdin whilst the mask coco file is supplied using a required argument 
-eg. data.json | coco-from-segmentation mask.json
+The utility takes in a COCO file and applies segmentations from the mask file provided as a command line argument 
+and outputs the new COCO json to stdout. If a binary file is given, values are assumed to be normalized between 0 and 1.
+The COCO data file is taken from stdin whilst the mask coco file is supplied using a required argument, 
+e.g.: cat data.json | coco-from-segmentation mask.json
 
 examples: 
     Generates a COCO file with segmentation annotations inferred from the amount of unique pixels in the mask.
     Holes are connected by drawing a line between the first pixel in the polygon points to the closest background pixel
-    e.g. Use for mask JSON that contains paths to segmentation masks from the SemanticPredictions layer
+    e.g.: Use for mask JSON that contains paths to segmentation masks from the SemanticPredictions layer
     cat images.json | coco-from-segmentation mask.json -c from-mask -n 2 --connect-holes > segmentations.json
 
     Generates a COCO file with segmentation annotations from pixels above and below certain values.
@@ -32,8 +35,6 @@ examples:
     cat images.json | coco-from-segmentation mask.json -c 1 --lower-threshold 0.3 --upper-threshold 0.8 > segmentations.json
 
 Use --normalize if passing unnormalized .bin file
-
-If -s/--size is not passed, the image will be opened using PIL.Image.open(path) to get image dimensions
 """
 
 np.set_printoptions(threshold=np.inf)
@@ -70,21 +71,21 @@ def main(args: argparse.Namespace):
             sys.exit(1)
 
     coco_json = {
-        'info'       : image_json.get('info', {
-            'contributor' : 'Abyss Solutions',
-            'total_time'  : '00h00m00s',
-            'year'        : str(datetime.now().year),
+        'info': image_json.get('info', {
+            'contributor': 'Abyss Solutions',
+            'total_time': '00h00m00s',
+            'year': str(datetime.now().year),
             'date_created': str(datetime.now()),
-            'description' : 'This is a dataset configured by Abyss Solutions.',
-            'version'     : '1.0',
-            'url'         : 'http://www.abysssolutions.com.au',
+            'description': 'This is a dataset configured by Abyss Solutions.',
+            'version': '1.0',
+            'url': 'http://www.abysssolutions.com.au',
         }),
-        'images'     : image_json.get('images', []),
+        'images': image_json.get('images', []),
         'annotations': [],
-        'categories' : image_json.get('categories', []),
-        'licenses'   : image_json.get('licenses', [{
-            'id'  : 0,
-            'url' : 'http://creativecommons.org/licenses/by-nc-sa/2.0/',
+        'categories': image_json.get('categories', []),
+        'licenses': image_json.get('licenses', [{
+            'id': 0,
+            'url': 'http://creativecommons.org/licenses/by-nc-sa/2.0/',
             'name': 'Attribution-NonCommercial-ShareAlike License',
         }])
     }
@@ -104,7 +105,8 @@ def main(args: argparse.Namespace):
         width = original_entry.get('width')
         if height is None or width is None:
             width, height = Image.open(original_entry['path']).size
-        padded_mask = load_input(mask_entry, padding=padding, normalize=args.norm, height=height, width=width)
+        padded_mask = load_input(mask_entry, args.input_format, args.num_classes, padding=padding, normalize=args.norm,
+                                 height=height, width=width)
         if padded_mask is None:
             logging.warning("Unknown file type {} is not supported currently".format(get_file_ext(mask_entry['path'])))
             sys.exit(1)
@@ -119,21 +121,28 @@ def main(args: argparse.Namespace):
 
                 # Mask lower threshold of previous category
                 if category_id != 0:
-                    thresholded_padded_mask[thresholded_padded_mask <= (thresholds[category_id - 1] + np.finfo(thresholded_padded_mask.dtype).eps)] = 0.0
+                    thresholded_padded_mask[thresholded_padded_mask <= (
+                            thresholds[category_id - 1] + np.finfo(thresholded_padded_mask.dtype).eps)] = 0.0
 
                 # Mask upper threshold of next category
                 try:
-                    thresholded_padded_mask[thresholded_padded_mask >= (thresholds[category_id + 1] - np.finfo(thresholded_padded_mask.dtype).eps)] = 0.0
+                    thresholded_padded_mask[thresholded_padded_mask >= (
+                            thresholds[category_id + 1] - np.finfo(thresholded_padded_mask.dtype).eps)] = 0.0
                 except IndexError:
                     pass
 
                 # list of Nx2 array returned, consisting of n (row, column) points along the contour
                 threshold_value = thresholds[category_id]
 
-                found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
+                found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in
+                                  skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(
+                                      thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
                 if args.connect_holes:
-                    thresholded_padded_mask = connect_segmentation_holes(thresholded_padded_mask, found_contours, class_value=threshold_value)
-                    found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
+                    thresholded_padded_mask = connect_segmentation_holes(thresholded_padded_mask, found_contours,
+                                                                         class_value=threshold_value)
+                    found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in
+                                      skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(
+                                          thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
 
                 category_ids.append(category_id + 1)
                 category_contours.append(found_contours)
@@ -143,10 +152,14 @@ def main(args: argparse.Namespace):
             thresholded_padded_mask[thresholded_padded_mask >= args.up_thresh + np.finfo(float).eps] = 0.0
             thresholded_padded_mask[thresholded_padded_mask <= args.low_thresh - np.finfo(float).eps] = 0.0
 
-            found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
+            found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in
+                              skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(
+                                  thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
             if args.connect_holes:
                 thresholded_padded_mask = connect_segmentation_holes(thresholded_padded_mask, found_contours)
-                found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
+                found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in
+                                  skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(
+                                      thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
 
             category_contours.append(found_contours)
             category_ids.append(int(args.category_id))
@@ -180,19 +193,21 @@ def main(args: argparse.Namespace):
                 score = 0 if is_hole(contour) else original_mask[rr, cc].sum() / area
 
                 coco_json['annotations'].append({
-                    "id"          : len(coco_json['annotations']),
-                    "image_id"    : original_entry['id'],
-                    "category_id" : category_id,
+                    "id": len(coco_json['annotations']),
+                    "image_id": original_entry['id'],
+                    "category_id": category_id,
                     "segmentation": [segmentation],
-                    "area"        : area,
-                    "bbox"        : bounding_box([segmentation[n:n + 2] for n in range(0, len(segmentation), 2)]),
-                    "iscrowd"     : 0,
-                    "score"       : score,
+                    "area": area,
+                    "bbox": bounding_box([segmentation[n:n + 2] for n in range(0, len(segmentation), 2)]),
+                    "iscrowd": 0,
+                    "score": score,
                 })
         if args.save_per_image:
-            with open(os.path.join(os.path.dirname(mask_entry['path']), "{}.{}".format(os.path.splitext(mask_entry['file_name'])[0], 'json')), "w") as f:
+            with open(os.path.join(os.path.dirname(mask_entry['path']),
+                                   "{}.{}".format(os.path.splitext(mask_entry['file_name'])[0], 'json')), "w") as f:
                 json.dump(coco_json, f, indent=4)
-        logging.info("Processing time for mask {}: {}h {}m {}s".format(mask_id, *pretty_time(time.perf_counter() - tic)))
+        logging.info(
+            "Processing time for mask {}: {}h {}m {}s".format(mask_id, *pretty_time(time.perf_counter() - tic)))
 
     if not args.save_per_image:
         json.dump(coco_json, sys.stdout, indent=4)
@@ -246,7 +261,8 @@ def is_hole(contour: np.ndarray) -> bool:
     return True if prod_x_y > 0 else False
 
 
-def load_input(image_entry: dict, padding: int = 0, normalize: bool = False, height: int = None, width: int = None) -> np.ndarray:
+def load_input(image_entry: dict, input_format: str, max_: Number = None, padding: int = 0, normalize: bool = False,
+               height: int = None, width: int = None) -> Union[np.ndarray, None]:
     """
 
     Args:
@@ -260,17 +276,27 @@ def load_input(image_entry: dict, padding: int = 0, normalize: bool = False, hei
         np.ndarray representation of image normalized from 0 to 1. If file extension is not valid, returns None
     """
     if width is None:
-        width = int(image_entry['width'])
+        width = image_entry.get('width')
     if height is None:
-        height = int(image_entry['height'])
+        height = image_entry.get('height')
+    if height is None or width is None:
+        try:
+            width, height = Image.open(image_entry['path']).size
+        except OSError:
+            pass  # Unidentifiable image type
     img = np.zeros((height + padding * 2, width + padding * 2), dtype=np.float16)
     ext = get_file_ext(image_entry['path'])
     if ext in {'bin'}:
-        img_buf = np.fromfile(image_entry['path'], dtype=np.float32)
-        img_buf = np.reshape(img_buf, (height, width))
+        img_buf = np.fromfile(image_entry['path'], dtype=input_format)
+        try:
+            img_buf = np.reshape(img_buf, (height, width))
+        except TypeError:
+            logging.error("Unable to find height or width value to reshape binary into image")
+            return None
         if normalize:
             min_ = np.min(img_buf)
-            max_ = np.max(img_buf)
+            if max_ is None:
+                max_ = np.max(img_buf)
             img_buf = (img_buf - min_) / (max_ - min_)
     elif ext in {'png', 'jpg'}:
         img_buf = imread(image_entry['path'], dtype=np.float16)
@@ -357,6 +383,8 @@ def get_args() -> argparse.Namespace:
                         help="Normalize pixel values in mask to be between 0 and 1")
     parser.add_argument('--save-per-image', action='store_true',
                         help="Output COCO JSON for each image at location mask['path'] as mask['file_name'].png")
+    parser.add_argument('--input-format', choices=np.sctypeDict.keys(), type=str, default='uint32',
+                        help="Specify input format of binary file to read in as. Default is %(default)s")
     parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, help="More output to stderr")
     return parser.parse_args()
 

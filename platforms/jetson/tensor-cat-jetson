@@ -1,0 +1,281 @@
+#!/usr/bin/python
+
+# This file is part of snark, a generic and flexible library
+# Copyright (c) 2011 The University of Sydney
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 3. Neither the name of the University of Sydney nor the
+#    names of its contributors may be used to endorse or promote products
+#    derived from this software without specific prior written permission.
+#
+# NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE
+# GRANTED BY THIS LICENSE.  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT
+# HOLDERS AND CONTRIBUTORS \"AS IS\" AND ANY EXPRESS OR IMPLIED
+# WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+# BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+# OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+# IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+__author__ = 'v.vlaskine'
+
+import argparse
+import numpy as np
+import os
+import signal
+import sys
+
+description = """
+
+a thin trivial convenience wrapper for tensorflow.session.run()
+
+read tensors as binary on stdin, load model from file, apply model, write output tensors to stdout
+
+for more on session export/import: see https://www.tensorflow.org/programmers_guide/meta_graph
+
+"""
+
+epilog = """
+examples
+    main use cases
+        each record contains only tensor
+            cat input-tensors.bin | tensor-cat --session model > output-tensors.bin
+            
+        each record in input data has header followed by tensor and then footer (e.g. containing timestamp, sequence number, or alike)
+            cat header.input-tensor.footer.bin | tensor-cat --header-size 24 --footer-size 16 ... > header.footer.output-tensor.bin
+            
+        running on mnist
+            # train and export mnist model
+            tensorflow/examples/tensorflow-mnist-train-and-export
+            
+            # output predictions for first 10 images
+            cat MNIST_data/t10k-images-idx3-ubyte.gz \\
+                | gunzip \\
+                | tail -c+17 \\
+                | cv-cat --input "rows=28;cols=28;type=ub;no-header" "convert-to=f,0.0039" \\
+                | tensor-cat --session session --dir mnist -i x -o argmax \\
+                | csv-from-bin l \\
+                | head
+                
+            # save first 10 images as png and view to compare with the max output among the predictions
+            cat MNIST_data/t10k-images-idx3-ubyte.gz | gunzip | tail -c+17 \\
+                | cv-cat --input "rows=28;cols=28;type=ub;no-header" "head=10" \\
+                | cv-cat --input "rows=28;cols=28;type=ub;no-header" "file=png;null"
+            eog *.png
+            
+            # visualise e.g. the first convolution activations
+            cat MNIST_data/t10k-images-idx3-ubyte.gz \\
+                | gunzip \\
+                | tail -c+17 \\
+                | cv-cat --input "rows=28;cols=28;type=ub;no-header" "convert-to=f,0.0039" \\
+                | tensor-cat --session session --dir mnist -i x -o h_pool1 \\
+                | math-array transpose --shape 14,14,32 --to 2,0,1 \\
+                | cv-cat --fps 1 --input "no-header;rows=$((32*14));cols=14;type=f" "untile=8,4;resize=4;view;null"
+                
+    output to files
+        the following command will output each channel of each layer to in subdirectories of current directory files (see below)
+            cat input.bin | tensor-cat ... --output layer1,layer2 --output-to-files
+        files would like like
+            0/layer1/0.bin
+            0/layer2/0.bin
+            0/layer2/1.bin
+            ...
+            1/layer1/0.bin
+            1/layer2/0.bin
+            1/layer2/1.bin
+            ...
+
+"""
+
+def say( m ): print >> sys.stderr, "tensor-cat:", m
+
+def saymore( m ):
+    if args.verbose: say( m )
+
+def warn( m ): print >> sys.stderr, "tensor-cat: warning:", m
+
+def die( m ): print >> sys.stderr, "tensor-cat:", m; sys.exit( 1 )
+
+def iterator( file, input, header_size, footer_size ): # todo: quick and dirty; failed to find how to read from stdin using tf.FixedLengthRecordReader
+    shape = ( input.get_shape() if int(tf_version[0]) < 1 else input.shape ).as_list()
+    if args.input_shape is None:
+        shape = [ 1 if v is None else v for v in shape ] # quick and dirty
+        print >>sys.stderr, "tensor-cat: warning: input shape: --input-shape not defined, tried to deduce it as:", shape
+    else:
+        input_shape = eval( "[" + args.input_shape + "]" )
+        if len( shape ) != len( input_shape ): die( "expected input shape dimensions " + str( len( shape ) ) + ", got " + str( len( input_shape ) ) + " in --input-shape: [" + args.input_shape + "]" )
+        for i in range( len( shape ) ):
+            if shape[i] is None: shape[i] = input_shape[i]
+            elif shape[i] != input_shape[i]: die( "expected input shape dimension " + str( i ) + ": " + str( shape[i] ) + ", got " + str( input_shape[i] ) + " in --input-shape: [" + args.input_shape + "]" )
+    print >>sys.stderr, "tensor-cat: using input shape:", shape
+    ntype = ( input._dtype if int(tf_version[0]) < 1 else input.dtype ).as_numpy_dtype()
+    size = np.prod( shape )
+    while True:
+        header = np.fromfile( file, np.uint8, header_size )
+        data = np.fromfile( file, ntype, size )
+        footer = np.fromfile( file, np.uint8, footer_size )
+        if data.shape[0] == size: yield header, data.reshape( shape ), footer
+        else: yield None, None, None
+
+def get_tensor( name, permissive = False ):
+    try:
+        return session.graph.get_tensor_by_name( name )
+    except:
+        saymore( "no tensor '" + name + "' in graph " + ( session_meta if args.frozen_graph is None else args.frozen_graph ) + ", checking collection..." )
+        entries = tf.get_collection( name )
+        if len( entries ) == 0:
+            if permissive: warn( "graph does not have entry named '" + name + "'; skipped" ); return None
+            else: die( "graph does not have entry named '" + name + "'" )
+        if len( entries ) > 1: die( "expected entry size 1 for entry named '" + name + "'; got: " + str( len( entries ) ) + "(todo?)" )
+        saymore( "tensor '" + name + "' found in collection" )
+        return entries[0]
+
+def variables( v ):
+    if v is None : return {}
+    d = {}
+    for i in v: s = i.split( ':' ); d[ get_collection( s[0].strip() )[0] ] = eval( s[1] )
+    return d
+
+if __name__ == '__main__':
+    def handle_signal( s, f ): print >> sys.stderr, "tensor-cat: broken pipe, exit"; sys.exit( 0 )
+    signal.signal( signal.SIGPIPE, handle_signal ) 
+    parser = argparse.ArgumentParser( description = description, epilog = epilog, formatter_class = argparse.RawTextHelpFormatter )
+    parser.add_argument( '--batch-size', type = int, default = 1, help = 'todo: process input in batches of given size; default: %(default)i' )
+    #parser.add_argument( '--device', type = str, help = 'device to use, e.g. /cpu:0, /device:GPU:0, etc' )# parser.add_argument( '--device', type = str, default = "/cpu:0", help = 'device to use, e.g. /cpu:0, /device:GPU:0, etc; default: %(default)s' )
+    parser.add_argument( '--footer-size', type = int, default = 0, help = 'if a footer of given size in bytes is present, pass it to stdout with output tensor prepended' )
+    parser.add_argument( '--get-operations', '--get-operation-names', '--operation-names', '--operations', action="store_true", help = 'load graph, print operation names, and exit')
+    parser.add_argument( '--frozen-graph', '--graph', type = str, help = 'path to frozen .pb graph file' )
+    parser.add_argument( '--header-size', type = int, default = 0, help = 'if a header of given size in bytes is present, pass it to stdout with output tensor appended' )
+    parser.add_argument( '--keep-devices', action="store_true", help = 'do not clear devices on graph load, i.e. you plan to run inference in the same environment as training; has effect only in tensorflow 1.0 and higher')
+    parser.add_argument( '--keep-input', action="store_true", help = 'append output to input' )
+    parser.add_argument( '--input', '-i', type = str, default = 'input', help = 'input layer name; default: %(default)s' )
+    parser.add_argument( '--input-shape', type = str, help = 'shape of a single input record as a comma-separated list' )
+    parser.add_argument( '--min-log-level', '--log-level', type = str, default = "2", help = 'min log level (as os.environ[\'TF_CPP_MIN_LOG_LEVEL\']); default: %(default)s' )
+    parser.add_argument( '--output', '-o', nargs='+', type = str, default = 'output', help = 'output layer name; multiple space- or comma-separated outputs accepted; default: %(default)s' )
+    parser.add_argument( '--output-to-files', action = "store_true", help = 'convenience option; for each input, output each channel to file ./<input-number>/<layer-name>/<channel-number>.bin (see examples)' )
+    parser.add_argument( '--output-max-channels', type = str, help = 'convenience option; if --output-to-files, comma-separated list: output not more than a given number of layer channels' )
+    parser.add_argument( '--png', action = "store_true", help = 'convenience option; for each input, output each channel in human-viewable form to file ./<input-number>/<layer-name>/<channel-number>.png (see examples)' )
+    parser.add_argument( '--png-min', type=float, help = 'if --png, min value to use for normalizing tensor elements' )
+    parser.add_argument( '--png-max', type=float, help = 'if --png, min value to use for normalizing tensor elements' )
+    parser.add_argument( '--session', default = 'session', type = str, help = 'saved session filename (without extension); default: %(default)s' )
+    parser.add_argument( '--session-dir', '--dir', default = '.', type = str, help = 'saved session directory; default: %(default)s' )
+    parser.add_argument( '--session-graph', type = str, help = 'path to saved graph file' ) #parser.add_argument( '--session-graph', '--graph', '--graph-file', default = 'session.meta', type = str, help = 'path to saved graph file; default: %(default)s' )
+    parser.add_argument( '--tensors', '--tensor', type = str, help = 'comma-separated list of tensor names, if using tensor options; e.g. "image_tensor:0"' )
+    parser.add_argument( '--tensor-shape', action = "store_true", help = 'print tensor shape and exit' )
+    parser.add_argument( '--tensor-type', '--tensor-dtype', action = "store_true", help = 'print tensor type and exit' )
+    parser.add_argument( '--variable', '--var', nargs = '*', type = str, help = 'variables to pass to the model as name-value pairs, e.g: "y:5", "dim:[3,4,5]", etc' )
+    parser.add_argument( '--verbose', '-v', action="store_true", help = 'more output' )
+    args = parser.parse_args()
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = args.min_log_level
+    output_names = args.output
+    if ( not args.output is None ) and len( args.output ) == 1: output_names = args.output[0].split( ',' )
+    saymore( "importing tensorflow..." )
+    import tensorflow as tf
+    saymore( "imported tensorflow" )
+    tf.logging.set_verbosity( tf.logging.INFO if args.verbose else tf.logging.WARN )
+    tf_version = tf.__version__.split( '.' )
+    saymore( "tensorflow version: " + tf.__version__ )
+    graph = None
+    #with tf.device( args.device ) as device: run() # todo: tf.device() does not quite work
+    # todo: load from checkpoint
+    if args.frozen_graph is None: # todo! there is an intermittent problem that prevents this branch from working; looking into it, but any help is welcome...
+        say( "warning: if loading with --session does not work, use tensor-calc graph-freeze to freeze the graph and run tensor-cat --frozen-graph ...; loading from checkpoint: todo" )
+        tf.reset_default_graph() # voodoo?
+        session_file = args.session_dir + '/' + args.session
+        session_meta = args.session_graph if not args.session_graph is None else session_file + '.meta'
+        if int(tf_version[0]) < 1 and args.keep_devices : warn( "--keep-devices specified, but will have no effect: not implemented in tensorflow version " + tf.__version__ + " that you are running" )
+        saymore( "importing meta graph file from '" + session_meta + "'..." )
+        saver = tf.train.import_meta_graph( session_meta ) if int(tf_version[0]) < 1 else tf.train.import_meta_graph( session_meta, clear_devices = not args.keep_devices )
+        saymore( "imported meta graph file from '" + session_meta + "'" )
+    else:
+        saymore( "loading frozen graph from '" + args.frozen_graph + "'..." )
+        graph = tf.Graph()
+        with graph.as_default():
+            graph_def = tf.GraphDef()
+            with tf.gfile.GFile( args.frozen_graph, 'rb' ) as fid:
+                serialized_graph = fid.read()
+                graph_def.ParseFromString( serialized_graph )
+                tf.import_graph_def( graph_def, name = '' )
+                saymore( "loaded frozen graph from '" + args.frozen_graph + "'" )
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.5)
+    # sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+    with tf.Session if args.frozen_graph is None else tf.Session( graph = graph, config=tf.ConfigProto(gpu_options=gpu_options) ) as session: # #with tf.Session( config = tf.ConfigProto( log_device_placement = True ) ) if args.frozen_graph is None else tf.Session( graph = graph, config = tf.ConfigProto( log_device_placement = True ) ) as session:
+        if args.tensor_shape and args.tensor_type:
+            for tensor in args.tensors.split( ',' ):
+                print tensor + ',' + get_tensor( tensor ).dtype.name + ',' + ','.join( list( map( str, list( get_tensor( tensor ).shape ) ) ) )
+            sys.exit( 0 )
+        if args.tensor_shape:
+            for tensor in args.tensors.split( ',' ): print tensor + ',' + ','.join( list( map( str, list( get_tensor( tensor ).shape ) ) ) )
+            sys.exit( 0 )
+        if args.tensor_type:
+            for tensor in args.tensors.split( ',' ): print tensor + ',' + get_tensor( tensor ).dtype.name
+            sys.exit( 0 )
+        if args.get_operations:
+            for o in session.graph.get_operations(): print o.name
+            sys.exit( 0 )
+        if args.frozen_graph is None:
+            saymore( "restoring session from '" + session_file + "'..." )
+            saver.restore( session, session_file )
+            saymore( "restored session from '" + session_file + "'" )
+        input = get_tensor( args.input )
+        keep_prob = get_tensor( 'keep_prob', True ) # todo! quick and dirty
+        outputs = [ get_tensor( name ) for name in output_names ]
+        feeds = variables( args.variable )
+        output_max_channels = [ None ] * len( output_names )
+        if args.output_max_channels:
+            s = args.output_max_channels.split( ',' )
+            for i in range( len( s ) ):
+                if s[i] != "": output_max_channels[i] = int( s[i] )
+        if args.verbose:
+            print >> sys.stderr, "tensor-cat: input '" + args.input + "':", input
+            for i in range( len( output_names ) ): print >> sys.stderr, "tensor-cat: output '" + output_names[i] + "':", outputs[i]
+        saymore( "running inference..." )
+        input_number=0
+        for header, data, footer in iterator( sys.stdin, input, args.header_size, args.footer_size ):
+            if data is None: break
+            feeds[input] = data
+            if not keep_prob is None: feeds[keep_prob] = 1.0
+            values = session.run( outputs, feed_dict = feeds )
+            if args.output_to_files or args.png:
+                input_dir = str( input_number )
+                try: os.mkdir( input_dir )
+                except OSError as ex:
+                    if ex.errno != os.errno.EEXIST: raise
+                for i in range( len( values ) ):
+                    try: os.mkdir( input_dir + '/' + output_names[i] )
+                    except OSError as ex:
+                        if ex.errno != os.errno.EEXIST: raise
+                    if values[i].shape[0] != 1: die( "expected output tensor with shape (1,...); got tensor " + output_names[i] + " of shape: " + str( values[i].shape ) + "; todo?" )
+                    if len( values[i].shape ) > 4: die( "expected output tensor with no more than 4 dimensions; got tensor " + output_names[i] + " of shape: " + str( values[i].shape ) + "; todo?" )
+                    v = values[i] if len( values[i].shape ) <= 3 else np.transpose( values[i][0], axes = ( 2, 0, 1 ) ) # quick and dirty
+                    output_channels = v.shape[0] if output_max_channels[i] is None else output_max_channels[i]
+                    if args.output_to_files:
+                        for j in range( output_channels ): v[j].tofile( input_dir + '/' + output_names[i] + '/' + str( j ) + '.bin' )
+                    if args.png:
+                        for j in range( output_channels ):
+                            n = np.min( v[j] ) if args.png_min is None else args.png_min
+                            x = np.max( v[j] ) if args.png_max is None else args.png_max
+                            image = np.zeros( v[j].shape, dtype = np.uint8 ) if x == n else np.array( ( ( ( np.array( v[j], dtype = np.float32 ) - n ) / ( x - n ) ) * 255 ), dtype = np.uint8 )
+                            from PIL import Image
+                            Image.fromarray( image ).save( input_dir + '/' + output_names[i] + '/' + str( j ) + '.png' )
+                input_number += 1
+            else:
+                header.tofile( sys.stdout )
+                if args.keep_input: data.tofile( sys.stdout )
+                footer.tofile( sys.stdout )
+                for value in values: value.tofile( sys.stdout )
+                sys.stdout.flush()
+        session.close()
+        saymore( "done" )

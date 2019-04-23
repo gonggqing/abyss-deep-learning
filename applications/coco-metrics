@@ -50,7 +50,6 @@ usage: cat predictions.json | coco-metrics confusion --truth truth.json -b > con
 
 """
 
-
 def load_annotations(predicted, truth, category_ids, args):
     images = {}
     if args.bounding_boxes and args.polygons and args.pixels:
@@ -112,7 +111,7 @@ def load_annotations(predicted, truth, category_ids, args):
     return images
 
 
-def plot_confusion_matrix(m, classes, normalized=False):
+def plot_confusion_matrix(m, classes, normalized=False, save_fig=False):
     import matplotlib.pyplot as plt
     plt.imshow(m, interpolation='nearest', cmap=plt.cm.Blues)
     plt.title('confusion matrix')
@@ -125,32 +124,32 @@ def plot_confusion_matrix(m, classes, normalized=False):
     for i, j in itertools.product(range(m.shape[0]), range(m.shape[1])):
         plt.text(j, i, format(m[i, j], fmt), horizontalalignment="center",
                  color="white" if m[i, j] > thresh else "black")
-    plt.tight_layout()
     plt.ylabel('True label')
     plt.xlabel('Predicted label')
-    plt.show()
-
+    plt.tight_layout()
+    if save_fig: plt.savefig('confusion_matrix_normalized.png' if normalized else 'confusion_matrix.png')
+    else: plt.show()
 
 def bbox_to_segmentation(box):
     return [[box[0], box[1], box[0], box[1] + box[3], box[0] + box[2], box[1] + box[3], box[0] + box[2], box[1]]]
 
-
 def confusion(args):
-    predicted = json.loads(sys.stdin.read())
-    f = open(args.truth)
-    truth = json.loads(f.read())
+    if (args.input_file is not None):
+        with open(args.input_file, 'r') as f:
+            predicted = json.load(f)
+    else:
+        predicted = json.load(sys.stdin)
+    with open(args.truth) as f: truth = json.load(f)
     category_ids = []
     for c in truth['categories']:
+        if c['name'] == 'BG': logging.error( "confusion: found 'BG' in categories; cannot handle it for now: todo (for now just remove 'BG' from categories in '" + args.truth + "')" ); sys.exit( 1 )
         category_ids.append(c['id'])
     background_id = max(category_ids) + 1
     images = load_annotations(predicted, truth, category_ids, args)
     # for k, v in images.items(): print("--> k:", k, v, file = sys.stderr );
-    if args.bounding_boxes:
-        iou_matrix = metrics.bbox_iou_matrix
-    elif args.polygons:
-        iou_matrix = metrics.poly_iou_matrix
-    else:
-        None
+    if args.bounding_boxes: iou_matrix = metrics.bbox_iou_matrix
+    elif args.polygons: iou_matrix = metrics.poly_iou_matrix
+    else: None
     result = {}
     result['categories'] = []
     confusion_category_ids = {}
@@ -234,12 +233,17 @@ def confusion(args):
 
 def confusion_matrix(args):
     import sklearn.metrics
-    predicted = json.load(sys.stdin)
+    if (args.input_file is not None):
+        with open(args.input_file, 'r') as f:
+            predicted = json.load(f)
+    else:
+        predicted = json.load(sys.stdin)
     with open(args.truth) as f:
         truths = json.load(f)
     category_ids = []
     categories = ['BG']
     for category in truths['categories']:
+        if category['name'] == 'BG': logging.error( "confusion: found 'BG' in categories; cannot handle it for now: todo (for now just remove 'BG' from categories in '" + args.truth + "')" ); sys.exit( 1 )
         category_ids.append(category['id'])
         if args.csv_output_per_image and args.header:
             categories.append(category['name'])
@@ -249,7 +253,7 @@ def confusion_matrix(args):
         print("path,id,{}".format(",".join(["/".join(pair) for pair in product(categories, categories)])))
     tic = time.perf_counter()
     images = load_annotations(predicted, truths, category_ids, args)
-    logging.info("load annotations took {}h {}m {}s".format(*pretty_time(time.perf_counter() - tic)))
+    logging.info("confusion-matrix: load annotations took {}h {}m {}s".format(*pretty_time(time.perf_counter() - tic)))
     predicted_labels = []  # quick and dirty, watch performance
     truth_labels = []  # quick and dirty, watch performance
     background_id = np.max(category_ids) + 1
@@ -287,14 +291,14 @@ def confusion_matrix(args):
             else:
                 tic = time.perf_counter()
                 iou = iou_matrix(prediction_annotations, truth_annotations)
-                logging.info("time taken for iou_matrix {}: {}h {}m {}s".format(image_id, *pretty_time(time.perf_counter() - tic)))
+                logging.info("confusion-matrix: time taken for iou_matrix {}: {}h {}m {}s".format(image_id, *pretty_time(time.perf_counter() - tic)))
                 tic = time.perf_counter()
                 truth_results, prediction_results = metrics.ious_to_sklearn_pred_true(iou,
                                                                                       truth_categories,
                                                                                       prediction_categories,
                                                                                       iou_threshold=args.iou_threshold,
                                                                                       blank_id=background_id)
-                logging.info("time taken for ious_to_sklearn_pred_true {}: {}h {}m {}s".format(image_id, *pretty_time(time.perf_counter() - tic)))
+                logging.info("confusion-matrix: time taken for ious_to_sklearn_pred_true {}: {}h {}m {}s".format(image_id, *pretty_time(time.perf_counter() - tic)))
             predicted_labels = np.append(predicted_labels, prediction_results)
             truth_labels = np.append(truth_labels, truth_results)
 
@@ -348,11 +352,11 @@ def confusion_matrix(args):
 
     if args.suppress_background:
         matrix[0, 0] = 0
-    if args.plot:
+    if args.plot or args.save_figure:
         classes = ['BG']
         for category in truths['categories']:
             classes.append(category['name'])
-        plot_confusion_matrix(matrix, classes, args.normalize)
+        plot_confusion_matrix(matrix, classes, normalized=args.normalize, save_fig=args.save_figure)
 
     if not args.csv_output_per_image:
         np.savetxt(sys.stdout, matrix, delimiter=',', fmt=fmt)
@@ -492,17 +496,19 @@ def get_args() -> argparse.Namespace:
     matching_group.add_argument('--polygons', '--poly', '-p', action='store_true', help="match polygons")
     matching_group.add_argument('--pixels', '--pixel', action='store_true',
                                 help="match predictions and ground truth by a per pixel basis")
+    confusion_matrix_parser.add_argument('--input_file', '--input', help="read predictions from input (default STDIN)")
     confusion_matrix_parser.add_argument('--iou-threshold', default=0.5, type=float,
-                                         help="iou threshold; default: %(default)s")
+                                         help="iou threshold; default: %(default)s")    
     confusion_matrix_parser.add_argument('--normalize', action='store_true', help="normalize confusion matrix")
     confusion_matrix_parser.add_argument('--plot', action='store_true',
                                          help="plot confusion matrix, convenience option")
+    confusion_matrix_parser.add_argument('--save-figure', action='store_true',
+                                         help="save plotted confusion matrix, convenience option")
     confusion_matrix_parser.add_argument('--suppress-background', action='store_true',
                                          help="Set BG,BG predictions to 0 in output confusion")
     confusion_matrix_parser.add_argument('--score-threshold', default=0.5, type=float,
                                          help="score threshold: default: %(default)s")
     confusion_matrix_parser.add_argument('--truth', '-t', type=str, help="ground truth coco.json file", required=True)
-
     confusion_matrix_parser.add_argument('--csv-output-per-image', action='store_true',
                                          help="output to stdout the confusion values on a per image basis")
     confusion_matrix_parser.add_argument('--header', '--head', action='store_true',
@@ -514,6 +520,7 @@ def get_args() -> argparse.Namespace:
                                              parents=[verbose_parser])
     confusion_parser.set_defaults(func=confusion)
     confusion_parser.add_argument('--bounding-boxes', '--bbox', '-b', action='store_true', help="match bounding boxes")
+    confusion_parser.add_argument('--input_file', help="read predictions from input (default STDIN)")
     confusion_parser.add_argument('--iou-threshold', default=0.5, type=float,
                                   help="iou threshold; default: %(default)s")
     confusion_parser.add_argument('--iou-as-score', action='store_true',

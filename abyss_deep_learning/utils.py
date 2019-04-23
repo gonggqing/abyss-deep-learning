@@ -2,6 +2,7 @@ from collections import Counter
 import os
 import warnings
 import sys
+from typing import Tuple, Union
 
 from pycocotools import mask as maskUtils
 import cv2
@@ -264,15 +265,21 @@ def warn_once(func, message):
     return new_func
 
 
-def imread(path, output_size=None, dtype=None):
+def imread(path: str, output_size: Tuple[int, int] = None, dtype=None):
     """Read an image from the filesystem, optionally resizing the image size and casting the bit_depth"""
     im = PIL.Image.open(path)
-    if output_size:
+    if output_size is not None:
         im = im.resize(output_size)
-    im = np.array(im)
-    if dtype:
-        im = im.astype(dtype)
-    return im
+    return np.array(im, dtype=dtype)
+
+
+def imwrite(im: Union[np.ndarray, PIL.Image.Image], path: str, size: Tuple[int, int] = None):
+    if isinstance(im, np.ndarray):
+        im = PIL.Image.fromarray(im)
+    assert isinstance(im, PIL.Image.Image), "Expected instance of PIL.Image"
+    if size is not None:
+        im = im.resize(size, resample=PIL.Image.BICUBIC)
+    im.save(path)
 
 
 def image_streamer(sources, start=0, remap_func=None):

@@ -1,5 +1,5 @@
 """Metrics for machine learning"""
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 import skimage
@@ -46,7 +46,107 @@ def get_bbox_intersection(bbox_a, bbox_b):
     return intersections
 
 
-def poly_iou_matrix(predictions_array: List[np.array], truth_arrays: List[np.array], grid_max_x: int = None, grid_max_y: int = None):
+def do_overlap(bbox_a: Tuple[int, int, int, int], bbox_b: Tuple[int, int, int, int]):
+    """
+    Args:
+        bbox_a: (x1, y1, x2, y2) where <x1>,<y1> is top left and <x2>,<y2> is bottom right
+        bbox_b: (x1, y1, x2, y2) where <x1>,<y1> is top left and <x2>,<y2> is bottom right
+
+    Returns:
+        True if a overlaps b
+    """
+    assert len(bbox_a) == 4, "There should be 4 values in bbox_a"
+    assert len(bbox_b) == 4, "There should be 4 values in bbox_b"
+    return not(bbox_a[0] > bbox_b[2] or bbox_b[0] > bbox_a[2] or bbox_a[3] < bbox_b[1] or bbox_b[3] < bbox_a[1])
+
+
+def poly_intersection_area(first: List[np.array], second: List[np.array], grid_max_x: int = None,
+                           grid_max_y: int = None):
+    """
+    parameters
+    ----------
+        first: list of N x 2 np.array of co-ordinate points (x, y)
+        second: list of N x 2 np.array of co-ordinate points (x, y)
+        grid_max_y: max y value + 1 in list of np.array (can use 'bbox' field in annotation from COCO file)
+        grid_max_x: max x value + 1 in list of np.array (can use 'bbox' field in annotation from COCO file)
+
+    returns
+    -------
+        numpy.array, numpy.array, numpy.array: first polygon areas list, second polygon areas list, intersection areas matrix
+
+    """
+    precompute_first = []
+    precompute_second = []
+    if grid_max_x is None or grid_max_y is None:  # Todo completely re-write me to take in to account lower offset by lower value?
+        grid_max_x = 0
+        grid_max_y = 0
+        for array in first + second:
+            # Get max value per row entry in the array
+            upper_val_x, upper_val_y = array.max(axis=0)
+            if upper_val_x > grid_max_x: grid_max_x = int(upper_val_x) + 1
+            if upper_val_y > grid_max_y: grid_max_y = int(upper_val_y) + 1
+    grid = np.zeros((grid_max_y, grid_max_x), dtype=np.uint8)
+    first_areas = []
+    second_areas = []
+    first_bboxes = []
+    second_bboxes = []
+    for array in first:
+        r = array[:, 1]
+        c = array[:, 0]
+        first_bboxes.append((min(c), min(r), max(c), max(r)))
+        rr, cc = skimage.draw.polygon(r, c, grid.shape)
+        first_areas.append(len(rr))
+        grid[rr, cc] = 1
+        precompute_first.append(np.array(grid))
+        grid[:] = 0
+    for array in second:
+        r = array[:, 1]
+        c = array[:, 0]
+        second_bboxes.append((min(c), min(r), max(c), max(r)))
+        rr, cc = skimage.draw.polygon(r, c, grid.shape)
+        second_areas.append(len(rr))
+        grid[rr, cc] = 1
+        precompute_second.append(np.array(grid))
+        grid[:] = 0
+    # intersections = np.zeros((len(first), len(second)))
+    intersections = []
+    for i in range(len(precompute_first)):  # todo: can it be done in my numpyish way?
+        tmp = []
+        first_bbox = first_bboxes[i]
+        for j in range(len(precompute_second)):
+            second_bbox = second_bboxes[j]
+            tmp.append(np.count_nonzero(np.logical_and(precompute_first[i], precompute_second[j])) if do_overlap(first_bbox, second_bbox) else 0)
+        intersections.append(tmp)
+    return first_areas, second_areas, np.array(intersections, dtype=np.uint)
+
+
+def poly_iou_matrix(predictions_array: List[np.array], truth_arrays: List[np.array],
+                                               grid_max_x: int = None, grid_max_y: int = None):
+    """
+
+    Args:
+        grid_max_y: max y value + 1 in list of np.array (can use 'bbox' field in annotation from COCO file)
+        grid_max_x: max x value + 1 in list of np.array (can use 'bbox' field in annotation from COCO file)
+        predictions_array: list of N x 2 np.array of co-ordinate points (x, y)
+        truth_arrays: list of N x 2 np.array of co-ordinate points (x, y)
+
+    Returns:
+        numpy.array: iou matrix with rows corresponding to the first input and columns to the second
+
+    """
+    first, second, intersections = poly_intersection_area(predictions_array, truth_arrays, grid_max_x, grid_max_y)
+    len_first = len(first)
+    len_second = len(second)
+    first = np.transpose(np.repeat([first], len_second, axis=0))
+    second = np.repeat([second], len_first, axis=0)
+    # result = np.zeros( intersections.shape )
+    unions = first + second - intersections
+    iou = np.divide(intersections, unions, where=unions != 0)  # if union is zero, intersection will be zero, too
+    return iou
+
+
+def poly_iou_matrix_deprecated(predictions_array: List[np.array], truth_arrays: List[np.array], grid_max_x: int = None,
+                    grid_max_y: int = None):
     """
 
     Args:
