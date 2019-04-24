@@ -177,19 +177,15 @@ def get_categories_from_fd(mapping):
             categories = []
             buf = buf.split('\n')
             reader = csv.reader(buf)
-            try:
-                if len(next(reader)) == len(next(reader)) > 1:
-                    for row in buf:
-                        s = row.split(',')
-                        if len( s ) < 2: logging.error( "--categories: expected at least <name>,<id>, got: '{}'".format( row ) ); sys.exit(1)
-                        category, id, supercategory = s if len( s ) > 2 else s + ['']
-                        categories.append({
-                            'id': int(id),
-                            'name': category,
-                            'supercategory': supercategory,
-                        })
-            except StopIteration:
-                pass
+            for row in buf:
+                s = row.split(',')
+                if len( s ) < 2: logging.error( "--categories: expected at least <name>,<id>, got: '{}'".format( row ) ); sys.exit(1)
+                category, id, supercategory = s if len( s ) > 2 else s + ['']
+                categories.append({
+                    'id': int(id),
+                    'name': category,
+                    'supercategory': supercategory,
+                })
     return categories
 
 
