@@ -301,9 +301,17 @@ def confusion_matrix(args):
                 logging.info("confusion-matrix: time taken for ious_to_sklearn_pred_true {}: {}h {}m {}s".format(image_id, *pretty_time(time.perf_counter() - tic)))
             predicted_labels = np.append(predicted_labels, prediction_results)
             truth_labels = np.append(truth_labels, truth_results)
-
-        matrix = sklearn.metrics.confusion_matrix(truth_labels, predicted_labels, category_ids).astype(matrix.dtype)
-
+            if args.csv_output_per_image:
+                matrix = sklearn.metrics.confusion_matrix(truth_labels, predicted_labels, category_ids).astype(matrix.dtype)
+                if args.normalize:
+                    matrix = normalize_matrix(matrix)
+                if args.suppress_background:
+                    matrix[0, 0] = 0
+                np.savetxt(sys.stdout, matrix, delimiter=',', fmt=fmt)
+            predicted_labels = []
+            truth_labels = []
+        if not args.csv_output_per_image:
+            matrix = sklearn.metrics.confusion_matrix(truth_labels, predicted_labels, category_ids).astype(matrix.dtype)
     else:
         from skimage.draw import polygon
         from abyss_deep_learning.utils import imread
