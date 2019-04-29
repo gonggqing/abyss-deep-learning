@@ -611,7 +611,7 @@ def intersection(coco: COCO, args: argparse.Namespace):
                     image_entry['path'], image_entry['id'], stdin_annotations[i]['id'],
                     stdin_annotations[i]['category_id'], stdin_areas[i])))
         elif args.output_non_intersecting == 'cl':
-            second_indexes = np.where(~intersection_areas.any(axis=1))[1]
+            second_indexes = np.where(~intersection_areas.any(axis=0))[0]
             for i in second_indexes.tolist():
                 print(",".join(str(j) for j in (
                     image_entry['path'], image_entry['id'], command_line_annotations[i]['id'],
