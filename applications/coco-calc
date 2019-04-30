@@ -603,7 +603,8 @@ def intersection(coco: COCO, args: argparse.Namespace):
                                                                                      command_line_polygons)
         stdin_areas = np.array(stdin_areas, dtype=np.uint)
         command_line_areas = np.array(command_line_areas, dtype=np.uint)
-        intersection_areas = intersection_areas
+        if intersection_areas.size == 0:
+            continue
         if args.output_non_intersecting == '-':
             first_indexes = np.where(~intersection_areas.any(axis=1))[0]
             for i in first_indexes.tolist():
