@@ -114,18 +114,18 @@ def main(args: argparse.Namespace) -> int:
     try:
         if args.output_fields:
             print(args.output_fields, file=sys.stdout)
+            return 0
     except AttributeError:
         pass
-    finally:
-        try:
-            coco = args.func(load_coco(sys.stdin.read()), args)
-        except AttributeError:
-            get_args(['--help'])
+    try:
+        coco = args.func(load_coco(sys.stdin.read()), args)
+    except AttributeError:
+        get_args(['--help'])
+    else:
+        if coco.dataset is None:
+            logging.warning("Output coco is empty.")
         else:
-            if coco.dataset is None:
-                logging.warning("Output coco is empty.")
-            else:
-                json.dump(coco.dataset, sys.stdout, indent=args.indent)
+            json.dump(coco.dataset, sys.stdout, indent=args.indent)
     logging.shutdown()
     return 0
 
@@ -779,7 +779,6 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
     )
     parser_intersection.add_argument(
         '--file',
-        required=True,
         help="JSON file to match intersecting polygons with",
     )
 
