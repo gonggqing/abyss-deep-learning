@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-from abyss_deep_learning.metrics import poly_intersection_area
-from abyss_deep_learning.utils import poly_area, imwrite, imread, do_overlap
-
-__author__ = 'Kent Hu, Vsevolod Vlaskine'
 import argparse
 import copy
 import itertools
@@ -10,16 +6,33 @@ import json
 import logging
 import os
 import sys
+from ast import literal_eval
 from contextlib import redirect_stdout
 from operator import itemgetter
+from typing import List
 
 import numpy as np
+from PIL import Image
 from pycocotools.coco import COCO
 
-_PARSER_DESCRIPTION = """
-Operations apply to all images in the dataset. For more information on each operation, append -h to the subcommand
+from abyss_deep_learning.metrics import poly_intersection_area
+from abyss_deep_learning.utils import poly_area, imwrite, imread, do_overlap, poly_x, poly_y
+
+__author__ = 'Kent Hu, Vsevolod Vlaskine'
+
+_ASSIGN_NEW_IMAGE_IDS_DESCRIPTION = """
+Read in COCO file from stdin and reassigned the image ids of incoming COCO file based on the image ids from
+the command line COCO. The new ids are matched by the file_name of either COCO files
+
+Input COCO file from stdin is output to stdout.
+
+If no COCO file is passed in, the input COCO file can have new image ids assigned based on the existing ordering or
+the input COCO file can be sorted based on a field in 'images' and then have new ids assigned based on the ordering
+
+examples:
+    cat input.json | coco-calc assign-new-image-id coco coco.json --key file_name # Match by key and assign new ids to input COCO from command line COCO 
+    cat input.json | coco-calc assign-new-image-id sort --key file_name # Sort the images by a key then assign new ids, if no key, assign image ids based on existing ordering
 """
-_INTERSECT_DESCRIPTION = "Output intersecting polygons from stdin JSON with command line JSON in format of <image-id>,<first-polygon-id>,<second-polygon-id>,<first-polygon-area>,<second-polygon-area>,<intersection-area>"
 
 _DESCRIPTION = """
 Read COCO json file piped in from stdin or a list of COCO json files and apply image manipulation and 
@@ -42,6 +55,19 @@ examples:
         cat coco.json | coco-calc --apply-to-images tile --tiles 4,5
 """
 
+_CROP_DESCRIPTION = """
+Crop images and labels; currently supports only cropping images
+
+example
+    cat crop.json | applications/coco-calc -v crop --size 513,513 --point --apply-to-images --fit
+    
+"""
+
+_INTERSECT_DESCRIPTION = """
+Output intersecting polygons from stdin JSON with command line JSON in format of 
+<image-id>,<first-polygon-id>,<second-polygon-id>,<first-polygon-area>,<second-polygon-area>,<intersection-area>
+"""
+
 _REMAP_DESCRIPTION = """
 Remaps categories entry in a COCO json file based on its own existing
 categories or a --target-categories can be given to remap existing categories
@@ -56,24 +82,6 @@ examples
     cat pf.json | coco-calc remap "{1:0, 3:4}" | sponge pf.json
 """
 
-_RESIZE_DESCRIPTION = """
-Resize images in a given coco json file. Image dimensions can be specified by [width],[height] or by a 
-scaling factor to enlarge or reduce. Specify -o/--output-images with an output image directory which 
-will write the new directory, if not created, in the current directory with the new images.
-
-examples
-    cat coco.json | coco-calc resize --factor 0.3
-    cat coco.json | coco-calc --verbose resize --size 480,640
-"""
-
-_CROP_DESCRIPTION = """
-Crop images and labels; currently supports only cropping images
-
-example
-    cat crop.json | applications/coco-calc -v crop --size 513,513 --point --apply-to-images --fit
-    
-"""
-
 _REPATH_DESCRIPTION = """
 Read coco file from stdin and re-path all images.
 
@@ -84,25 +92,21 @@ examples:
     cat coco.json | coco-calc repath /mnt/rhino/processed/industry-data/anadarko/images
 """
 
-_ASSIGN_NEW_IMAGE_IDS_DESCRIPTION = """
-Read in COCO file from stdin and reassigned the image ids of incoming COCO file based on the image ids from
-the command line COCO. The new ids are matched by the file_name of either COCO files
+_RESIZE_DESCRIPTION = """
+Resize images in a given coco json file. Image dimensions can be specified by [width],[height] or by a 
+scaling factor to enlarge or reduce. Specify -o/--output-images with an output image directory which 
+will write the new directory, if not created, in the current directory with the new images.
 
-Input COCO file from stdin is output to stdout.
-
-If no COCO file is passed in, the input COCO file can have new image ids assigned based on the existing ordering or
-the input COCO file can be sorted based on a field in 'images' and then have new ids assigned based on the ordering
-
-examples:
-    cat input.json | coco-calc assign-new-image-id coco coco.json --key file_name # Match by key and assign new ids to input COCO from command line COCO 
-    cat input.json | coco-calc assign-new-image-id sort --key file_name # Sort the images by a key then assign new ids, if no key, assign image ids based on existing ordering
+examples
+    cat coco.json | coco-calc resize --factor 0.3
+    cat coco.json | coco-calc --verbose resize --size 480,640
 """
 
 
 def main(args):
     # Setup logging of default warnings and verbose print
     logging.basicConfig(
-        level=args.verbose,
+        level=args.loglevel,
         datefmt='%Y-%m-%d %H:%M:%S',
         format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
     )
@@ -110,19 +114,24 @@ def main(args):
         if args.output_fields:
             print(args.output_fields, file=sys.stdout)
     except AttributeError:
-        coco = args.func(load_coco(sys.stdin.read()), args)
-        if coco.dataset is None:
-            logging.warning("Output coco is empty.")
+        try:
+            coco = args.func(load_coco(sys.stdin.read()), args)
+        except AttributeError:
+            get_args(['--help'])
         else:
-            json.dump(coco.dataset, sys.stdout, indent=args.indent)
+            if coco.dataset is None:
+                logging.warning("Output coco is empty.")
+            else:
+                json.dump(coco.dataset, sys.stdout, indent=args.indent)
+    logging.shutdown()
     return 0
 
 
-def crop(coco: COCO, args) -> COCO:
+def crop(coco: COCO, args: argparse.Namespace) -> COCO:
     if not args.point:
         logging.error(
-            """crop: Operation currently not supported if crop points are not annotated as 'points', 
-            please use abyss-annotation-tool to label crop points"""
+            "crop: Operation currently not supported if crop points are not annotated as 'points', "
+            "please use abyss-annotation-tool to label crop points"
         )
         sys.exit(1)
     crop_width, crop_height = [int(i) for i in args.size.split(',')]
@@ -159,9 +168,9 @@ def crop(coco: COCO, args) -> COCO:
                 offset_y = min(max(offset_y, 0), max_offset_y)
             elif offset_x < 0 or offset_y < 0 or offset_x >= max_offset_x or offset_y >= max_offset_y:
                 logging.warning(
-                    """crop: Discarded annotation with crop beyond image height and width (or please use --fit to 
-                    align the crop to image height and width): 
-                    annotation id: {} image: {}""".format(ann_entry['id'], img_entry['path'])
+                    "crop: Discarded annotation with crop beyond image height and width "
+                    "(or please use --fit to align the crop to image height and width): "
+                    "annotation id: {} image: {}".format(ann_entry['id'], img_entry['path'])
                 )
                 continue
             cropped = img[offset_y: offset_y + crop_height, offset_x: offset_x + crop_width]
@@ -209,9 +218,7 @@ def crop(coco: COCO, args) -> COCO:
 def crop_bbox(ann_entry, crop_height, crop_width, bbox, keep_partial):
     x, y, width, height = bbox
     if not keep_partial and (x < 0 or y < 0 or x + width >= crop_width or y + height >= crop_height):
-        logging.warning(
-            """Skipping bbox {}, specify --keep-partial to keep partial cropped bbox""".format(ann_entry['id'])
-        )
+        logging.warning("Skipping bbox {}, specify --keep-partial to keep partial cropped bbox".format(ann_entry['id']))
         return None
     if x < 0:
         width += x
@@ -242,10 +249,8 @@ def crop_poly(ann_entry, crop_height, crop_width, offset_x, offset_y, keep_parti
     return cropped_polygon
 
 
-def remap(coco: COCO, args) -> COCO:
+def remap(coco: COCO, args: argparse.Namespace) -> COCO:
     # literal_eval allows usage of either single quote (') or double quote(") to interpret a json string
-    from ast import literal_eval
-    logging.info("remap operation selected")
     if os.path.isfile(args.mapping):
         with open(args.mapping) as f:
             mapping = {category['name']: category['id'] for category in json.load(f)['categories']}
@@ -346,155 +351,111 @@ def remap(coco: COCO, args) -> COCO:
     return coco
 
 
-def resize(coco: COCO, args) -> COCO:
-    """
-
-    Args:
-        coco: COCO file read from stdin
-        args: arguments passed from argparse
-
-    Returns: COCO file with correct values for bbox, area, and segmentation based on either args.scale or args.factor
-
-    """
-    logging.info("resize operation selected")
+def resize(coco: COCO, args: argparse.Namespace) -> COCO:
     if args.apply_to_images:
-        from abyss_deep_learning.utils import imread
-        from PIL import Image
-
         os.makedirs(os.path.join(os.getcwd(), args.image_output_dir), exist_ok=True)
 
-    paths = set()
-    for image_entry in coco.dataset['images']:
-        if 'height' not in image_entry:
-            logging.warning("Cannot find height value")
-            logging.warning("Skipping image with id {}".format(image_entry['id']))
-            continue
+    for img_entry in coco.dataset['images']:
+        img_height = img_entry.get('height')
+        img_width = img_entry.get('width')
 
-        if 'width' not in image_entry:
-            logging.warning("Cannot find width value")
-            logging.warning("Skipping image with id {}".format(image_entry['id']))
-            continue
+        if img_height is None or img_width is None:
+            logging.warning("Cannot find 'height' or 'width' fields in COCO JSON. Looking for image")
+            try:
+                img_width, img_height = Image.open(img_entry.get('path')).size
+            except AttributeError:
+                logging.warning("Cannot find image {}, skipping".format(img_entry.get('id')))
 
         if args.factor is None:
             dims = args.size.split(',')
-            h_scale = float(dims[0]) / image_entry['width']
-            v_scale = float(dims[1]) / image_entry['height']
+            h_scale = float(dims[0]) / img_width
+            v_scale = float(dims[1]) / img_height
         else:
             h_scale = v_scale = args.factor
 
-        image_entry['height'] = round(image_entry['height'] * v_scale, None)
-        image_entry['width'] = round(image_entry['width'] * h_scale, None)
+        img_entry['height'] = round(img_height * v_scale, None)
+        img_entry['width'] = round(img_width * h_scale, None)
 
         if args.apply_to_images:
-            if os.path.isfile(image_entry['path']):
-                new_path = os.path.join(os.getcwd(), args.image_output_dir, os.path.basename(image_entry['path']))
-                if new_path in paths:
-                    logging.error(
-                        'coco-calc: resize: expected unique image filenames, got duplicated "{}"'.format(new_path))
-                    sys.exit(1)
-                paths.add(new_path)
-                resized_img = imread(image_entry['path'], size=(image_entry['width'], image_entry['height']))
-                image_entry['path'] = new_path
+            if os.path.isfile(img_entry['path']):
+                new_path = os.path.join(os.getcwd(), args.image_output_dir, os.path.basename(img_entry['path']))
+                resized_img = imread(img_entry['path'], size=(img_entry['width'], img_entry['height']))
+                img_entry['path'] = new_path
                 logging.info("Saving image to {}".format(new_path))
-                Image.fromarray(resized_img).save(new_path)
+                imwrite(resized_img, new_path)
             else:
-                logging.warning("Cannot find path to image [{}]".format(image_entry['path']))
+                logging.warning("Cannot find path to image [{}]".format(img_entry['path']))
 
         # Rescaling bbox and segmentation values
         # format is [x, y, width, height]
         # Rescaled area value i.e. new_width * new_height
-        for ann in coco.loadAnns(coco.getAnnIds(imgIds=image_entry['id'])):
-            x = round(ann['bbox'][0] * h_scale, args.digits)
-            y = round(ann['bbox'][1] * v_scale, args.digits)
-            width = round(ann['bbox'][2] * h_scale, args.digits)
-            height = round(ann['bbox'][3] * v_scale, args.digits)
-            ann['bbox'] = [x, y, width, height]
-            ann['area'] = width * height
+        for ann in coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id'])):
+            if 'bbox' in ann:
+                x = round(ann['bbox'][0] * h_scale, args.digits)
+                y = round(ann['bbox'][1] * v_scale, args.digits)
+                width = round(ann['bbox'][2] * h_scale, args.digits)
+                height = round(ann['bbox'][3] * v_scale, args.digits)
+                ann['bbox'] = [x, y, width, height]
+                ann['area'] = width * height
 
-            if 'segmentation' in ann:
-                tmp = ann['segmentation']
-                if type(tmp) is list:
-                    segmentation = []
-                    for segment in tmp:
-                        new_segment = [(round(x * h_scale, args.digits), round(y * v_scale, args.digits)) for x, y in
-                                       grouper(segment, 2)]
-                        # Flatten the list of tuples
-                        new_segment = list(itertools.chain(*new_segment))
-                        segmentation.append(new_segment)
-                    ann['segmentation'] = segmentation
-                elif type(tmp) is dict:
-                    logging.warning("RLE is not yet supported")
-                else:
-                    logging.warning("Unknown data type [{}]".format(type(tmp)))
+            if 'segmentation' not in ann:
+                logging.warning(
+                    "Annotation with id {} does not have 'segmentation'. Skipping annotation".format(ann['id'])
+                )
+                continue
+            tmp = ann['segmentation']
+            if type(tmp) is list:
+                segment = tmp[0]
+                new_segment = [
+                    (round(x * h_scale, args.digits), round(y * v_scale, args.digits))
+                    for x, y in
+                    grouper(segment, 2)
+                ]
+                # Flatten the list of tuples
+                new_segment = list(itertools.chain(*new_segment))
+                ann['segmentation'] = [new_segment]
+                ann['area'] = poly_area(poly_x(new_segment), poly_y(new_segment))
+            elif type(tmp) is dict:
+                logging.warning("RLE is not yet supported")
             else:
-                logging.warning("Annotation with id", ann['id'], "does not have 'segmentation'. Skipping annotation")
+                logging.warning("Unknown data type [{}]".format(type(tmp)))
 
     return coco
 
 
 def repath(coco: COCO, args: argparse.Namespace) -> COCO:
-    """
-
-    Args:
-        coco: COCO file read from stdin
-        args: arguments passed from argparse
-
-    Returns: COCO file with image paths that have been prepended with args.path
-
-    """
-    logging.info("repath operation selected")
-    for image in coco.dataset['images']:
+    for img_entry in coco.dataset['images']:
         try:
-            image['path'] = os.path.join(args.path, os.path.basename(image['path']))
+            img_entry['path'] = os.path.join(args.path, os.path.basename(img_entry['path']))
         except KeyError:
-            logging.warning("Unable to find 'path' key for image {}".format(image))
+            logging.warning("Unable to find 'path' key for image {}".format(img_entry))
             try:
-                image['path'] = os.path.join(args.path, os.path.basename(image['file_name']))
+                img_entry['path'] = os.path.join(args.path, os.path.basename(img_entry['file_name']))
             except KeyError:
-                logging.warning("Unable to find 'file_name' key for image {}".format(image))
+                logging.warning("Unable to find 'file_name' key for image {}".format(img_entry))
     return coco
 
 
-def drop_duplicates(list_: list):
-    """
-
-    Args:
-        list_: Drop duplicate entries of dictionaries based on their key/value pairs
-
-    Returns: List of dropped duplicates
-
-    """
-
+def drop_duplicates(list_: list) -> list:
     def to_tuple(list_entry: list):
         return tuple(to_tuple(i) if isinstance(i, list) else i for i in list_entry)
-
     return [dict(i) for i in set(to_tuple([list(i) for i in sorted(i.items())]) for i in list_)]
 
 
-def load_coco(json_buffer: str) -> COCO:
-    json_buffer = json_buffer.strip()
-    if not json_buffer:
+def load_coco(json_str: str) -> COCO:
+    json_str = json_str.strip()
+    if not json_str:
         # Empty file check
-        logging.error("Expecting input from stdin: received empty characters {}".format(repr(json_buffer)))
+        logging.error("Expecting input from stdin: received empty characters <{}>".format(repr(json_str)))
         sys.exit(1)
     with redirect_stdout(Verbose):
         coco = COCO()
-        coco.dataset = json.loads(json_buffer)
+        coco.dataset = json.loads(json_str)
         coco.createIndex()
     return coco
 
 
 def grouper(iterable, size: int, fillvalue=None):
-    """
-
-    Args:
-        iterable: Data structure that can be iterated through
-        size: Size by which to group values together
-        fillvalue: Fill value for missing values
-
-    Returns: Tuples of grouped values
-
-    """
     args = [iter(iterable)] * size
     return itertools.zip_longest(*args, fillvalue=fillvalue)
 
@@ -520,11 +481,11 @@ def assign_from_coco(stdin_coco: COCO, args: argparse.Namespace) -> COCO:
     Returns: COCO file with image ids that have been reassigned based on the image ids from a command line COCO file
 
     """
-    old_id_2_key = {image_entry['id']: image_entry[args.key] for image_entry in stdin_coco.dataset['images']}
+    old_id_2_key = {img_entry['id']: img_entry[args.key] for img_entry in stdin_coco.dataset['images']}
     with open(args.coco) as f:
-        command_line_coco = json.load(f)
-    key_2_new_id = {image_entry[args.key]: image_entry['id'] for image_entry in command_line_coco['images']}
-    all_ids = set(range(len(stdin_coco.dataset['images']) + len(command_line_coco['images'])))
+        cl_coco = json.load(f)
+    key_2_new_id = {img_entry[args.key]: img_entry['id'] for img_entry in cl_coco['images']}
+    all_ids = set(range(len(stdin_coco.dataset['images']) + len(cl_coco['images'])))
     new_ids = {new_id for new_id in key_2_new_id.values()}
     available_ids = all_ids - new_ids
     old_id_2_new_id = {}
@@ -592,19 +553,20 @@ def assign_from_sorted(coco: COCO, args: argparse.Namespace) -> COCO:
     return coco
 
 
-def intersection(coco: COCO, args: argparse.Namespace):
+def intersection(stdin_coco: COCO, args: argparse.Namespace):
     with open(args.file) as f:
         cl_coco = load_coco(f.read().strip())
 
-    for stdin_img_entry in coco.dataset['images']:
+    for stdin_img_entry in stdin_coco.dataset['images']:
         try:
             cl_img_entry = cl_coco.loadImgs(ids=stdin_img_entry['id']).pop()
         except KeyError as e:
             logging.warning(
-                "Cannot find matching image {} from stdin in JSON file {}".format(stdin_img_entry['id'], args.file)
+                "Cannot find matching image {} from stdin in JSON file {},"
+                "try matching image ids using coco-calc assign-new-image-ids".format(stdin_img_entry['id'], args.file)
             )
             raise e
-        stdin_anns = coco.loadAnns(coco.getAnnIds(imgIds=stdin_img_entry['id']))
+        stdin_anns = stdin_coco.loadAnns(stdin_coco.getAnnIds(imgIds=stdin_img_entry['id']))
         stdin_polys = [
             np.reshape(np.array(anns['segmentation'][0]), (len(anns['segmentation'][0]) // 2, 2)) for
             anns in stdin_anns
@@ -616,6 +578,7 @@ def intersection(coco: COCO, args: argparse.Namespace):
         ]
         stdin_areas, cl_areas, intersection_areas = poly_intersection_area(stdin_polys, cl_polys)
         if intersection_areas.size == 0:
+            logging.info("Skipping image {} as no annotations exist".format(stdin_img_entry['id']))
             continue
         stdin_areas = np.array(stdin_areas, dtype=np.uint)
         cl_areas = np.array(cl_areas, dtype=np.uint)
@@ -656,121 +619,221 @@ def intersection(coco: COCO, args: argparse.Namespace):
     sys.exit(0)
 
 
-def get_args() -> argparse.Namespace:
-    verbose_parser = argparse.ArgumentParser(add_help=False)
-    verbose_parser.add_argument('-v', '--verbose', help="More output to stderr", action='store_const',
-                                const=logging.INFO)
+def get_args(flags: List[str] = None) -> argparse.Namespace:
+    verbose = MyParser(add_help=False)
+    verbose.add_argument(
+        '--verbose',
+        action='store_const',
+        const=logging.INFO,
+        dest='loglevel',
+        help="Verbose output to stderr",
+    )
+    debug = MyParser(add_help=False)
+    debug.add_argument(
+        '--debug',
+        action='store_const',
+        const=logging.DEBUG,
+        dest='loglevel',
+        help='Debug output to stderr',
+    )
+    min_ = MyParser(add_help=False)
+    min_.add_argument(
+        '--minified',
+        action='store_const',
+        const=None,
+        default=4,
+        dest='indent',
+        help="Disable JSON pretty print",
+    )
+    apply_to_images = MyParser(add_help=False)
+    apply_to_images.add_argument(
+        '--apply-to-images',
+        action='store_true',
+        help='Apply operation to images, output to directory specified by --image-output-dir',
+    )
+    image_output_dir = MyParser(add_help=False)
+    image_output_dir.add_argument(
+        '-o', '--image-output-dir',
+        default='images',
+        help='Image output directory. Default is %(default)s',
+    )
+    parents = [verbose, debug, min_]
+    image_operations = [apply_to_images, image_output_dir]
 
-    parser = argparse.ArgumentParser(description=_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter,
-                                     parents=[verbose_parser])
-    subparsers = parser.add_subparsers(title="Operations", description=_PARSER_DESCRIPTION, help="Available operations")
+    parser = MyParser(
+        description=_DESCRIPTION,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=parents,
+    )
+    subparsers = parser.add_subparsers()
 
-    parser_crop = subparsers.add_parser('crop',
-                                        help="Crop images and annotations; currently supports only cropping images",
-                                        description=_CROP_DESCRIPTION,
-                                        formatter_class=argparse.RawDescriptionHelpFormatter, parents=[verbose_parser])
-    parser_crop.add_argument('--fit',
-                             help="if centre of cropped area to close to border, shift cropped area to fit inside image",
-                             action='store_true')
-    parser_crop.add_argument('--keep-partial', help="keep partially cropped annotations: todo", action='store_true')
-    parser_crop.add_argument('--point', help="centre of cropped area identified by annotation_type 'point'",
-                             action='store_true')
-    parser_crop.add_argument('-s', '--size', help="<width>,<height> crop size", type=str)
+    parser_crop = subparsers.add_parser(
+        'crop',
+        description=_CROP_DESCRIPTION,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=parents + image_operations,
+        help="Crop images and annotations. Annotations can be partially cropped if --keep-partial is specified",
+    )
 
-    parser_resize = subparsers.add_parser('resize',
-                                          help="Resize all images and their respective annotations by a scaling factor or to specified width and height",
-                                          description=_RESIZE_DESCRIPTION,
-                                          formatter_class=argparse.RawDescriptionHelpFormatter,
-                                          parents=[verbose_parser])
+    parser_crop.add_argument(
+        '--fit',
+        action='store_true',
+        help="If centre of cropped area is too close to image dimension, shift cropped area to fit inside image",
+    )
+    parser_crop.add_argument(
+        '--keep-partial',
+        action='store_true',
+        help="If crop window cuts the annotation, only partially crop it, otherwise discard",
+    )
+    parser_crop.add_argument(
+        '--point',
+        action='store_true',
+        help="Centre of crop area is identified by annotation_type 'point'",
+    )
+    parser_crop.add_argument(
+        '-s', '--size',
+        help="<width>,<height> crop size"
+    )
+
+    parser_resize = subparsers.add_parser(
+        'resize',
+        description=_RESIZE_DESCRIPTION,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=parents + image_operations,
+        help="Resize all images and their respective annotations by a scaling factor or by specified width and height",
+    )
+
+    parser_resize.add_argument(
+        '-d', '--digits',
+        type=int,
+        help="Number of decimal digits in bbox and segmentation coordinates; default: %(default)s",
+    )
     parser_resize_mx = parser_resize.add_mutually_exclusive_group(required=True)
-    parser_resize.add_argument('-d', '--digits',
-                               help="Number of decimal digits in bbox and segmentation coordinates; default: %(default)s",
-                               type=int, default=None)
-    parser_resize_mx.add_argument('-f', '--factor', help="Scale images by a percentage", type=float)
-    parser_resize_mx.add_argument('-s', '--size', help="[width],[height] output size", type=str)
+    parser_resize_mx.add_argument(
+        '-f', '--factor',
+        type=float,
+        help="Scale images by a percentage",
+    )
+    parser_resize_mx.add_argument(
+        '-s', '--size',
+        help="<width>,<height> size",
+    )
 
-    parser_remap = subparsers.add_parser('remap', help="Remap categories and/or category id",
-                                         description=_REMAP_DESCRIPTION,
-                                         formatter_class=argparse.RawDescriptionHelpFormatter,
-                                         parents=[verbose_parser])
-    parser_remap.add_argument('mapping',
-                              help="Dict style string for remapping of either category id/category name to category id/category name",
-                              type=str)
-    parser_remap.add_argument('--target-categories',
-                              help="Target categories to be used for re-mapping. Same format as default COCO categories list. Default categories is taken from input COCO JSON file",
-                              type=str)
-    parser_remap.add_argument('--keep-source-categories',
-                              help="If target categories is specified, append target to input categories",
-                              action='store_true')
+    parser_remap = subparsers.add_parser(
+        'remap',
+        description=_REMAP_DESCRIPTION,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=parents,
+        help="Remap categories and/or category id in COCO JSON",
+    )
+    parser_remap.add_argument(
+        'mapping',
+        help="Dict style string for remapping of either category id/category name to category id/category name",
+    )
+    parser_remap.add_argument(
+        '--keep-source-categories',
+        help="If target categories is specified, append target to input categories",
+        action='store_true'
+    )
+    parser_remap.add_argument(
+        '--target-categories',
+        help="Target categories to be used for re-mapping. "
+             "Same format as default COCO categories list. Default categories is taken from input COCO JSON file",
+    )
 
-    parser_repath = subparsers.add_parser('repath',
-                                          help="Re-path key value pairs for path for every image in COCO JSON.",
-                                          description=_REPATH_DESCRIPTION,
-                                          formatter_class=argparse.RawDescriptionHelpFormatter,
-                                          parents=[verbose_parser])
-    parser_repath.add_argument('path', help="New path to prepend to each image in data set", type=str)
+    parser_repath = subparsers.add_parser(
+        'repath',
+        description=_REPATH_DESCRIPTION,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=parents,
+        help="Re-path every image in COCO JSON.",
+    )
+    parser_repath.add_argument(
+        'path',
+        help="New path to prepend to each image in data set",
+    )
 
-    parser_intersection = subparsers.add_parser('intersection',
-                                                help='Output intersecting polygons along with the polygon areas and the intersection area',
-                                                description=_INTERSECT_DESCRIPTION,
-                                                formatter_class=argparse.RawDescriptionHelpFormatter,
-                                                parents=[verbose_parser])
-    parser_intersection.add_argument('--output-non-intersecting', choices=['-', 'cl'],
-                                     help="Output non-intersecting polygons from either stdin or command line JSON.")
-    parser_intersection.add_argument('--output-fields', action='store_const',
-                                     const="image/path,image/id,first/id,first/category_id,first/area,second/id,second/category_id,second/area,intersection/area",
-                                     help="print output csv fields to stdout and exit")
-    parser_intersection.add_argument('--file', help="JSON file to match intersecting polygons with")
+    parser_intersection = subparsers.add_parser(
+        'intersection',
+        description=_INTERSECT_DESCRIPTION,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=parents,
+        help='Output intersecting polygons along with their polygon areas and intersection area in CSV format',
+    )
+    parser_intersection.add_argument(
+        '--output-non-intersecting',
+        choices=['-', 'cl'],
+        help="Output non-intersecting polygons from either stdin or command line JSON",
+    )
+    parser_intersection.add_argument(
+        '--output-fields',
+        action='store_const',
+        const="image/path,image/id,"
+              "first/id,first/category_id,first/area,"
+              "second/id,second/category_id,second/area,"
+              "intersection/area",
+        help="Print output csv fields to stdout and exit",
+    )
+    parser_intersection.add_argument(
+        '--file',
+        help="JSON file to match intersecting polygons with",
+    )
 
-    parser_new_ids = subparsers.add_parser('assign-new-image-ids',
-                                           help="Assign new ids to COCO file from stdin based on ids from COCO file passed as command line argument.",
-                                           description=_ASSIGN_NEW_IMAGE_IDS_DESCRIPTION,
-                                           formatter_class=argparse.RawDescriptionHelpFormatter,
-                                           parents=[verbose_parser])
-    parser_new_ids.add_argument('--keep-mismatch',
-                                help="Keep image if the key to match by does not exist from the COCO file passed from command line, otherwise it is dropped from the output along with its annotations",
-                                action='store_true')
+    parser_new_img_ids = subparsers.add_parser(
+        'assign-new-image-ids',
+        description=_ASSIGN_NEW_IMAGE_IDS_DESCRIPTION,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=parents,
+        help="Assign new ids to COCO file from stdin based on ids from COCO file passed as command line argument.",
+    )
+    parser_new_img_ids.add_argument(
+        '--keep-mismatch',
+        action='store_true',
+        help="Keep image if the key to match by does not exist from the COCO file passed from command line, "
+             "otherwise it is dropped from the output along with its annotations",
+    )
 
-    subparser_new_ids = parser_new_ids.add_subparsers(dest='assign_method')
-    parser_sort = subparser_new_ids.add_parser('sort',
-                                               help="Sort images by a given key and assign new ids based on ordering",
-                                               parents=[verbose_parser])
-    parser_sort.add_argument('-k', '--key',
-                             help="Key to sort by. If no key is given, assigned new image ids based on existing ordering",
-                             type=str)
+    subparser_new_ids = parser_new_img_ids.add_subparsers(dest='assign_method')
+    parser_sort = subparser_new_ids.add_parser(
+        'sort',
+        parents=parents,
+        help="Sort images by a given key and assign new ids based on ordering",
+    )
+    parser_sort.add_argument(
+        '-k', '--key',
+        help="Key to sort by before assigning imade ids. "
+             "If no key is given, assigned new image ids based on existing ordering",
+    )
 
-    parser_coco = subparser_new_ids.add_parser('coco',
-                                               help="Match images from stdin COCO with command line COCO by key and assign new image ids from command line COCO.",
-                                               parents=[verbose_parser])
-    parser_coco.add_argument('coco', help="COCO file to assign image ids from.", type=str)
-    parser_coco.add_argument('-k', '--key', help="Key to match by. Default is %(default)s.", type=str, default='path')
-
-    parser.add_argument('-m', '--minified', help="Disable JSON pretty print", action='store_const', const=None,
-                        default=4, dest='indent')
-
-    apply_to_images_args = ['--apply-to-images']
-    apply_to_images_kwargs = {'action': 'store_true',
-                              'help': 'Apply operation to images, output to directory specified by --images-output-dir'}
-
-    image_output_dir_args = ['-o', '--image-output-dir']
-    image_output_dir_kwargs = {'type': str,
-                               'default': 'images',
-                               'help': 'Image output directory; default %(default)s'}
-
-    parser_crop.add_argument(*apply_to_images_args, **apply_to_images_kwargs)
-    parser_crop.add_argument(*image_output_dir_args, **image_output_dir_kwargs)
-
-    parser_resize.add_argument(*apply_to_images_args, **apply_to_images_kwargs)
-    parser_resize.add_argument(*image_output_dir_args, **image_output_dir_kwargs)
+    parser_coco = subparser_new_ids.add_parser(
+        'coco',
+        parents=parents,
+        help="Match images from stdin COCO with command line COCO by key and assign image ids from command line COCO.",
+    )
+    parser_coco.add_argument(
+        'coco',
+        help="COCO file to assign image ids from.",
+    )
+    parser_coco.add_argument(
+        '-k', '--key',
+        default='path',
+        help="Key to match by. Default is %(default)s.",
+    )
 
     parser_crop.set_defaults(func=crop)
     parser_resize.set_defaults(func=resize)
     parser_remap.set_defaults(func=remap)
     parser_repath.set_defaults(func=repath)
-    parser_new_ids.set_defaults(func=assign_new_image_ids)
+    parser_new_img_ids.set_defaults(func=assign_new_image_ids)
     parser_intersection.set_defaults(func=intersection)
+    return parser.parse_args(flags)
 
-    return parser.parse_args()
+
+class MyParser(argparse.ArgumentParser):
+    def error(self, msg):
+        self.print_help(sys.stderr)
+        logging.critical(msg)
+        sys.exit(1)
 
 
 class Verbose:
@@ -783,5 +846,3 @@ class Verbose:
 
 if __name__ == '__main__':
     sys.exit(main(get_args()))
-
-""" Utility functions """
