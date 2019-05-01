@@ -306,7 +306,15 @@ def imwrite(im: Union[np.ndarray, PIL.Image.Image], path: str, size: Tuple[int, 
     im.save(path)
 
 
-def poly_area(x: np.ndarray, y: np.ndarray) -> float:
+def poly_x(poly: List[Number]) -> np.array:
+    return np.array(poly[::2])
+
+
+def poly_y(poly: List[Number]) -> np.array:
+    return np.array(poly[1::2])
+
+
+def poly_area(x: np.array, y: np.array) -> float:
     return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
 
 
