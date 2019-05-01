@@ -2,7 +2,8 @@ from collections import Counter
 import os
 import warnings
 import sys
-from typing import Tuple, Union
+from numbers import Number
+from typing import Tuple, Union, List
 
 from pycocotools import mask as maskUtils
 import cv2
@@ -17,7 +18,7 @@ def cv2_to_Pil(image):
 
 
 def instance_to_caption(coco):
-    '''convert a COCO dataset from instance labels to captions'''
+    """convert a COCO dataset from instance labels to captions"""
     caption_map_r = {cat['id']: cat['name'] for cat in coco['categories']}
     annotations = {}
     for image in coco['images']:
@@ -39,7 +40,7 @@ def instance_to_caption(coco):
 
 
 def config_gpu(gpu_ids=[], allow_growth=False, log_device_placement=True):
-    '''Setup which GPUs to use (or CPU), must be called before "import keras".
+    """Setup which GPUs to use (or CPU), must be called before "import keras".
     Note that in Keras GPUs are allocated to processes, and memory is only released
     when that process ends.
 
@@ -47,7 +48,7 @@ def config_gpu(gpu_ids=[], allow_growth=False, log_device_placement=True):
         gpu_ids (list, optional): A list of integer GPU IDs, or None for CPU.
         allow_growth (bool, optional): Allow memory growth in GPUs if True, else allocate entire GPUs.
         log_device_placement (bool, optional): Log device placement for debugging purposes.
-    '''
+    """
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     if gpu_ids is None:
@@ -74,6 +75,7 @@ def import_config(args):
         else:
             raise ValueError("Config file needs to be a .yaml or .json file")
     return cfg
+
 
 def balanced_annotation_set(coco, ann_type='caption', num_anns=None, ignore=None):
     """Return a subset of image IDs that produces a balanced set with at least num_anns annotations per class.
@@ -176,8 +178,9 @@ def detile(tiles, window_size, image_size):
         image[y1:y2a, x1:x2a, ...] = window[:h, :w, ...]
     return image
 
+
 def instance_to_categorical(masks, mask_classes, num_classes):
-    '''Convert a instance mask array into a categorical mask array.
+    """Convert a instance mask array into a categorical mask array.
 
     Args:
         masks (np.ndarray): An array of shape [height, width, #instances] of type np.bool.
@@ -186,7 +189,7 @@ def instance_to_categorical(masks, mask_classes, num_classes):
 
     Returns:
         np.ndarray: An array of shape [height, width, max_classes] of type np.uint8.
-    '''
+    """
     num_shapes = len(mask_classes)
     shape = masks.shape
     packed = np.zeros(shape[0:2] + (num_classes,), dtype=np.uint8)
@@ -215,6 +218,7 @@ def cat_to_onehot(cats, num_classes):
 # The following function is from pycocotools with a few changes.
 ############################################################
 
+
 def ann_rle_encode(ann, height, width):
     """
     Convert annotation which can be polygons, uncompressed RLE to RLE.
@@ -234,9 +238,10 @@ def ann_rle_encode(ann, height, width):
         rle = ann['segmentation']
     return rle
 
+
 def warn_on_call(func, message):
-    '''This is a decorator which can be used to emit a warning when the
-    marked function is called.'''
+    """This is a decorator which can be used to emit a warning when the
+    marked function is called."""
     def new_func(*args, **kwargs):
         warnings.warn(
             "{}: {}".format(func.__name__, message),
@@ -249,8 +254,8 @@ def warn_on_call(func, message):
 
 
 def warn_once(func, message):
-    '''This is a decorator which can be used to emit a warning the first time
-    that the marked function is called.'''
+    """This is a decorator which can be used to emit a warning the first time
+    that the marked function is called."""
     def new_func(*args, **kwargs):
         if not new_func.__has_run__:
             warnings.warn(
@@ -265,25 +270,96 @@ def warn_once(func, message):
     return new_func
 
 
-def imread(path: str, output_size: Tuple[int, int] = None, dtype=None):
-    """Read an image from the filesystem, optionally resizing the image size and casting the bit_depth"""
+def imread(path: str, size: Tuple[int, int] = None, dtype=None):
+    """
+    Read an image from the file system, optionally resizing the image size.
+
+    Args:
+        path: Path to image, relative or absolute
+        size: 2-tuple (width, height)
+        dtype: numpy dtype to cast to
+
+    """
     im = PIL.Image.open(path)
-    if output_size is not None:
-        im = im.resize(output_size)
+    if size is not None:
+        im = im.resize(size, resample=PIL.Image.BICUBIC)
     return np.array(im, dtype=dtype)
 
 
 def imwrite(im: Union[np.ndarray, PIL.Image.Image], path: str, size: Tuple[int, int] = None):
+    """
+    Write an image to file system, optionally resizing the image size
+
+    Args:
+        im: Image, either numpy array or PIL Image class
+        path: Path to image, relative or absolute
+        size: 2-tuple (width, height)
+
+    Returns:
+
+    """
     if isinstance(im, np.ndarray):
         im = PIL.Image.fromarray(im)
-    assert isinstance(im, PIL.Image.Image), "Expected instance of PIL.Image"
+    assert isinstance(im, PIL.Image.Image), "Expected instance of PIL.Image.Image"
     if size is not None:
         im = im.resize(size, resample=PIL.Image.BICUBIC)
     im.save(path)
 
 
+def poly_area(x: np.ndarray, y: np.ndarray) -> float:
+    return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
+
+
+def bbox_area(bbox: List[Number]) -> Number:
+    x, y, width, height = bbox
+    return width * height
+
+
+def bbox_to_segmentation(bbox: List[Number]) -> List[Number]:
+    """
+    Args:
+        bbox: [x, y, width, height]
+
+    Returns:
+        Polygon equivalent of bounding box
+    """
+    x, y, width, height = bbox
+    return [x, y, x, y + height, x + width, y + height, x + width, y]
+
+
+def segmentation_to_bbox(poly: List[Number]) -> List[Number]:
+    """
+    Args:
+        poly: List of alternating <x, y> points i.e. [x1, y1, x2, y2, ..., xN, yN]
+
+    Returns:
+        Bounding box of polygon contour
+    """
+    x = poly[::2]
+    y = poly[1::2]
+    min_x = min(x)
+    max_x = max(x)
+    min_y = min(y)
+    max_y = max(y)
+    return min_x, min_y, max_x - min_x, max_y - min_y
+
+
+def do_overlap(bbox_a: Tuple[int, int, int, int], bbox_b: Tuple[int, int, int, int]):
+    """
+    Args:
+        bbox_a: (x1, y1, x2, y2) where <x1>,<y1> is top left and <x2>,<y2> is bottom right
+        bbox_b: (x1, y1, x2, y2) where <x1>,<y1> is top left and <x2>,<y2> is bottom right
+
+    Returns:
+        True if a overlaps b
+    """
+    assert len(bbox_a) == 4, "There should be 4 values in bbox_a"
+    assert len(bbox_b) == 4, "There should be 4 values in bbox_b"
+    return not(bbox_a[0] > bbox_b[2] or bbox_b[0] > bbox_a[2] or bbox_a[3] < bbox_b[1] or bbox_b[3] < bbox_a[1])
+
+
 def image_streamer(sources, start=0, remap_func=None):
-    '''A generator that produces image frames from multiple sources.
+    """A generator that produces image frames from multiple sources.
     Currently accepts video, images and COCO datasets and globs of these.
 
         sources: list of str; The file paths to the image sources.
@@ -294,7 +370,7 @@ def image_streamer(sources, start=0, remap_func=None):
                     change relative directories of COCO datasets.
 
     
-    '''
+    """
     from warnings import warn
     from glob import glob
     from pycocotools.coco import COCO
@@ -303,6 +379,7 @@ def image_streamer(sources, start=0, remap_func=None):
 
     def is_image(path):
         return path.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff'))
+
     def is_video(path):
         return path.lower().endswith(('.avi', '.mpg', '.mp4'))
 
@@ -340,5 +417,6 @@ def image_streamer(sources, start=0, remap_func=None):
 def print_v(*args, level=0):
     if print_v._level >= level:
         print(*args, file=sys.stderr)
-print_v._level = 0
 
+
+print_v._level = 0
