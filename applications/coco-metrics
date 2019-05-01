@@ -11,6 +11,7 @@ from typing import Tuple
 
 import numpy as np
 from abyss_deep_learning import metrics
+from abyss_deep_learning.utils import bbox_to_segmentation
 
 np.set_printoptions(threshold=np.inf)
 
@@ -130,8 +131,6 @@ def plot_confusion_matrix(m, classes, normalized=False, save_fig=False):
     if save_fig: plt.savefig('confusion_matrix_normalized.png' if normalized else 'confusion_matrix.png')
     else: plt.show()
 
-def bbox_to_segmentation(box):
-    return [[box[0], box[1], box[0], box[1] + box[3], box[0] + box[2], box[1] + box[3], box[0] + box[2], box[1]]]
 
 def confusion(args):
     if (args.input_file is not None):
@@ -308,8 +307,8 @@ def confusion_matrix(args):
                 if args.suppress_background:
                     matrix[0, 0] = 0
                 np.savetxt(sys.stdout, matrix, delimiter=',', fmt=fmt)
-            predicted_labels = []
-            truth_labels = []
+                predicted_labels = []
+                truth_labels = []
         if not args.csv_output_per_image:
             matrix = sklearn.metrics.confusion_matrix(truth_labels, predicted_labels, category_ids).astype(matrix.dtype)
     else:
@@ -548,8 +547,6 @@ def main(args):
 
 
 def pretty_time(seconds: float) -> Tuple[int, int, float]:
-    """ Return seconds as hours minute seconds
-    """
     minutes, seconds = divmod(seconds, 60)
     hours, minutes = divmod(minutes, 60)
     return int(hours), int(minutes), seconds
