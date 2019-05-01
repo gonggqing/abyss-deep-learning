@@ -41,20 +41,31 @@ def main(args: argparse.Namespace = None):
     csv_writer = csv.writer(sys.stdout)
 
     dataset = copy.deepcopy(coco.dataset)
-    try:
-        # Create common keys between different sections in coco dataset so that pd.merge has a key to merge on
-        for i in dataset['annotations']:
+    # Create common keys between different sections in coco dataset so that pd.merge has a key to merge on
+    for i in dataset.get('annotations', []):
+        try:
             i['annotation_id'] = i.pop('id')
-        for i in dataset['categories']:
+        except KeyError:
+            pass
+    for i in dataset.get('categories', []):
+        try:
             i['category_id'] = i.pop('id')
-        for i in dataset['images']:
+        except KeyError:
+            pass
+    for i in dataset.get('images', []):
+        try:
             i['image_id'] = i.pop('id')
+        except KeyError:
+            pass
+        try:
             i['license_id'] = i.pop('license')
-        for i in dataset['licenses']:
+        except KeyError:
+            pass
+    for i in dataset.get('licenses', []):
+        try:
             i['license_id'] = i.pop('id')
-    except KeyError:
-        pass
-
+        except KeyError:
+            pass
     # info section is not valid to merge with other sections
     if args.section != 'info':
         # Add original unique id to section of interest
