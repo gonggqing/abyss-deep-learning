@@ -1,9 +1,11 @@
 """Metrics for machine learning"""
-from typing import List, Tuple
+from typing import List
 
 import numpy as np
 import skimage
 from scipy.optimize import linear_sum_assignment
+
+from abyss_deep_learning.utils import do_overlap
 
 
 def bbox_iou_matrix(a, b):
@@ -44,20 +46,6 @@ def get_bbox_intersection(bbox_a, bbox_b):
     maximums = np.maximum(ac, bc)
     intersections = np.maximum(minimums[3] - maximums[1], 0) * np.maximum(minimums[2] - maximums[0], 0)
     return intersections
-
-
-def do_overlap(bbox_a: Tuple[int, int, int, int], bbox_b: Tuple[int, int, int, int]):
-    """
-    Args:
-        bbox_a: (x1, y1, x2, y2) where <x1>,<y1> is top left and <x2>,<y2> is bottom right
-        bbox_b: (x1, y1, x2, y2) where <x1>,<y1> is top left and <x2>,<y2> is bottom right
-
-    Returns:
-        True if a overlaps b
-    """
-    assert len(bbox_a) == 4, "There should be 4 values in bbox_a"
-    assert len(bbox_b) == 4, "There should be 4 values in bbox_b"
-    return not(bbox_a[0] > bbox_b[2] or bbox_b[0] > bbox_a[2] or bbox_a[3] < bbox_b[1] or bbox_b[3] < bbox_a[1])
 
 
 def poly_intersection_area(first: List[np.array], second: List[np.array], grid_max_x: int = None,
