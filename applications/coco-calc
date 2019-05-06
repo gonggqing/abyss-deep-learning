@@ -68,6 +68,11 @@ Output intersecting polygons from stdin JSON with command line JSON in format of
 <image-id>,<first-polygon-id>,<second-polygon-id>,<first-polygon-area>,<second-polygon-area>,<intersection-area>
 """
 
+_NMS_DESCRIPTION = """
+Non Max Suppression
+Remove non max overlapping bounding boxes
+"""
+
 _REMAP_DESCRIPTION = """
 Remaps categories entry in a COCO json file based on its own existing
 categories or a --target-categories can be given to remap existing categories
@@ -474,6 +479,112 @@ def assign_new_image_ids(coco: COCO, args: argparse.Namespace) -> COCO:
     return coco
 
 
+#  Felzenszwalb et al.
+def non_max_suppression(boxes, overlap_thresh):
+    # if there are no boxes, return an empty list
+    if len(boxes) == 0:
+        return []
+
+    # initialize the list of picked indexes
+    pick = []
+
+    # grab the coordinates of the bounding boxes
+    x1 = boxes[:, 0]
+    y1 = boxes[:, 1]
+    x2 = boxes[:, 2]
+    y2 = boxes[:, 3]
+
+    # compute the area of the bounding boxes and sort the bounding
+    # boxes by the bottom-right y-coordinate of the bounding box
+    area = (x2 - x1 + 1) * (y2 - y1 + 1)
+    idxs = np.argsort(y2)
+
+    # keep looping while some indexes still remain in the indexes
+    # list
+    while len(idxs) > 0:
+        # grab the last index in the indexes list, add the index
+        # value to the list of picked indexes, then initialize
+        # the suppression list (i.e. indexes that will be deleted)
+        # using the last index
+        last = len(idxs) - 1
+        i = idxs[last]
+        pick.append(i)
+        suppress = [last]
+
+        # loop over all indexes in the indexes list
+        for pos in range(0, last):
+            # grab the current index
+            j = idxs[pos]
+
+            # find the largest (x, y) coordinates for the start of
+            # the bounding box and the smallest (x, y) coordinates
+            # for the end of the bounding box
+            xx1 = max(x1[i], x1[j])
+            yy1 = max(y1[i], y1[j])
+            xx2 = min(x2[i], x2[j])
+            yy2 = min(y2[i], y2[j])
+
+            # compute the width and height of the bounding box
+            w = max(0, xx2 - xx1 + 1)
+            h = max(0, yy2 - yy1 + 1)
+
+            # compute the ratio of overlap between the computed
+            # bounding box and the bounding box in the area list
+            overlap = float(w * h) / area[j]
+
+            # if there is sufficient overlap, suppress the
+            # current bounding box
+            if overlap > overlap_thresh:
+                suppress.append(pos)
+
+        # delete all indexes from the index list that are in the
+        # suppression list
+        idxs = np.delete(idxs, suppress)
+
+    # return only the bounding boxes that were picked
+    return boxes[pick], pick
+
+
+def groupbyUnsorted(input, key=lambda x:x):
+  yielded = set()
+  keys = [ key(element) for element in input ]
+  for i, wantedKey in enumerate(keys):
+    if wantedKey not in yielded:
+      yield (wantedKey,
+          (input[j] for j in range(i, len(input)) if keys[j] == wantedKey))
+    yielded.add(wantedKey)
+
+def non_max_suppression(coco: COCO, args: argparse.Namespace) -> COCO:
+
+    try:
+        ann = coco.dataset.get('annotations')
+
+        keep_ann = []
+
+        for key, group in groupbyUnsorted(ann, lambda x: x['image_id']):
+            g = list(group)
+            boxes = np.empty((len(g),4))
+            for i,image_annotation in enumerate(g):
+                # "bbox" : [x,y,width,height]
+                bbox = image_annotation['bbox']
+                boxes[i,:] = [bbox[0],  bbox[1],
+                              bbox[0] + bbox[2],
+                              bbox[1] + bbox[3]]
+
+            boxes, keep_i = non_max_suppression(boxes, args.overlap_threshold)
+
+            for i in keep_i:
+                keep_ann.append(g[i])
+
+        coco.dataset['annotations'] = keep_ann
+
+        return coco
+    except Exception as e:
+        print("Error!", e)
+        print("Error!", sys.exc_info()[0], "occured.")
+        raise
+
+
 def assign_from_coco(stdin_coco: COCO, args: argparse.Namespace) -> COCO:
     """
 
@@ -782,6 +893,19 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         help="JSON file to match intersecting polygons with",
     )
 
+    parser_non_max_suppression = subparsers.add_parser(
+        'nms',
+        description=_NMS_DESCRIPTION,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=parents,
+        help='Non Max Suppression - Remove overlapping bounding boxes',
+    )
+    parser_non_max_suppression.add_argument(
+        '--overlap-threshold',
+        default=0.5,
+        help="Remove where overlap > overlap threshold default: %(default)s.",
+    )
+
     parser_new_img_ids = subparsers.add_parser(
         'assign-new-image-ids',
         description=_ASSIGN_NEW_IMAGE_IDS_DESCRIPTION,
@@ -829,6 +953,7 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
     parser_repath.set_defaults(func=repath)
     parser_new_img_ids.set_defaults(func=assign_new_image_ids)
     parser_intersection.set_defaults(func=intersection)
+    parser_non_max_suppression.set_defaults(func=non_max_suppression)
     return parser.parse_args(flags)
 
 
