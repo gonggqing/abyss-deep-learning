@@ -480,7 +480,7 @@ def assign_new_image_ids(coco: COCO, args: argparse.Namespace) -> COCO:
 
 
 #  Felzenszwalb et al.
-def non_max_suppression(boxes, overlap_thresh):
+def non_max_suppression_impl(boxes, overlap_thresh):
     # if there are no boxes, return an empty list
     if len(boxes) == 0:
         return []
@@ -577,7 +577,7 @@ def non_max_suppression(coco: COCO, args: argparse.Namespace) -> COCO:
                               bbox[0] + bbox[2],
                               bbox[1] + bbox[3]]
 
-            boxes, keep_i = non_max_suppression(boxes, args.overlap_threshold)
+            boxes, keep_i = non_max_suppression_impl(boxes, args.overlap_threshold)
 
             for i in keep_i:
                 keep_ann.append(g[i])
