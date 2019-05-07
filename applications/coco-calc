@@ -561,7 +561,13 @@ def non_max_suppression(coco: COCO, args: argparse.Namespace) -> COCO:
 
         keep_ann = []
 
-        for key, group in groupbyUnsorted(ann, lambda x: x['image_id']):
+        # perform nms per image per category
+        group_on = lambda x: str(x['image_id']) + '-' + str(x['category_id'])
+
+        # if it ever makes sense to ignore category
+        #group_on = lambda x: x['image_id']
+
+        for key, group in groupbyUnsorted(ann, group_on):
             g = list(group)
             boxes = np.empty((len(g),4))
             for i,image_annotation in enumerate(g):
