@@ -185,12 +185,13 @@ def main(args: argparse.Namespace):
                 if not rr.size:
                     # Valid polygon could not be drawn
                     logging.info('All polygon points (x, y) lie outside of mask height/width')
-                    continue
+                    area = 0
+                    score = 0
+                else:
+                    area = len(rr)
+                    score = 0 if is_hole(contour) else original_mask[rr, cc].sum() / area
 
                 segmentation = np.flip(contour, axis=1).ravel().tolist()
-
-                area = len(rr)
-                score = 0 if is_hole(contour) else original_mask[rr, cc].sum() / area
 
                 coco_json['annotations'].append({
                     "id": len(coco_json['annotations']),
