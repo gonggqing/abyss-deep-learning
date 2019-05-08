@@ -78,7 +78,7 @@ def main(args: argparse.Namespace):
     save_png = args.save_as == 'png' or args.save_as == 'both'
     output = {
         "images": [],
-        "annotations": [] if args.keep_annotations else coco['annotations'],
+        "annotations": coco['annotations'] if args.keep_annotations else [],
         "categories": coco['categories']
     }
     for image_entry in coco.get('images', []):
