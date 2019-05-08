@@ -674,7 +674,7 @@ def assign_from_sorted(coco: COCO, args: argparse.Namespace) -> COCO:
 
 
 def intersection(stdin_coco: COCO, args: argparse.Namespace):
-    with open(args.file) as f:
+    with open(args.second) as f:
         cl_coco = load_coco(f.read().strip())
 
     for stdin_img_entry in stdin_coco.dataset['images']:
@@ -683,7 +683,7 @@ def intersection(stdin_coco: COCO, args: argparse.Namespace):
         except KeyError as e:
             logging.warning(
                 "Cannot find matching image {} from stdin in JSON file {},"
-                "try matching image ids using coco-calc assign-new-image-ids".format(stdin_img_entry['id'], args.file)
+                "try matching image ids using coco-calc assign-new-image-ids".format(stdin_img_entry['id'], args.second)
             )
             raise e
         stdin_anns = stdin_coco.loadAnns(stdin_coco.getAnnIds(imgIds=stdin_img_entry['id']))
@@ -895,7 +895,7 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         help="Print output csv fields to stdout and exit",
     )
     parser_intersection.add_argument(
-        '--file',
+        '--second', '--file',
         help="JSON file to match intersecting polygons with",
     )
 
