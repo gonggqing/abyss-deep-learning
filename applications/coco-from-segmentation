@@ -108,7 +108,7 @@ def main(args: argparse.Namespace):
         padded_mask = load_input(mask_entry, args.input_format, args.num_classes, padding=padding, normalize=args.norm,
                                  height=height, width=width)
         if padded_mask is None:
-            logging.warning("Unknown file type {} is not supported currently".format(get_file_ext(mask_entry['path'])))
+            logging.error("failed to load from file: '{}'; possibly, file type {} not supported".format(mask_entry['path'], get_file_ext(mask_entry['path'])))
             sys.exit(1)
 
         category_ids = []
