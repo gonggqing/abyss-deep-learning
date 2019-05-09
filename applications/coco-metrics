@@ -30,7 +30,7 @@ usage: cat predictions.json | coco-metrics confusion-matrix --truth truth.json -
 
 limitations:
     - categories in predictions.json and truth.json should be the same, no checks performed
-    - output annotation ids do NOT match the prediction or ground thruth ids, since there is
+    - output annotation ids do NOT match the prediction or ground truth ids, since there is
       no way to make them unique across output; todo: work out required semantics (e.g.
       optionally output one category, e.g. TP, only)
 """
@@ -45,9 +45,11 @@ usage: cat predictions.json | coco-metrics confusion-matrix --truth truth.json -
 
 confusion_description = """
 
-take predictions.json, truth.json, output to stdout coco annotations labeled as confusions among categories with iou as score
+calculate confusion between first and second inputs
+ output to stdout coco annotations labeled as confusions among categories with iou as score
 
-usage: cat predictions.json | coco-metrics confusion --truth truth.json -b > confusion.json
+usage: cat first.json | coco-metrics confusion --second second.json -b > confusion.json
+  e.g. cat predictions.json | coco-metrics confusion --second truth.json -b > confusion.json
 
 """
 
