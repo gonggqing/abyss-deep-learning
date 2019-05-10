@@ -25,7 +25,6 @@ setup(
         "applications/coco-check-data-pollution",
         "applications/coco-draw",
         "applications/coco-extract-masks",
-        "applications/coco-filter-categories",
         "applications/coco-from-csv",
         "applications/coco-from-segmentation",
         "applications/coco-from-images",
