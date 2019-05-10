@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 from __future__ import print_function
 import argparse
+import json
 import os
+import random
 import sys
 
-from pycocotools.coco import COCO
+from collections import defaultdict
+from itertools import chain
 
-from abyss_deep_learning.coco_classes import CocoDataset
+# from abyss_deep_learning.coco_classes import CocoDataset
 
 description = """
-
 Split a COCO JSON database into multiple files/sets
-Note: Randomly shuffles the data when doing so
-
-
 """
 
 # todo
@@ -23,36 +22,79 @@ Note: Randomly shuffles the data when doing so
 
 
 def main(args):
-    coco_dir = os.path.dirname(args.coco_path)
-    coco_name = '.'.join(os.path.basename(args.coco_path).split('.')[0:-1])
-    if args.verbose: print("loading {:s}".format(args.coco_path), file=sys.stderr)
-    if not os.path.exists(args.coco_path): print( "coco-split: file not found: '" + args.coco_path + '"', file=sys.stderr); sys.exit(1)
+    # coco_dir = os.path.dirname(args.coco_path)
+    # coco_name = '.'.join(os.path.basename(args.coco_path).split('.')[0:-1])
+    if args.verbose:
+        print("loading {:s}".format(args.coco_path), file=sys.stderr)
+
+    if not os.path.isfile(args.coco_path):
+        print("coco-split: file not found: '" + args.coco_path + '"', file=sys.stderr)
+        sys.exit(1)
+
+    with open(args.coco_path) as f:
+        dataset = json.load(f)
+
+    img_id_to_ann = defaultdict(list)
+    for ann in dataset.get('annotations', []):
+        img_id_to_ann[ann['image_id']].append(ann)
+
     split_names = args.split_names.split(',')
-    split_ratios = [1.0/len(split_names)]*len(split_names) if args.split_ratios is None or len(args.split_ratios) == 0 \
-                   else (float(i) for i in args.split_ratios.split(','))
-    database = CocoDataset(args.coco_path)
-    for dataset_split, split_name in zip(database.split(split_ratios, seed=args.seed, exact_split=args.exact_split), split_names):
-        split_path = os.path.join(coco_dir, "{:s}.{:s}.json".format(coco_name, split_name))
-        if args.verbose:
-            print(
-                "coco-split: writing: {:s} with {:d} images and {:d} annotations"
-                .format(split_path, len(dataset_split.images), len(dataset_split.annotations), file=sys.stderr)
-            )
-        dataset_split.save(split_path)
+    try:
+        split_ratios = [float(i) for i in args.split_ratios.split(',')]
+    except AttributeError:
+        split_ratios = []
+    finally:
+        if len(split_ratios) == 0:
+            split_ratios = [1 / len(split_names)] * len(split_names)
+
+    if len(split_names) != len(split_ratios):
+        print("coco-split: Mismatch in amount of split names '{}' and split ratios '{}'".format(split_names, split_ratios), file=sys.stderr)
+        return 1
+
+    if args.shuffle:
+        random.shuffle(dataset['images'])
+
+    split_dataset = dict(
+        info=dataset.get('info', {}),
+        images=[],
+        annotations=[],
+        categories=dataset.get('categories'),
+        licenses=dataset.get('licenses', [])
+    )
+    basename = os.path.basename(args.coco_path)
+    filename, _ = os.path.splitext(basename)
+    total_splits = 0
+    for split, split_path in zip(split_ratios, split_names):
+        split_dataset['images'] = dataset['images'][total_splits:total_splits + round(split * len(dataset['images']))]
+        split_dataset['annotations'] = list(chain.from_iterable(img_id_to_ann[img['id']] for img in split_dataset['images'] if img['id'] in img_id_to_ann))
+        total_splits += round(split * len(dataset['images']))
+        with open(os.path.join('.'.join((filename, split_path, 'json'))), 'w') as f:
+            json.dump(split_dataset, f)
+
+    return 0
+    # database = CocoDataset(args.coco_path)
+    # for dataset_split, split_name in zip(database.split(split_ratios, seed=args.seed, exact_split=args.exact_split), split_names):
+    #     split_path = os.path.join(coco_dir, "{:s}.{:s}.json".format(coco_name, split_name))
+    #     if args.verbose:
+    #         print(
+    #             "coco-split: writing: {:s} with {:d} images and {:d} annotations"
+    #             .format(split_path, len(dataset_split.images), len(dataset_split.annotations), file=sys.stderr)
+    #         )
+    #     dataset_split.save(split_path)
 
 
 def get_args():
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('coco_path', help="Path to the coco JSON.")
     parser.add_argument('split_names', help="CSV-delimited names of the splits, e.g: coco-split a.json 'x,y' ... yields a.x.json, a.y.json")
-    parser.add_argument('--exact_split', action='store_true', help="Split ensures equal number of items in each set (may drop an image)")
-    parser.add_argument("--image-dir", help="If images referenced relatively, give the image dir", default=None)
-    parser.add_argument("--limit", help="Limit the amount of images to read from the dataset before splitting", default=None, type=int)
-    parser.add_argument("--split-ratios", "--ratios", type=str, help="CSV-delimited ratios of the splits (0.0 to 1.0); if absent, equal ratios")
-    parser.add_argument("--seed", type=int, default=None, help="Set intial seed for random shuffling of the data")
+    parser.add_argument("--split-ratios", "--ratios", help="CSV-delimited ratios of the splits (0.0 to 1.0); if absent, equal ratios")
+    parser.add_argument("--seed", type=int, help="Set intial seed for random shuffling of the data")
+    parser.add_argument('--exact-split', action='store_true', help="Split ensures equal number of items in each set (may drop an image)")
+    parser.add_argument("--shuffle", action="store_true", help="Randomly shuffle the images before splitting the dataset")
     parser.add_argument('--verbose', action='store_true', help="more verbose output to stderr")
     return parser.parse_args()
 
 
 if __name__ == '__main__':
-    main(get_args())
+    sys.exit(main(get_args()))
+
