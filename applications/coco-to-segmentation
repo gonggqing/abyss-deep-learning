@@ -84,10 +84,10 @@ def main(args: argparse.Namespace):
     for image_entry in coco.get('images', []):
         try:
             # todo: use args.depth
-            dir_name, _ = os.path.splitext(os.path.basename(image_entry[args.dirname]))
+            dir_name, _ = os.path.splitext(os.path.basename(str(image_entry[args.dirname])))
             os.makedirs(dir_name, mode=0o755, exist_ok=args.permissive)
         except OSError:
-            logging.error("Directory name {} exists, please use --force to overwrite".format(dir_name))
+            logging.error("Directory name {} exists, please use --permissive to overwrite".format(dir_name))
             return 1
         img = load_entry(image_entry)
         if not image_entry['id'] in image_id_to_ann_id:
