@@ -9,9 +9,10 @@ import sys
 from ast import literal_eval
 from contextlib import redirect_stdout
 from operator import itemgetter
-from typing import List
+from typing import List, Tuple, Union
 
 import numpy as np
+import pandas as pd
 from PIL import Image
 from pycocotools.coco import COCO
 
@@ -122,26 +123,29 @@ def main(args: argparse.Namespace) -> int:
             return 0
     except AttributeError:
         pass
+
     try:
-        coco = args.func(load_coco(sys.stdin.read()), args)
+        coco, status = args.func(args)
     except AttributeError:
         get_args(['--help'])
     else:
-        if coco.dataset is None:
-            logging.warning("Output coco is empty.")
+        if coco is None:
+            logging.warning("No output coco, not necessarily an error")
         else:
             json.dump(coco.dataset, sys.stdout, indent=args.indent)
-    logging.shutdown()
-    return 0
+        logging.shutdown()
+        return status
 
 
-def crop(coco: COCO, args: argparse.Namespace) -> COCO:
+def crop(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
+    coco = load_coco(sys.stdin.read())
+
     if not args.point:
         logging.error(
             "crop: Operation currently not supported if crop points are not annotated as 'points', "
             "please use abyss-annotation-tool to label crop points"
         )
-        sys.exit(1)
+        return None, 1
     crop_width, crop_height = [int(i) for i in args.size.split(',')]
     if args.apply_to_images:
         os.makedirs(args.image_output_dir, exist_ok=True)
@@ -220,7 +224,7 @@ def crop(coco: COCO, args: argparse.Namespace) -> COCO:
                 imwrite(cropped, out_path)
     coco.dataset['images'] = imgs_out
     coco.dataset['annotations'] = anns_out
-    return coco
+    return coco, 0
 
 
 def crop_bbox(ann_entry, crop_height, crop_width, bbox, keep_partial):
@@ -257,7 +261,9 @@ def crop_poly(ann_entry, crop_height, crop_width, offset_x, offset_y, keep_parti
     return cropped_polygon
 
 
-def remap(coco: COCO, args: argparse.Namespace) -> COCO:
+def remap(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
+    coco = load_coco(sys.stdin.read())
+
     # literal_eval allows usage of either single quote (') or double quote(") to interpret a json string
     if os.path.isfile(args.mapping):
         with open(args.mapping) as f:
@@ -356,10 +362,12 @@ def remap(coco: COCO, args: argparse.Namespace) -> COCO:
     if len(set(category_ids)) != len(category_ids):
         logging.warning('There are duplicate category ids in the coco dataset.')
 
-    return coco
+    return coco, 0
 
 
-def resize(coco: COCO, args: argparse.Namespace) -> COCO:
+def resize(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
+    coco = load_coco(sys.stdin.read())
+
     if args.apply_to_images:
         os.makedirs(os.path.join(os.getcwd(), args.image_output_dir), exist_ok=True)
 
@@ -428,10 +436,11 @@ def resize(coco: COCO, args: argparse.Namespace) -> COCO:
             else:
                 logging.warning("Unknown data type [{}]".format(type(tmp)))
 
-    return coco
+    return coco, 0
 
 
-def repath(coco: COCO, args: argparse.Namespace) -> COCO:
+def repath(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
+    coco = load_coco(sys.stdin.read())
     for img_entry in coco.dataset['images']:
         try:
             img_entry['path'] = os.path.join(args.path, os.path.basename(img_entry['path']))
@@ -441,12 +450,13 @@ def repath(coco: COCO, args: argparse.Namespace) -> COCO:
                 img_entry['path'] = os.path.join(args.path, os.path.basename(img_entry['file_name']))
             except KeyError:
                 logging.warning("Unable to find 'file_name' key for image {}".format(img_entry))
-    return coco
+    return coco, 0
 
 
 def drop_duplicates(list_: list) -> list:
     def to_tuple(list_entry: list):
         return tuple(to_tuple(i) if isinstance(i, list) else i for i in list_entry)
+
     return [dict(i) for i in set(to_tuple([list(i) for i in sorted(i.items())]) for i in list_)]
 
 
@@ -468,15 +478,16 @@ def grouper(iterable, size: int, fillvalue=None):
     return itertools.zip_longest(*args, fillvalue=fillvalue)
 
 
-def assign_new_image_ids(coco: COCO, args: argparse.Namespace) -> COCO:
+def assign_new_image_ids(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
     """Assigning new image id methods"""
     logging.info("assign-new-image-ids operation selected")
+    coco = load_coco(sys.stdin.read())
     if args.assign_method == 'sort':
         return assign_from_sorted(coco, args)
     elif args.assign_method == 'coco':
         return assign_from_coco(coco, args)
     logging.warning("Output coco is the same as input coco")
-    return coco
+    return coco, 1
 
 
 #  Felzenszwalb et al.
@@ -545,17 +556,17 @@ def non_max_suppression_impl(boxes, overlap_thresh):
     return boxes[pick], pick
 
 
-def groupbyUnsorted(input, key=lambda x:x):
-  yielded = set()
-  keys = [ key(element) for element in input ]
-  for i, wantedKey in enumerate(keys):
-    if wantedKey not in yielded:
-      yield (wantedKey,
-          (input[j] for j in range(i, len(input)) if keys[j] == wantedKey))
-    yielded.add(wantedKey)
+def groupbyUnsorted(input, key=lambda x: x):
+    yielded = set()
+    keys = [key(element) for element in input]
+    for i, wantedKey in enumerate(keys):
+        if wantedKey not in yielded:
+            yield (wantedKey,
+                   (input[j] for j in range(i, len(input)) if keys[j] == wantedKey))
+        yielded.add(wantedKey)
 
-def non_max_suppression(coco: COCO, args: argparse.Namespace) -> COCO:
 
+def non_max_suppression(coco: COCO, args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
     try:
         ann = coco.dataset.get('annotations')
 
@@ -565,17 +576,17 @@ def non_max_suppression(coco: COCO, args: argparse.Namespace) -> COCO:
         group_on = lambda x: str(x['image_id']) + '-' + str(x['category_id'])
 
         # if it ever makes sense to ignore category
-        #group_on = lambda x: x['image_id']
+        # group_on = lambda x: x['image_id']
 
         for key, group in groupbyUnsorted(ann, group_on):
             g = list(group)
-            boxes = np.empty((len(g),4))
-            for i,image_annotation in enumerate(g):
+            boxes = np.empty((len(g), 4))
+            for i, image_annotation in enumerate(g):
                 # "bbox" : [x,y,width,height]
                 bbox = image_annotation['bbox']
-                boxes[i,:] = [bbox[0],  bbox[1],
-                              bbox[0] + bbox[2],
-                              bbox[1] + bbox[3]]
+                boxes[i, :] = [bbox[0], bbox[1],
+                               bbox[0] + bbox[2],
+                               bbox[1] + bbox[3]]
 
             boxes, keep_i = non_max_suppression_impl(boxes, args.overlap_threshold)
 
@@ -584,14 +595,14 @@ def non_max_suppression(coco: COCO, args: argparse.Namespace) -> COCO:
 
         coco.dataset['annotations'] = keep_ann
 
-        return coco
+        return coco, 0
     except Exception as e:
         print("Error!", e)
         print("Error!", sys.exc_info()[0], "occured.")
         raise
 
 
-def assign_from_coco(stdin_coco: COCO, args: argparse.Namespace) -> COCO:
+def assign_from_coco(stdin_coco: COCO, args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
     """
 
     Args:
@@ -649,10 +660,10 @@ def assign_from_coco(stdin_coco: COCO, args: argparse.Namespace) -> COCO:
         stdin_coco.dataset['images'] = [img for img in stdin_coco.dataset['images'] if id(img) in kept_img_ids]
         stdin_coco.dataset['annotations'] = [ann for ann in stdin_coco.dataset['annotations'] if
                                              id(ann) in kept_ann_ids]
-    return stdin_coco
+    return stdin_coco, 0
 
 
-def assign_from_sorted(coco: COCO, args: argparse.Namespace) -> COCO:
+def assign_from_sorted(coco: COCO, args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
     """
 
     Args:
@@ -670,73 +681,231 @@ def assign_from_sorted(coco: COCO, args: argparse.Namespace) -> COCO:
     path_2_new_id = {image_entry['path']: image_entry['id'] for image_entry in coco.dataset['images']}
     for annotation in coco.dataset.get('annotations'):
         annotation['image_id'] = path_2_new_id[old_id_2_path[annotation['image_id']]]
-    return coco
+    return coco, 0
 
 
-def intersection(stdin_coco: COCO, args: argparse.Namespace):
+def intersections(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
+    if args.first is not None:
+        with open(args.first) as f:
+            first_coco = load_coco(f.read())
+    else:
+        first_coco = load_coco(sys.stdin.read())
+
     with open(args.second) as f:
-        cl_coco = load_coco(f.read().strip())
+        second_coco = load_coco(f.read().strip())
 
-    for stdin_img_entry in stdin_coco.dataset['images']:
+    for first_img_entry in first_coco.dataset['images']:
         try:
-            cl_img_entry = cl_coco.loadImgs(ids=stdin_img_entry['id']).pop()
+            second_img_entry = second_coco.loadImgs(ids=first_img_entry['id']).pop()
         except KeyError as e:
             logging.warning(
                 "Cannot find matching image {} from stdin in JSON file {},"
-                "try matching image ids using coco-calc assign-new-image-ids".format(stdin_img_entry['id'], args.second)
+                "try matching image ids using coco-calc assign-new-image-ids".format(first_img_entry['id'], args.second)
             )
             raise e
-        stdin_anns = stdin_coco.loadAnns(stdin_coco.getAnnIds(imgIds=stdin_img_entry['id']))
-        stdin_polys = [
-            np.reshape(np.array(anns['segmentation'][0]), (len(anns['segmentation'][0]) // 2, 2)) for
-            anns in stdin_anns
-        ]
-        cl_anns = cl_coco.loadAnns(cl_coco.getAnnIds(imgIds=cl_img_entry['id']))
-        cl_polys = [
-            np.reshape(np.array(anns['segmentation'][0]), (len(anns['segmentation'][0]) // 2, 2)) for
-            anns in cl_anns
-        ]
-        stdin_areas, cl_areas, intersection_areas = poly_intersection_area(stdin_polys, cl_polys)
+        first_ann_entries, first_polys = get_img_polys(first_coco, first_img_entry['id'])
+        second_ann_entries, second_polys = get_img_polys(second_coco, second_img_entry['id'])
+        first_areas, second_areas, intersection_areas = poly_intersection_area(first_polys, second_polys)
         if intersection_areas.size == 0:
-            logging.info("Skipping image {} as no annotations exist".format(stdin_img_entry['id']))
+            logging.info("Skipping image {} as no annotations exist".format(first_img_entry['id']))
             continue
-        stdin_areas = np.array(stdin_areas, dtype=np.uint)
-        cl_areas = np.array(cl_areas, dtype=np.uint)
-        if args.output_non_intersecting == '-':
+        first_areas = np.array(first_areas, dtype=np.uint)
+        second_areas = np.array(second_areas, dtype=np.uint)
+        if args.output_non_intersecting == 'first':
             first_idxs = np.where(~intersection_areas.any(axis=1))[0]
             for i in first_idxs.tolist():
                 print(",".join(str(j) for j in (
-                    stdin_img_entry['path'],
-                    stdin_img_entry['id'],
-                    stdin_anns[i]['id'],
-                    stdin_anns[i]['category_id'],
-                    stdin_areas[i],
+                    first_img_entry['path'],
+                    first_img_entry['id'],
+                    first_ann_entries[i]['id'],
+                    first_ann_entries[i]['category_id'],
+                    first_areas[i],
                 )))
-        elif args.output_non_intersecting == 'cl':
+        elif args.output_non_intersecting == 'second':
             second_idxs = np.where(~intersection_areas.any(axis=0))[0]
             for i in second_idxs.tolist():
                 print(",".join(str(j) for j in (
-                    stdin_img_entry['path'],
-                    stdin_img_entry['id'],
-                    cl_anns[i]['id'],
-                    cl_anns[i]['category_id'],
-                    cl_areas[i],
+                    first_img_entry['path'],
+                    first_img_entry['id'],
+                    second_ann_entries[i]['id'],
+                    second_ann_entries[i]['category_id'],
+                    second_areas[i],
                 )))
         else:
             first_idxs, second_idxs = np.where(intersection_areas != 0)
             for i, j in zip(first_idxs.tolist(), second_idxs.tolist()):
                 print(",".join(str(k) for k in (
-                    stdin_img_entry['path'],
-                    stdin_img_entry['id'],
-                    stdin_anns[i]['id'],
-                    stdin_anns[i]['category_id'],
-                    stdin_areas[i],
-                    cl_anns[j]['id'],
-                    cl_anns[j]['category_id'],
-                    cl_areas[j],
+                    first_img_entry['path'],
+                    first_img_entry['id'],
+                    first_ann_entries[i]['id'],
+                    first_ann_entries[i]['category_id'],
+                    first_areas[i],
+                    second_ann_entries[j]['id'],
+                    second_ann_entries[j]['category_id'],
+                    second_areas[j],
                     intersection_areas[i, j],
                 )))
-    sys.exit(0)
+    return None, 0
+
+
+def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
+    if args.intersections is None:
+        first_coco = None
+        second_coco = None
+
+        if args.first is not None and args.second is None:
+            with open(args.first) as f:
+                first_coco = load_coco(f.read())
+
+            second_coco = load_coco(sys.stdin.read())
+        elif args.first is None and args.second is not None:
+            with open(args.second) as f:
+                second_coco = load_coco(f.read())
+
+            first_coco = load_coco(sys.stdin.read())
+        elif args.first is not None and args.second is not None:
+            with open(args.first) as f:
+                first_coco = load_coco(f.read())
+
+            with open(args.second) as f:
+                second_coco = load_coco(f.read())
+
+        assert first_coco is not None and second_coco is not None, "Could not load first or second COCO file"
+
+        for first_img_entry in first_coco.dataset['images']:
+            try:
+                second_img_entry = second_coco.loadImgs(ids=first_img_entry['id']).pop()
+            except KeyError as e:
+                logging.warning(
+                    "Cannot find matching image {} from stdin in JSON file {},"
+                    "try matching image ids using coco-calc assign-new-image-ids".format(first_img_entry['id'], args.second)
+                )
+                raise e
+            first_ann_entries, first_polys = get_img_polys(first_coco, first_img_entry['id'])
+            second_ann_entries, second_polys = get_img_polys(second_coco, second_img_entry['id'])
+            first_areas, _, intersection_areas = poly_intersection_area(first_polys, second_polys)
+            if intersection_areas.size == 0:
+                logging.info("Skipping image {} as no annotations exist".format(first_img_entry['id']))
+                continue
+            first_areas = np.array(first_areas, dtype=np.uint)
+            for i in range(len(first_ann_entries)):
+                category_sums = {id_: 0 for id_ in second_coco.getCatIds()}
+                for j in range(len(second_ann_entries)):
+                    category_sums[second_ann_entries[j]['category_id']] += intersection_areas[i][j]
+                for category, area in category_sums.items():
+                    if first_areas[i] != 0:
+                        print(",".join(str(k) for k in (
+                            first_img_entry['path'],
+                            first_img_entry['id'],
+                            first_ann_entries[i]['id'],
+                            first_ann_entries[i]['category_id'],
+                            first_areas[i],
+                            category,
+                            area,
+                            float(area / first_areas[i])
+                        )))
+    else:
+        # TODO: Check with Seva if category ids should be inferred from input JSON or from input CSV
+        logging.warning("inferring coverage category ids from {}".format(args.intersections))
+        df = pd.read_csv(args.intersections, names=[
+            'path',
+            'image_id',
+            'first_ann_id',
+            'first_cat_id',
+            'first_ann_area',
+            'second_ann_id',
+            'second_cat_id',
+            'second_ann_area',
+            'intersection_area',
+        ])
+
+        if args.first is None and args.second is None:
+            coco = load_coco(sys.stdin.read())
+            logging.warning("assuming coco from stdin to be --first")
+            for img_entry in coco.dataset['images']:
+                for ann in coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id'])):
+                    category_sums = {id_: 0 for id_ in df['second_cat_id'].unique().tolist()}
+                    for intersection in df[df.first_ann_id == ann['id']].itertuples(index=False):
+                        category_sums[intersection.second_cat_id] += intersection.intersection_area
+
+                    if all(area == 0 for _, area in category_sums.items()):
+                        continue
+
+                    for category, area in category_sums.items():
+                        if intersection.first_ann_area != 0:
+                            print(",".join(str(i) for i in (
+                                img_entry['path'],
+                                img_entry['id'],
+                                ann['id'],
+                                ann['category_id'],
+                                intersection.first_ann_area,
+                                category,
+                                area,
+                                float(area / intersection.first_ann_area),
+                            )))
+
+        elif args.first is not None:
+            with open(args.first) as f:
+                coco = load_coco(f.read())
+
+            for img_entry in coco.dataset['images']:
+                for ann in coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id'])):
+                    category_sums = {id_: 0 for id_ in df['second_cat_id'].unique().tolist()}
+                    for intersection in df[df.first_ann_id == ann['id']].itertuples(index=False):
+                        category_sums[intersection.second_cat_id] += intersection.intersection_area
+
+                    if all(area == 0 for _, area in category_sums.items()):
+                        continue
+
+                    for category, area in category_sums.items():
+                        if intersection.first_ann_area != 0:
+                            print(",".join(str(i) for i in (
+                                img_entry['path'],
+                                img_entry['id'],
+                                ann['id'],
+                                ann['category_id'],
+                                intersection.first_ann_area,
+                                category,
+                                area,
+                                float(area / intersection.first_ann_area),
+                            )))
+
+        elif args.second is not None:
+            with open(args.second) as f:
+                coco = load_coco(f.read())
+
+            for img_entry in coco.dataset['images']:
+                for ann in coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id'])):
+                    category_sums = {id_: 0 for id_ in df['first_cat_id'].unique().tolist()}
+                    for intersection in df[df.second_ann_id == ann['id']].itertuples(index=False):
+                        category_sums[intersection.first_cat_id] += intersection.intersection_area
+
+                    if all(area == 0 for _, area in category_sums.items()):
+                        continue
+
+                    for category, area in category_sums.items():
+                        if intersection.second_ann_area != 0:
+                            print(",".join(str(i) for i in (
+                                img_entry['path'],
+                                img_entry['id'],
+                                ann['id'],
+                                ann['category_id'],
+                                intersection.second_ann_area,
+                                category,
+                                area,
+                                float(area / intersection.second_ann_area),
+                            )))
+
+    return None, 0
+
+
+def get_img_polys(coco: COCO, img_id: int):
+    first_ann_entries = coco.loadAnns(coco.getAnnIds(imgIds=img_id))
+    first_polys = [
+        np.reshape(np.array(ann['segmentation'][0]), (len(ann['segmentation'][0]) // 2, 2)) for
+        ann in first_ann_entries
+    ]
+    return first_ann_entries, first_polys
 
 
 def get_args(flags: List[str] = None) -> argparse.Namespace:
@@ -873,29 +1042,66 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         help="New path to prepend to each image in data set",
     )
 
-    parser_intersection = subparsers.add_parser(
-        'intersection',
+    parser_coverage = subparsers.add_parser(
+        'coverage',
+        description="""""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=parents,
+        help="Output coverage of polygon annotations in one JSON file against polgyon annotations in another JSON file"
+    )
+    parser_coverage.add_argument(
+        '--first', '--covered',
+        help="First JSON, TODO: Add better help",
+    )
+    parser_coverage.add_argument(
+        '--intersections',
+        help="Intersections CSV produced from coco-calc intersections",
+    )
+    parser_coverage.add_argument(
+        '--output-fields',
+        action='store_const',
+        const="image/path,"
+              "image/id,"
+              "polygon/id,"
+              "polygon/category/id,"
+              "polygon/area,"
+              "coverage/category/id,"
+              "coverage/area,"
+              "coverage/ratio",
+        help="Print output CSV fields to stdout and exit",
+    )
+    parser_coverage.add_argument(
+        '--second', '--covering',
+        help="Second JSON, TODO: Add better help",
+    )
+
+    parser_intersections = subparsers.add_parser(
+        'intersections',
         description=_INTERSECT_DESCRIPTION,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=parents,
         help='Output intersecting polygons along with their polygon areas and intersection area in CSV format',
     )
-    parser_intersection.add_argument(
-        '--output-non-intersecting',
-        choices=['-', 'cl'],
-        help="Output non-intersecting polygons from either stdin or command line JSON",
+    parser_intersections.add_argument(
+        '--first', '--covered',
+        help="First JSON, TODO: Add better help"
     )
-    parser_intersection.add_argument(
+    parser_intersections.add_argument(
         '--output-fields',
         action='store_const',
         const="image/path,image/id,"
               "first/id,first/category_id,first/area,"
               "second/id,second/category_id,second/area,"
               "intersection/area",
-        help="Print output csv fields to stdout and exit",
+        help="Print output CSV fields to stdout and exit",
     )
-    parser_intersection.add_argument(
-        '--second', '--file',
+    parser_intersections.add_argument(
+        '--output-non-intersecting',
+        choices=['first', 'second'],
+        help="Output non-intersecting polygons from either first or second JSON",
+    )
+    parser_intersections.add_argument(
+        '--second', '--covering',
         help="JSON file to match intersecting polygons with",
     )
 
@@ -954,12 +1160,13 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
     )
 
     parser_crop.set_defaults(func=crop)
-    parser_resize.set_defaults(func=resize)
+    parser_coverage.set_defaults(func=coverage)
+    parser_intersections.set_defaults(func=intersections)
+    parser_new_img_ids.set_defaults(func=assign_new_image_ids)
+    parser_non_max_suppression.set_defaults(func=non_max_suppression)
     parser_remap.set_defaults(func=remap)
     parser_repath.set_defaults(func=repath)
-    parser_new_img_ids.set_defaults(func=assign_new_image_ids)
-    parser_intersection.set_defaults(func=intersection)
-    parser_non_max_suppression.set_defaults(func=non_max_suppression)
+    parser_resize.set_defaults(func=resize)
     return parser.parse_args(flags)
 
 
