@@ -1,7 +1,11 @@
+import json
+import logging
 from collections import Counter
 import os
 import warnings
 import sys
+from contextlib import redirect_stdout
+from io import TextIOWrapper
 from numbers import Number
 from typing import Tuple, Union, List
 
@@ -10,10 +14,11 @@ import cv2
 import numpy as np
 import PIL.Image
 import pandas as pd
+from pycocotools.coco import COCO
 
 
 def cv2_to_Pil(image):
-    image = cv2.cvtColor(image ,cv2.COLOR_BGR2RGB)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     return PIL.Image.fromarray(image)
 
 
@@ -98,8 +103,8 @@ def balanced_annotation_set(coco, ann_type='caption', num_anns=None, ignore=None
     count_captions = Counter(captions)
     unique_captions = np.unique(captions)
     image_ids_for_class = dict(pd.DataFrame(list(coco.anns.values()))[["image_id", ann_type]] \
-        .groupby(ann_type).apply(lambda x: x['image_id'].as_matrix().tolist()))
-    captions_in_image = { # Counts how many captions are in each image
+                               .groupby(ann_type).apply(lambda x: x['image_id'].as_matrix().tolist()))
+    captions_in_image = {  # Counts how many captions are in each image
         image_id: ([
             ann[ann_type]
             for ann in annotations if ann['image_id'] == image_id])
@@ -124,8 +129,8 @@ def balanced_annotation_set(coco, ann_type='caption', num_anns=None, ignore=None
         image_id = image_ids_for_class[least[0]].pop()
         add_to_counts(image_id)
     out = list(set([j
-           for i in out.values()
-          for j in i]))
+                    for i in out.values()
+                    for j in i]))
     return out
 
 
@@ -160,7 +165,7 @@ def detile(tiles, window_size, image_size):
         np.ndarray: The reassembled image.
     """
     from itertools import product
-#     print("detile")
+    #     print("detile")
     num_tiles = np.ceil(image_size[0] / window_size[0]), np.ceil(image_size[1] / window_size[1])
     num_tiles = [int(i) for i in num_tiles]
     num_channels = None
@@ -214,6 +219,7 @@ def cat_to_onehot(cats, num_classes):
     """
     return np.array([1 if i in cats else 0 for i in range(num_classes)])
 
+
 ############################################################
 # The following function is from pycocotools with a few changes.
 ############################################################
@@ -242,11 +248,13 @@ def ann_rle_encode(ann, height, width):
 def warn_on_call(func, message):
     """This is a decorator which can be used to emit a warning when the
     marked function is called."""
+
     def new_func(*args, **kwargs):
         warnings.warn(
             "{}: {}".format(func.__name__, message),
             category=UserWarning)
         return func(*args, **kwargs)
+
     new_func.__name__ = func.__name__
     new_func.__doc__ = func.__doc__
     new_func.__dict__.update(func.__dict__)
@@ -256,6 +264,7 @@ def warn_on_call(func, message):
 def warn_once(func, message):
     """This is a decorator which can be used to emit a warning the first time
     that the marked function is called."""
+
     def new_func(*args, **kwargs):
         if not new_func.__has_run__:
             warnings.warn(
@@ -263,6 +272,7 @@ def warn_once(func, message):
                 category=UserWarning)
             new_func.__has_run__ = True
         return func(*args, **kwargs)
+
     new_func.__has_run__ = False
     new_func.__name__ = func.__name__
     new_func.__doc__ = func.__doc__
@@ -363,7 +373,70 @@ def do_overlap(bbox_a: Tuple[int, int, int, int], bbox_b: Tuple[int, int, int, i
     """
     assert len(bbox_a) == 4, "There should be 4 values in bbox_a"
     assert len(bbox_b) == 4, "There should be 4 values in bbox_b"
-    return not(bbox_a[0] > bbox_b[2] or bbox_b[0] > bbox_a[2] or bbox_a[3] < bbox_b[1] or bbox_b[3] < bbox_a[1])
+    return not (bbox_a[0] > bbox_b[2] or bbox_b[0] > bbox_a[2] or bbox_a[3] < bbox_b[1] or bbox_b[3] < bbox_a[1])
+
+
+class MyCOCO(COCO):
+    """ Create COCO object by reading from file path or from stdin """
+
+    class Verbose:
+        @staticmethod
+        def write(line: str):
+            line = line.strip()
+            if line:
+                logging.info(line)
+
+    def __init__(self, buffer: Union[str, TextIOWrapper] = None):
+        if isinstance(buffer, str) or buffer is None:
+            with redirect_stdout(MyCOCO.Verbose):
+                super().__init__(annotation_file=buffer)
+        elif isinstance(buffer, TextIOWrapper):
+            json_string = buffer.read()
+            if json_string:
+                self.dataset = json.loads(json_string)
+                self.createIndex()
+            else:
+                logging.error("Expecting input from stdin: received empty characters {}".format(repr(json_string)))
+                sys.exit(1)
+        else:
+            logging.error("Unknown data type {}, exiting".format(type(buffer)))
+            sys.exit(1)
+
+    @property
+    def info(self):
+        return self.dataset.get('info', {})
+
+    @property
+    def annotations(self):
+        return self.dataset.get('annotations', [])
+
+    @property
+    def images(self):
+        return self.dataset.get('images', [])
+
+    @property
+    def categories(self):
+        return self.dataset.get('categories', [])
+
+    @info.setter
+    def info(self, info):
+        self.dataset['info'] = info
+
+    @annotations.setter
+    def annotations(self, annotations):
+        self.dataset['annotations'] = annotations
+
+    @images.setter
+    def images(self, images):
+        self.dataset['images'] = images
+
+    @categories.setter
+    def categories(self, categories):
+        self.dataset['categories'] = categories
+
+    def createIndex(self):
+        with redirect_stdout(MyCOCO.Verbose):
+            super().createIndex()
 
 
 def image_streamer(sources, start=0, remap_func=None):
@@ -414,7 +487,7 @@ def image_streamer(sources, start=0, remap_func=None):
             with redirect_stdout(None):
                 coco = COCO(source)
             for frame_no, image in enumerate(coco.loadImgs(coco.getImgIds())):
-                #TODO: It's not clear how to address relative paths
+                # TODO: It's not clear how to address relative paths
                 image_path = image['path'] if 'path' in image else remap_func(image['file_name'])
                 yield image_path, frame_no, imread(image_path)
             del coco

@@ -7,7 +7,6 @@ import logging
 import os
 import sys
 from ast import literal_eval
-from contextlib import redirect_stdout
 from operator import itemgetter
 from typing import List, Tuple, Union
 
@@ -17,7 +16,7 @@ from PIL import Image
 from pycocotools.coco import COCO
 
 from abyss_deep_learning.metrics import poly_intersection_area
-from abyss_deep_learning.utils import poly_area, imwrite, imread, do_overlap, poly_x, poly_y
+from abyss_deep_learning.utils import poly_area, imwrite, imread, do_overlap, poly_x, poly_y, MyCOCO
 
 __author__ = 'Kent Hu, Vsevolod Vlaskine'
 
@@ -138,7 +137,7 @@ def main(args: argparse.Namespace) -> int:
 
 
 def crop(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
-    coco = load_coco(sys.stdin.read())
+    coco = MyCOCO(sys.stdin)
 
     if not args.point:
         logging.error(
@@ -262,7 +261,7 @@ def crop_poly(ann_entry, crop_height, crop_width, offset_x, offset_y, keep_parti
 
 
 def remap(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
-    coco = load_coco(sys.stdin.read())
+    coco = MyCOCO(sys.stdin)
 
     # literal_eval allows usage of either single quote (') or double quote(") to interpret a json string
     if os.path.isfile(args.mapping):
@@ -273,7 +272,7 @@ def remap(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
 
     source_categories = coco.loadCats(ids=coco.getCatIds())
     if not source_categories:
-        return coco
+        return coco, 1
     for category in source_categories:
         if not (category['id'] in mapping or category['name'] in mapping):
             mapping[category['name']] = category['name']
@@ -366,7 +365,7 @@ def remap(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
 
 
 def resize(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
-    coco = load_coco(sys.stdin.read())
+    coco = MyCOCO(sys.stdin)
 
     if args.apply_to_images:
         os.makedirs(os.path.join(os.getcwd(), args.image_output_dir), exist_ok=True)
@@ -440,7 +439,8 @@ def resize(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
 
 
 def repath(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
-    coco = load_coco(sys.stdin.read())
+    coco = MyCOCO(sys.stdin)
+
     for img_entry in coco.dataset['images']:
         try:
             img_entry['path'] = os.path.join(args.path, os.path.basename(img_entry['path']))
@@ -460,19 +460,6 @@ def drop_duplicates(list_: list) -> list:
     return [dict(i) for i in set(to_tuple([list(i) for i in sorted(i.items())]) for i in list_)]
 
 
-def load_coco(json_str: str) -> COCO:
-    json_str = json_str.strip()
-    if not json_str:
-        # Empty file check
-        logging.error("Expecting input from stdin: received empty characters <{}>".format(repr(json_str)))
-        sys.exit(1)
-    with redirect_stdout(Verbose):
-        coco = COCO()
-        coco.dataset = json.loads(json_str)
-        coco.createIndex()
-    return coco
-
-
 def grouper(iterable, size: int, fillvalue=None):
     args = [iter(iterable)] * size
     return itertools.zip_longest(*args, fillvalue=fillvalue)
@@ -480,8 +467,7 @@ def grouper(iterable, size: int, fillvalue=None):
 
 def assign_new_image_ids(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
     """Assigning new image id methods"""
-    logging.info("assign-new-image-ids operation selected")
-    coco = load_coco(sys.stdin.read())
+    coco = MyCOCO(sys.stdin)
     if args.assign_method == 'sort':
         return assign_from_sorted(coco, args)
     elif args.assign_method == 'coco':
@@ -566,8 +552,9 @@ def groupbyUnsorted(input, key=lambda x: x):
         yielded.add(wantedKey)
 
 
-def non_max_suppression(coco: COCO, args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
+def non_max_suppression(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
     try:
+        coco = MyCOCO(sys.stdin)
         ann = coco.dataset.get('annotations')
 
         keep_ann = []
@@ -685,14 +672,22 @@ def assign_from_sorted(coco: COCO, args: argparse.Namespace) -> Tuple[Union[COCO
 
 
 def intersections(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
-    if args.first is not None:
-        with open(args.first) as f:
-            first_coco = load_coco(f.read())
-    else:
-        first_coco = load_coco(sys.stdin.read())
+    first_coco = None
+    second_coco = None
 
-    with open(args.second) as f:
-        second_coco = load_coco(f.read().strip())
+    if args.first is not None and args.second is not None:
+        first_coco = MyCOCO(args.first)
+        second_coco = MyCOCO(args.second)
+
+    elif args.first is not None:
+        first_coco = MyCOCO(args.first)
+        second_coco = MyCOCO(sys.stdin)
+
+    elif args.second is not None:
+        second_coco = MyCOCO(args.second)
+        first_coco = MyCOCO(sys.stdin)
+
+    assert first_coco is not None and second_coco is not None, "could not load --first or --second COCO JSON's properly"
 
     for first_img_entry in first_coco.dataset['images']:
         try:
@@ -754,25 +749,20 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
         second_coco = None
 
         if args.first is not None and args.second is None:
-            with open(args.first) as f:
-                first_coco = load_coco(f.read())
+            first_coco = MyCOCO(args.first)
+            second_coco = MyCOCO(sys.stdin)
 
-            second_coco = load_coco(sys.stdin.read())
         elif args.first is None and args.second is not None:
-            with open(args.second) as f:
-                second_coco = load_coco(f.read())
+            first_coco = MyCOCO(sys.stdin)
+            second_coco = MyCOCO(args.second)
 
-            first_coco = load_coco(sys.stdin.read())
         elif args.first is not None and args.second is not None:
-            with open(args.first) as f:
-                first_coco = load_coco(f.read())
-
-            with open(args.second) as f:
-                second_coco = load_coco(f.read())
+            first_coco = MyCOCO(args.first)
+            second_coco = MyCOCO(args.second)
 
         assert first_coco is not None and second_coco is not None, "Could not load first or second COCO file"
 
-        for first_img_entry in first_coco.dataset['images']:
+        for first_img_entry in first_coco.images:
             try:
                 second_img_entry = second_coco.loadImgs(ids=first_img_entry['id']).pop()
             except KeyError as e:
@@ -819,10 +809,11 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
             'intersection_area',
         ])
 
+        # TODO: Refactor if body to function
         if args.first is None and args.second is None:
-            coco = load_coco(sys.stdin.read())
+            coco = MyCOCO(sys.stdin)
             logging.warning("assuming coco from stdin to be --first")
-            for img_entry in coco.dataset['images']:
+            for img_entry in coco.images:
                 for ann in coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id'])):
                     category_sums = {id_: 0 for id_ in df['second_cat_id'].unique().tolist()}
                     for intersection in df[df.first_ann_id == ann['id']].itertuples(index=False):
@@ -845,10 +836,9 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                             )))
 
         elif args.first is not None:
-            with open(args.first) as f:
-                coco = load_coco(f.read())
+            coco = MyCOCO(args.first)
 
-            for img_entry in coco.dataset['images']:
+            for img_entry in coco.images:
                 for ann in coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id'])):
                     category_sums = {id_: 0 for id_ in df['second_cat_id'].unique().tolist()}
                     for intersection in df[df.first_ann_id == ann['id']].itertuples(index=False):
@@ -871,10 +861,9 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                             )))
 
         elif args.second is not None:
-            with open(args.second) as f:
-                coco = load_coco(f.read())
+            coco = MyCOCO(args.second)
 
-            for img_entry in coco.dataset['images']:
+            for img_entry in coco.images:
                 for ann in coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id'])):
                     category_sums = {id_: 0 for id_ in df['first_cat_id'].unique().tolist()}
                     for intersection in df[df.second_ann_id == ann['id']].itertuples(index=False):
@@ -899,13 +888,13 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
     return None, 0
 
 
-def get_img_polys(coco: COCO, img_id: int):
-    first_ann_entries = coco.loadAnns(coco.getAnnIds(imgIds=img_id))
-    first_polys = [
+def get_img_polys(coco: COCO, img_id: int) -> Tuple[dict, np.array]:
+    ann_entries = coco.loadAnns(coco.getAnnIds(imgIds=img_id))
+    polygons = [
         np.reshape(np.array(ann['segmentation'][0]), (len(ann['segmentation'][0]) // 2, 2)) for
-        ann in first_ann_entries
+        ann in ann_entries
     ]
-    return first_ann_entries, first_polys
+    return ann_entries, polygons
 
 
 def get_args(flags: List[str] = None) -> argparse.Namespace:
@@ -915,7 +904,7 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         action='store_const',
         const=logging.INFO,
         dest='loglevel',
-        help="Verbose output to stderr",
+        help="verbose output to stderr",
     )
     debug = MyParser(add_help=False)
     debug.add_argument(
@@ -923,7 +912,7 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         action='store_const',
         const=logging.DEBUG,
         dest='loglevel',
-        help='Debug output to stderr',
+        help='debug output to stderr',
     )
     min_ = MyParser(add_help=False)
     min_.add_argument(
@@ -932,19 +921,19 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         const=None,
         default=4,
         dest='indent',
-        help="Disable JSON pretty print",
+        help="disable JSON pretty print",
     )
     apply_to_images = MyParser(add_help=False)
     apply_to_images.add_argument(
         '--apply-to-images',
         action='store_true',
-        help='Apply operation to images, output to directory specified by --image-output-dir',
+        help='apply operation to images, output to directory specified by --image-output-dir',
     )
     image_output_dir = MyParser(add_help=False)
     image_output_dir.add_argument(
         '-o', '--image-output-dir',
         default='images',
-        help='Image output directory. Default is %(default)s',
+        help='image output directory. Default is %(default)s',
     )
     parents = [verbose, debug, min_]
     image_operations = [apply_to_images, image_output_dir]
@@ -961,23 +950,23 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         description=_CROP_DESCRIPTION,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=parents + image_operations,
-        help="Crop images and annotations. Annotations can be partially cropped if --keep-partial is specified",
+        help="crop images and annotations. Annotations can be partially cropped if --keep-partial is specified",
     )
 
     parser_crop.add_argument(
         '--fit',
         action='store_true',
-        help="If centre of cropped area is too close to image dimension, shift cropped area to fit inside image",
+        help="if centre of cropped area is too close to image dimension, shift cropped area to fit inside image",
     )
     parser_crop.add_argument(
         '--keep-partial',
         action='store_true',
-        help="If crop window cuts the annotation, only partially crop it, otherwise discard",
+        help="if crop window cuts the annotation, only partially crop it, otherwise discard",
     )
     parser_crop.add_argument(
         '--point',
         action='store_true',
-        help="Centre of crop area is identified by annotation_type 'point'",
+        help="centre of crop area is identified by annotation_type 'point'",
     )
     parser_crop.add_argument(
         '-s', '--size',
@@ -989,19 +978,19 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         description=_RESIZE_DESCRIPTION,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=parents + image_operations,
-        help="Resize all images and their respective annotations by a scaling factor or by specified width and height",
+        help="resize all images and their respective annotations by a scaling factor or by specified width and height",
     )
 
     parser_resize.add_argument(
         '-d', '--digits',
         type=int,
-        help="Number of decimal digits in bbox and segmentation coordinates; default: %(default)s",
+        help="number of decimal digits in bbox and segmentation coordinates; default: %(default)s",
     )
     parser_resize_mx = parser_resize.add_mutually_exclusive_group(required=True)
     parser_resize_mx.add_argument(
         '-f', '--factor',
         type=float,
-        help="Scale images by a percentage",
+        help="scale images by a percentage",
     )
     parser_resize_mx.add_argument(
         '-s', '--size',
@@ -1013,16 +1002,16 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         description=_REMAP_DESCRIPTION,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=parents,
-        help="Remap categories and/or category id in COCO JSON",
+        help="remap categories and/or category id in COCO JSON",
     )
     parser_remap.add_argument(
         'mapping',
-        help="Dict style string for remapping of either category id/category name to category id/category name",
+        help="dict style string for remapping of either category id/category name to category id/category name",
     )
     parser_remap.add_argument(
         '--keep-source-categories',
-        help="If target categories is specified, append target to input categories",
-        action='store_true'
+        action='store_true',
+        help="if target categories is specified, append target to input categories",
     )
     parser_remap.add_argument(
         '--target-categories',

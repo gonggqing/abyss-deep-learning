@@ -10,6 +10,8 @@ from typing import Union
 
 from pycocotools.coco import COCO
 
+from abyss_deep_learning.utils import MyCOCO
+
 __author__ = 'Kent Hu, and Jamie McColl'
 __maintainer__ = 'Kent Hu'
 
@@ -271,69 +273,6 @@ def get_header_vals(header: list, field: str = None):
 
 def to_tuple(list_: list):
     return tuple(to_tuple(i) if isinstance(i, list) else i for i in list_)
-
-
-class MyCOCO(COCO):
-    """ Create COCO object by reading from file path or from stdin """
-
-    class Verbose:
-        @staticmethod
-        def write(line: str):
-            line = line.strip()
-            if line:
-                logging.info(line)
-
-    def __init__(self, buffer: Union[str, TextIOWrapper] = None):
-        if isinstance(buffer, str) or buffer is None:
-            with redirect_stdout(MyCOCO.Verbose):
-                super().__init__(annotation_file=buffer)
-        elif isinstance(buffer, TextIOWrapper):
-            json_string = buffer.read().strip()
-            if json_string:
-                self.dataset = json.loads(json_string)
-                self.createIndex()
-            else:
-                logging.error("Expecting input from stdin: received empty characters {}".format(repr(json_string)))
-                sys.exit(1)
-        else:
-            logging.error("Unknown data type {}, exiting".format(type(buffer)))
-            sys.exit(1)
-
-    @property
-    def info(self):
-        return self.dataset.get('info', {})
-
-    @property
-    def annotations(self):
-        return self.dataset.get('annotations', [])
-
-    @property
-    def images(self):
-        return self.dataset.get('images', [])
-
-    @property
-    def categories(self):
-        return self.dataset.get('categories', [])
-
-    @info.setter
-    def info(self, info):
-        self.dataset['info'] = info
-
-    @annotations.setter
-    def annotations(self, annotations):
-        self.dataset['annotations'] = annotations
-
-    @images.setter
-    def images(self, images):
-        self.dataset['images'] = images
-
-    @categories.setter
-    def categories(self, categories):
-        self.dataset['categories'] = categories
-
-    def createIndex(self):
-        with redirect_stdout(MyCOCO.Verbose):
-            super().createIndex()
 
 
 def get_args():
