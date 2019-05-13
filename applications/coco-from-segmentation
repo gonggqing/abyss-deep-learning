@@ -122,12 +122,12 @@ def main(args: argparse.Namespace):
                 # Mask lower threshold of previous category
                 if category_id != 0:
                     thresholded_padded_mask[thresholded_padded_mask <= (
-                            thresholds[category_id - 1] + np.finfo(thresholded_padded_mask.dtype).eps)] = 0.0
+                            thresholds[category_id - 1] + np.finfo(thresholded_padded_mask.dtype).eps * 2)] = 0.0
 
                 # Mask upper threshold of next category
                 try:
                     thresholded_padded_mask[thresholded_padded_mask >= (
-                            thresholds[category_id + 1] - np.finfo(thresholded_padded_mask.dtype).eps)] = 0.0
+                            thresholds[category_id + 1] - np.finfo(thresholded_padded_mask.dtype).eps * 2)] = 0.0
                 except IndexError:
                     pass
 
@@ -136,30 +136,30 @@ def main(args: argparse.Namespace):
 
                 found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in
                                   skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(
-                                      thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
+                                      thresholded_padded_mask.dtype).eps * 2)]
                 if args.connect_holes:
                     thresholded_padded_mask = connect_segmentation_holes(thresholded_padded_mask, found_contours,
                                                                          class_value=threshold_value)
                     found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in
                                       skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(
-                                          thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
+                                          thresholded_padded_mask.dtype).eps * 2)]
 
                 category_ids.append(category_id + 1)
                 category_contours.append(found_contours)
         else:
             # Create a copy of the padded mask to mask out other category segmentation's
             thresholded_padded_mask = np.array(padded_mask)
-            thresholded_padded_mask[thresholded_padded_mask >= args.up_thresh + np.finfo(float).eps] = 0.0
-            thresholded_padded_mask[thresholded_padded_mask <= args.low_thresh - np.finfo(float).eps] = 0.0
+            thresholded_padded_mask[thresholded_padded_mask >= (args.up_thresh + np.finfo(float).eps * 2)] = 0.0
+            thresholded_padded_mask[thresholded_padded_mask <= (args.low_thresh - np.finfo(float).eps * 2)] = 0.0
 
             found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in
-                              skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(
-                                  thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
+                              skimage.measure.find_contours(thresholded_padded_mask, args.low_thresh - np.finfo(
+                                  thresholded_padded_mask.dtype).eps * 2)]
             if args.connect_holes:
                 thresholded_padded_mask = connect_segmentation_holes(thresholded_padded_mask, found_contours)
                 found_contours = [np.around(contour).astype(dtype=np.uint16) for contour in
-                                  skimage.measure.find_contours(thresholded_padded_mask, threshold_value - np.finfo(
-                                      thresholded_padded_mask.dtype).eps, fully_connected=args.fully_connected)]
+                                  skimage.measure.find_contours(thresholded_padded_mask, args.low_thresh - np.finfo(
+                                      thresholded_padded_mask.dtype).eps * 2)]
 
             category_contours.append(found_contours)
             category_ids.append(int(args.category_id))
@@ -233,6 +233,7 @@ def connect_segmentation_holes(mask: np.ndarray, contours: list, class_value: fl
             # Mask polygon segmentation to have same value as current category so it doesn't double back
             rr, cc = [i.astype(dtype=np.uint16) for i in skimage.draw.polygon(contour[:, 0], contour[:, 1])]
             mask_copy[rr, cc] = class_value
+            mask_copy[contour[:, 0], contour[:, 1]] = class_value
 
             start = contour[0, :]
             end = find_nearest_pixel(start, mask_copy)
@@ -376,8 +377,6 @@ def get_args() -> argparse.Namespace:
                         help="The upper score to threshold the image by, default: %(default)s")
     parser.add_argument('-t', '--tolerance', '--polygon-tolerance', type=float, default=0.0,
                         help="Threshold tolerance for polygon precision (see skimage.metrics.approximate_polygon(), default: %(default)s")
-    parser.add_argument('--fully-connected', choices=['low', 'high'], default='low',
-                        help="Passed to skimage.measure.find_contours, default: %(default)s")
     parser.add_argument('--connect-holes', action='store_true',
                         help="Connect holes in a segmentation so that they are drawn as background in annotation tool.")
     parser.add_argument('--norm', '--normalize', action='store_true',
