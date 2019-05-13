@@ -11,6 +11,7 @@ from typing import Union
 import numpy as np
 from PIL import Image
 from skimage.draw import polygon
+from skimage.morphology import dilation, square
 
 __author__ = 'Kent Hu'
 __maintainer__ = 'Kent Hu'
@@ -97,7 +98,11 @@ def main(args: argparse.Namespace):
         for annotation_id in image_id_to_ann_id[image_entry['id']]:
             annotation = coco['annotations'][annotation_id]
             for segmentation in annotation.get('segmentation', [[]]):
-                img[polygon(segmentation[1::2], segmentation[::2])] = annotation['category_id']
+                segmentation = [int(round(i)) for i in segmentation]
+                row = segmentation[1::2]
+                column = segmentation[::2]
+                img[polygon(row, column)] = annotation['category_id']
+                img[row, column] = annotation['category_id']
         bin_path = png_path = None
         if save_bin:
             bin_path = save_as_bin(img.astype(args.output_format), dir_name)
