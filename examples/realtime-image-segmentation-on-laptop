@@ -5,13 +5,16 @@
 #     (remove csv-thin, if you don't need thinning"
 # or camera may output image of different size, you may want to resize and crop differently, etc
 
+#frozen_graph="/mnt/hippo/mnt/ssd1/processed/industry-data/anadarko/gunnison/models/segmentation/deeplab/20190423.2_class_noBN/export/frozen_inference_graph_38717.pb"
+frozen_graph="/mnt/pond/processed/industry-data/anadarko/gunnison/segmentation/models/best/frozen_inference_graph.pb"
+
 if [[ -n "$1" ]]; then
     cv-cat "$@" --output no-header
 else
     cv-cat --camera "resize=906,513;crop=196,0,513,513;timestamp;view" --output no-header
 fi \
     | csv-thin 0.1 --deterministic --binary s[$(( 513 * 513 * 3 ))] \
-    | tensor-cat --frozen-graph /mnt/pond/processed/industry-data/anadarko/gunnison/segmentation/models/best/frozen_inference_graph.pb \
+    | tensor-cat --frozen-graph "$frozen_graph" \
                  --input ImageTensor:0 \
                  --input-shape 1,513,513,3 \
                  --output SemanticPredictions:0 \
