@@ -1054,9 +1054,9 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         action='store_const',
         const="image/path,"
               "image/id,"
-              "polygon/id,"
-              "polygon/category/id,"
-              "polygon/area,"
+              "id,"
+              "category/id,"
+              "area,"
               "coverage/category/id,"
               "coverage/area,"
               "coverage/ratio",
