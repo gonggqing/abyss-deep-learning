@@ -11,7 +11,6 @@ from typing import Union
 import numpy as np
 from PIL import Image
 from skimage.draw import polygon
-from skimage.morphology import dilation, square
 
 __author__ = 'Kent Hu'
 __maintainer__ = 'Kent Hu'
@@ -164,7 +163,8 @@ def normalize(arr: np.ndarray, max_val: Number = None) -> np.ndarray:
     min_val = arr.min()
     if max_val is None:
         max_val = arr.max()
-    return arr.astype(np.uint8) if min_val == max_val else ((arr - min_val) * (255.0 / (max_val - min_val))).astype(np.uint8)
+    return arr.astype(np.uint8) if min_val == max_val else ((arr - min_val) * (255.0 / (max_val - min_val))).astype(
+        np.uint8)
 
 
 def get_args() -> argparse.Namespace:

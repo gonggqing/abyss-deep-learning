@@ -55,10 +55,29 @@ examples:
         cat coco.json | coco-calc --apply-to-images tile --tiles 4,5
 """
 
+_COVERAGE_DESCRIPTION = """
+Generate coverage file for a given JSON to be used for fabric maintenance. Coverage files are essentially for a given polygon
+how much of it is covered by another category class for all category classes in either the other given JSON or in the
+intersections.csv file generated from coco-calc coverage. Polygons are matched together on the same image id they are in.
+
+examples:
+    cat first.json | coco-calc coverage --second second.json > first.coverage.csv # Generate coverage file for first JSON
+    cat second.json | coco-calc coverage --first first.json > second.coverage.csv # Generate coverage file for second JSON
+    coco-calc coverage --first first.json --second second.json > first.coverage.csv # Generate coverage file for first JSON
+    
+    cat first.json | coco-calc coverage --intersections intersections.csv # Generate coverage file for first JSON using intersections.csv file produced from coco-calc intersections
+    
+    # intersections.csv is not symmetrical so be aware of the different usage with --first/--second and --intersections
+    coco-calc coverage --first first.json --intersections intersections.csv # Generate coverage file for first JSON using intersections.csv file produced from coco-calc intersections
+    coco-calc coverage --second second.json --intersections intersections.csv # Generate coverage file for second JSON using intersections.csv file produced from coco-calc intersections
+    
+    coco-calc coverage --output-fields # Output CSV header fields
+"""
+
 _CROP_DESCRIPTION = """
 Crop images and labels; currently supports only cropping images
 
-example
+examples:
     cat crop.json | applications/coco-calc -v crop --size 513,513 --point --apply-to-images --fit
     
 """
@@ -810,57 +829,8 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
         ])
 
         # TODO: Refactor if body to function
-        if args.first is None and args.second is None:
-            coco = MyCOCO(sys.stdin)
-            logging.warning("assuming coco from stdin to be --first")
-            for img_entry in coco.images:
-                for ann in coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id'])):
-                    category_sums = {id_: 0 for id_ in df['second_cat_id'].unique().tolist()}
-                    for intersection in df[df.first_ann_id == ann['id']].itertuples(index=False):
-                        category_sums[intersection.second_cat_id] += intersection.intersection_area
-
-                    if all(area == 0 for _, area in category_sums.items()):
-                        continue
-
-                    for category, area in category_sums.items():
-                        if intersection.first_ann_area != 0:
-                            print(",".join(str(i) for i in (
-                                img_entry['path'],
-                                img_entry['id'],
-                                ann['id'],
-                                ann['category_id'],
-                                intersection.first_ann_area,
-                                category,
-                                area,
-                                float(area / intersection.first_ann_area),
-                            )))
-
-        elif args.first is not None:
-            coco = MyCOCO(args.first)
-
-            for img_entry in coco.images:
-                for ann in coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id'])):
-                    category_sums = {id_: 0 for id_ in df['second_cat_id'].unique().tolist()}
-                    for intersection in df[df.first_ann_id == ann['id']].itertuples(index=False):
-                        category_sums[intersection.second_cat_id] += intersection.intersection_area
-
-                    if all(area == 0 for _, area in category_sums.items()):
-                        continue
-
-                    for category, area in category_sums.items():
-                        if intersection.first_ann_area != 0:
-                            print(",".join(str(i) for i in (
-                                img_entry['path'],
-                                img_entry['id'],
-                                ann['id'],
-                                ann['category_id'],
-                                intersection.first_ann_area,
-                                category,
-                                area,
-                                float(area / intersection.first_ann_area),
-                            )))
-
-        elif args.second is not None:
+        coco = None
+        if args.second is not None:
             coco = MyCOCO(args.second)
 
             for img_entry in coco.images:
@@ -883,6 +853,38 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                                 category,
                                 area,
                                 float(area / intersection.second_ann_area),
+                            )))
+        else:
+            if args.first is None and args.second is None:
+                coco = MyCOCO(sys.stdin)
+                logging.warning("assuming coco from stdin to be --first")
+            elif args.first is not None:
+                coco = MyCOCO(args.first)
+
+            if coco is None:
+                logging.error("coco JSON was not loaded properly")
+                return None, 1
+
+            for img_entry in coco.images:
+                for ann in coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id'])):
+                    category_sums = {id_: 0 for id_ in df['second_cat_id'].unique().tolist()}
+                    for intersection in df[df.first_ann_id == ann['id']].itertuples(index=False):
+                        category_sums[intersection.second_cat_id] += intersection.intersection_area
+
+                    if all(area == 0 for _, area in category_sums.items()):
+                        continue
+
+                    for category, area in category_sums.items():
+                        if intersection.first_ann_area != 0:
+                            print(",".join(str(i) for i in (
+                                img_entry['path'],
+                                img_entry['id'],
+                                ann['id'],
+                                ann['category_id'],
+                                intersection.first_ann_area,
+                                category,
+                                area,
+                                float(area / intersection.first_ann_area),
                             )))
 
     return None, 0
@@ -1033,18 +1035,19 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
 
     parser_coverage = subparsers.add_parser(
         'coverage',
-        description="""""",
+        description=_COVERAGE_DESCRIPTION,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=parents,
-        help="Output coverage of polygon annotations in one JSON file against polgyon annotations in another JSON file"
+        help="Output coverage of polygon annotations in one JSON file against polygon annotations in another JSON file"
     )
     parser_coverage.add_argument(
         '--first', '--covered',
-        help="First JSON, TODO: Add better help",
+        help="First JSON file, match polygons against second JSON file and calculate coverage, or use precomputed "
+             "intersections file from coco-calc intersections to calculate coverage.",
     )
     parser_coverage.add_argument(
         '--intersections',
-        help="Intersections CSV produced from coco-calc intersections",
+        help="Intersections CSV produced from coco-calc intersections to be used rather than computing from two JSON files",
     )
     parser_coverage.add_argument(
         '--output-fields',
@@ -1057,11 +1060,12 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
               "coverage/category/id,"
               "coverage/area,"
               "coverage/ratio",
-        help="Print output CSV fields to stdout and exit",
+        help="Print output CSV header fields to stdout and exit",
     )
     parser_coverage.add_argument(
         '--second', '--covering',
-        help="Second JSON, TODO: Add better help",
+        help="Second JSON file, polygons to be matched against from first JSON file to produced coverage for first, or "
+             "use precomputed intersections file from coco-calc intersections to calculate coverage",
     )
 
     parser_intersections = subparsers.add_parser(
