@@ -498,9 +498,9 @@ def get_args() -> argparse.Namespace:
     matching_group.add_argument('--polygons', '--poly', '-p', action='store_true', help="match polygons")
     matching_group.add_argument('--pixels', '--pixel', action='store_true',
                                 help="match predictions and ground truth by a per pixel basis")
-    confusion_matrix_parser.add_argument('--prediction', '--pred', help="read predictions from input (default STDIN)")
+    confusion_matrix_parser.add_argument('--first', '--prediction', '--pred', help="read predictions from input (default STDIN)")
     confusion_matrix_parser.add_argument('--iou-threshold', default=0.5, type=float,
-                                         help="iou threshold; default: %(default)s")    
+                                         help="iou threshold; default: %(default)s")
     confusion_matrix_parser.add_argument('--normalize', action='store_true', help="normalize confusion matrix")
     confusion_matrix_parser.add_argument('--plot', action='store_true',
                                          help="plot confusion matrix, convenience option")
@@ -510,7 +510,7 @@ def get_args() -> argparse.Namespace:
                                          help="Set BG,BG predictions to 0 in output confusion")
     confusion_matrix_parser.add_argument('--score-threshold', default=0.5, type=float,
                                          help="score threshold: default: %(default)s")
-    confusion_matrix_parser.add_argument('--truth', type=str, help="ground truth coco.json file", required=True)
+    confusion_matrix_parser.add_argument('--second', '--truth', type=str, help="ground truth coco.json file", required=True)
     confusion_matrix_parser.add_argument('--csv-output-per-image', action='store_true',
                                          help="output to stdout the confusion values on a per image basis")
     confusion_matrix_parser.add_argument('--header', '--head', action='store_true',
