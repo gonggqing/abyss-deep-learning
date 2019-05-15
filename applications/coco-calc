@@ -801,6 +801,7 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                 category_sums = {id_: 0 for id_ in second_coco.getCatIds()}
                 for j in range(len(second_ann_entries)):
                     category_sums[second_ann_entries[j]['category_id']] += intersection_areas[i][j]
+
                 for category, area in category_sums.items():
                     if first_areas[i] != 0:
                         print(",".join(str(k) for k in (
@@ -839,9 +840,6 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                     for intersection in df[df.second_ann_id == ann['id']].itertuples(index=False):
                         category_sums[intersection.first_cat_id] += intersection.intersection_area
 
-                    if all(area == 0 for _, area in category_sums.items()):
-                        continue
-
                     for category, area in category_sums.items():
                         if intersection.second_ann_area != 0:
                             print(",".join(str(i) for i in (
@@ -870,9 +868,6 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                     category_sums = {id_: 0 for id_ in df['second_cat_id'].unique().tolist()}
                     for intersection in df[df.first_ann_id == ann['id']].itertuples(index=False):
                         category_sums[intersection.second_cat_id] += intersection.intersection_area
-
-                    if all(area == 0 for _, area in category_sums.items()):
-                        continue
 
                     for category, area in category_sums.items():
                         if intersection.first_ann_area != 0:
