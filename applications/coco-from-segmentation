@@ -182,14 +182,14 @@ def main(args: argparse.Namespace):
                     shape = None
                 rr, cc = [i.astype(dtype=np.uint16) for i in skimage.draw.polygon(r, c, shape=shape)]
 
+                contour = contour[(r >= 0) & (c >= 0)]
                 if not rr.size:
                     # Valid polygon could not be drawn
-                    logging.info('All polygon points (x, y) lie outside of mask height/width')
-                    area = 0
-                    score = 0
-                else:
-                    area = len(rr)
-                    score = 0 if is_hole(contour) else original_mask[rr, cc].sum() / area
+                    logging.info('All polygon points (x, y) lie outside of mask height/width or a line')
+                r = contour[:, 0]
+                c = contour[:, 1]
+                area = len(rr) + len(r)
+                score = 0 if is_hole(contour) else original_mask[np.hstack([rr, r]), np.hstack([cc, c])].sum() / area
 
                 segmentation = np.flip(contour, axis=1).ravel().tolist()
 
@@ -344,7 +344,7 @@ def bounding_box(polygon, w=None, h=None):
         min_y = max(0, min_y)
         max_x = min(w, max_x)
         max_y = min(h, max_y)
-    return [min_x, min_y, max_x - min_x, max_y - min_y]
+    return [min_x, min_y, max_x - min_x + 1, max_y - min_y + 1]
 
 
 def pretty_time(seconds: float):

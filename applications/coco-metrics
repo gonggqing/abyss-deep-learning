@@ -143,7 +143,8 @@ def confusion(args):
     for c in second['categories']:
         if c['name'] == 'BG':
             logging.error(
-                "confusion: found 'BG' in categories; cannot handle it for now: todo (for now just remove 'BG' from categories in '" + args.second + "')")
+                "confusion: found 'BG' in categories; cannot handle it for now: todo "
+                "(for now just remove 'BG' from categories in '{}')".format(args.second))
             sys.exit(1)
         category_ids.append(c['id'])
     background_id = max(category_ids) + 1
@@ -153,8 +154,7 @@ def confusion(args):
         iou_matrix = metrics.bbox_iou_matrix
     else:
         iou_matrix = metrics.poly_iou_matrix
-    result = {}
-    result['categories'] = []
+    result = dict(categories=[])
     confusion_category_ids = {}
     i = 0
     for first_cat in [{'name': 'BG', 'supercategory': '', 'id': background_id}] + first['categories']:
@@ -342,16 +342,18 @@ def confusion_matrix(args):
             for category_id, annotations in image.items():
                 prediction_annotations = annotations[0]
                 for annotation in prediction_annotations:
-                    column = annotation[:, 0]
-                    row = annotation[:, 1]
-                    rr, cc = polygon(row, column, shape)
+                    c = annotation[:, 0]
+                    r = annotation[:, 1]
+                    rr, cc = polygon(r, c, shape)
                     image_array_pred[rr, cc] = category_id
+                    image_array_pred[r, c] = category_id
                 truth_annotations = annotations[2]
                 for annotation in truth_annotations:
-                    column = annotation[:, 0]
-                    row = annotation[:, 1]
-                    rr, cc = polygon(row, column, shape)
+                    c = annotation[:, 0]
+                    r = annotation[:, 1]
+                    rr, cc = polygon(r, c, shape)
                     image_array_truth[rr, cc] = category_id
+                    image_array_truth[r, c] = category_id
 
             image_matrix = sklearn.metrics.confusion_matrix(image_array_truth.ravel(), image_array_pred.ravel(),
                                                             category_ids).astype(matrix.dtype)

@@ -85,6 +85,7 @@ def poly_intersection_area(first: List[np.array], second: List[np.array], grid_m
         rr, cc = skimage.draw.polygon(r, c, grid.shape)
         first_areas.append(len(rr))
         grid[rr, cc] = 1
+        grid[r, c] = 1
         precompute_first.append(np.array(grid))
         grid[:] = 0
     for array in second:
@@ -94,6 +95,7 @@ def poly_intersection_area(first: List[np.array], second: List[np.array], grid_m
         rr, cc = skimage.draw.polygon(r, c, grid.shape)
         second_areas.append(len(rr))
         grid[rr, cc] = 1
+        grid[r, c] = 1
         precompute_second.append(np.array(grid))
         grid[:] = 0
     # intersections = np.zeros((len(first), len(second)))
@@ -163,11 +165,13 @@ def poly_iou_matrix_deprecated(predictions_array: List[np.array], truth_arrays: 
 
     grid = np.zeros((grid_max_y, grid_max_x), dtype=np.uint8)
     for array in predictions_array:
+        grid[array[:, 1], array[:, 0]] = 1
         grid[skimage.draw.polygon(array[:, 1], array[:, 0], grid.shape)] = 1
         precompute_predictions.append(np.array(grid))
         grid[:] = 0
 
     for array in truth_arrays:
+        grid[array[:, 1], array[:, 0]] = 1
         grid[skimage.draw.polygon(array[:, 1], array[:, 0], grid.shape)] = 1
         precompute_truths.append(np.array(grid))
         grid[:] = 0
