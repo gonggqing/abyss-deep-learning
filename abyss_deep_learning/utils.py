@@ -374,9 +374,10 @@ def mask_to_polygon(mask: np.array, value: float = 1, tolerance: float = 0) -> L
         contour = close_contour(contour)
         contour = approximate_polygon(contour, tolerance)
         contour = np.flip(contour, axis=1)
-        contour = contour.ravel().tolist()
+        contour = contour.ravel()
+        contour[contour < 0] = 0
+        contour = contour.tolist()
         polygons.append(contour)
-
     return polygons
 
 
