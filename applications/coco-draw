@@ -65,6 +65,8 @@ def main(args=None):
                     default_color_pallette[cat['id']-1] = [int(ab[0]), int(ab[1]), int(ab[2])]
                     print("using custom color for {}".format(ent['name']))
 
+    display_fields = args.fields.split(',')
+
     for image in coco_file['images']:
         labels = [] # Labels either bbox or segmentation
         text_labels = [] # Text Labels with Text and origin
@@ -75,10 +77,17 @@ def main(args=None):
 
         for annotation in coco_file['annotations']:
 
-            if 'score' in annotation:
-                annotation_text = "{} -  score: {}".format(category_dict[annotation['category_id']],str(annotation['score']))
-            else:
-                annotation_text = "{}".format(category_dict[annotation['category_id']])
+            annotation_labels = []
+            for f in display_fields:
+                if f == 'category':
+                    annotation_labels.append(category_dict[annotation['category_id']])
+                elif f == 'score %' and 'score' in annotation:
+                    score = annotation['score']
+                    annotation_labels.append('score {}%'.format(round(100*score,2)))
+                elif f in annotation:
+                    annotation_labels.append('{} {}'.format(f, str(annotation[f])))
+
+            annotation_text = " ".join(annotation_labels)
 
             if image['id'] == annotation['image_id']:
                 if args.bbox:
@@ -166,6 +175,10 @@ def parse_cli():
     parser.add_argument('-b', '--bbox', action='store_true' ,
                         help="If specified, draws only bounding boxes, otherwise will default to segmentation")
     parser.add_argument('--no-text', action='store_true', help="just draw, do not add text labels")
+    parser.add_argument('--fields', type=str, help="display FIELDS as text "
+                                                   "- comma separated list of fields in coco annotation "
+                                                   "e.g. score, area. Also: score %%,category "
+                                                   "default: %(default)s", default='category,score')
     parser.add_argument('-t', '--border', type=int, default=1,
                         help="Specifies border thinkness of annotations")
     parser.add_argument('--path-trim-depth', '--trim-depth', '--depth', type=int,
