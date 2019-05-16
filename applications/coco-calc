@@ -132,7 +132,7 @@ def main(args: argparse.Namespace) -> int:
     logging.basicConfig(
         level=args.loglevel,
         datefmt='%Y-%m-%d %H:%M:%S',
-        format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: line no %(lineno)s: %(message)s',
+        format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: line %(lineno)s: %(message)s',
     )
 
     try:
@@ -721,7 +721,7 @@ def intersections(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
         second_ann_entries, second_polys = get_img_polys(second_coco, second_img_entry['id'])
         first_areas, second_areas, intersection_areas = poly_intersection_area(first_polys, second_polys)
         if intersection_areas.size == 0:
-            logging.warning("Skipping image {} as no annotations exist".format(first_img_entry['id']))
+            logging.warning("skipping image {} as no intersections exist".format(first_img_entry['id']))
             continue
 
         first_areas = np.array(first_areas, dtype=np.uint)  # cast to numpy array
@@ -804,10 +804,7 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                 raise e
             first_ann_entries, first_polys = get_img_polys(first_coco, first_img_entry['id'])
             second_ann_entries, second_polys = get_img_polys(second_coco, second_img_entry['id'])
-            first_areas, _, intersection_areas = poly_intersection_area(first_polys, second_polys)
-            if intersection_areas.size == 0:
-                logging.warning("skipping image {} as no annotations exist".format(first_img_entry['id']))
-                continue
+            first_areas, second_areas, intersection_areas = poly_intersection_area(first_polys, second_polys)
 
             first_areas = np.array(first_areas, dtype=np.uint)
             for i in range(len(first_ann_entries)):
@@ -875,7 +872,6 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                             "annotation {} from {} may be malformed polygon or missing from {} as it has area {}".format(
                                 ann['id'], args.second, args.intersections, second_area
                             ))
-                        logging.warning('consider recalculating annotation area')
                         logging.warning("setting annotation {} to area from {} with area of {}".format(
                             ann['id'], args.second, ann.get('area')
                         ))
@@ -923,7 +919,6 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                             "annotation {} from {} may be malformed polygon or missing from {} as it has area {}".format(
                                 ann['id'], args.first, args.intersections, first_area
                             ))
-                        logging.warning('consider recalculating annotation area')
                         logging.warning("setting annotation {} to area from {} with area of {}".format(
                             ann['id'], args.first, ann.get('area')
                         ))
