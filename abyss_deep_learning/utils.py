@@ -1,20 +1,22 @@
 import json
 import logging
-from collections import Counter
 import os
-import warnings
 import sys
+import warnings
+from collections import Counter
 from contextlib import redirect_stdout
 from io import TextIOWrapper
 from numbers import Number
 from typing import Tuple, Union, List
 
-from pycocotools import mask as maskUtils
+import PIL.Image
 import cv2
 import numpy as np
-import PIL.Image
 import pandas as pd
+from pycocotools import mask as maskUtils
 from pycocotools.coco import COCO
+from skimage.draw import polygon, polygon_perimeter
+from skimage.measure import find_contours, approximate_polygon
 
 
 def cv2_to_Pil(image):
@@ -316,16 +318,66 @@ def imwrite(im: Union[np.ndarray, PIL.Image.Image], path: str, size: Tuple[int, 
     im.save(path)
 
 
-def poly_x(poly: List[Number]) -> np.array:
-    return np.array(poly[::2])
+def close_contour(contour: np.array):
+    """
+    Snippet taken from pycococreator
+    """
+    if not np.array_equal(contour[0], contour[-1]):
+        contour = np.vstack([contour, contour[0]])
+
+    return contour
 
 
-def poly_y(poly: List[Number]) -> np.array:
-    return np.array(poly[1::2])
+def polygon_x(polygon_: List[Number]) -> np.array:
+    return np.array(polygon_[::2])
 
 
-def poly_area(x: np.array, y: np.array) -> float:
+def polygon_y(polygon_: List[Number]) -> np.array:
+    return np.array(polygon_[1::2])
+
+
+def polygon_area(x: np.array, y: np.array) -> float:
+    logging.warning("incorrect way of calculating polygon area, please use mask.area from pycocotools")
     return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
+
+
+def x_y_to_polygon(x: np.array, y: np.array) -> np.array:
+    flat = np.empty([x.size + y.size], dtype=float)
+    flat[0::2] = x
+    flat[1::2] = y
+    return flat
+
+
+def polygon_to_mask(polygon_: List[Union[int, float]], value: float = 1) -> np.array:
+    x = np.round(polygon_[::2]).astype(int)
+    y = np.round(polygon_[1::2]).astype(int)
+    max_x = np.max(x) + 1
+    max_y = np.max(y) + 1
+    grid = np.zeros([max_y, max_x])
+    grid[polygon(y, x)] = value
+    grid[polygon_perimeter(y, x)] = value
+    return grid
+
+
+def polygon_points(polygon_: List[Union[int, float]]) -> np.array:
+    x = np.round(polygon_[::2]).astype(int)
+    y = np.round(polygon_[1::2]).astype(int)
+    return np.hstack([polygon(y, x), polygon_perimeter(y, x)])
+
+
+def mask_to_polygon(mask: np.array, value: float = 1, tolerance: float = 0) -> List[Union[int, float]]:
+    polygons = []
+    padded_mask = np.pad(mask, pad_width=1, mode='constant', constant_values=0)
+    contours = find_contours(padded_mask, value - np.finfo(type(value)) * 2)
+    contours = np.subtract(contours, 1)
+    for contour in contours:
+        contour = close_contour(contour)
+        contour = approximate_polygon(contour, tolerance)
+        contour = np.flip(contour, axis=1)
+        contour = contour.ravel().tolist()
+        polygons.append(contour)
+
+    return polygons
 
 
 def bbox_area(bbox: List[Number]) -> Number:
@@ -333,7 +385,7 @@ def bbox_area(bbox: List[Number]) -> Number:
     return width * height
 
 
-def bbox_to_segmentation(bbox: List[Number]) -> List[Number]:
+def bbox_to_polygon(bbox: List[Union[int, float]]) -> List[Union[int, float]]:
     """
     Args:
         bbox: [x, y, width, height]
@@ -342,10 +394,10 @@ def bbox_to_segmentation(bbox: List[Number]) -> List[Number]:
         Polygon equivalent of bounding box
     """
     x, y, width, height = bbox
-    return [x, y, x, y + height, x + width, y + height, x + width, y]
+    return [x, y, x + width, y, x + width, y + height, x, y + height]
 
 
-def segmentation_to_bbox(poly: List[Number]) -> List[Number]:
+def polygon_to_bbox(poly: List[Union[int, float]]) -> List[Union[int, float]]:
     """
     Args:
         poly: List of alternating <x, y> points i.e. [x1, y1, x2, y2, ..., xN, yN]
@@ -359,7 +411,7 @@ def segmentation_to_bbox(poly: List[Number]) -> List[Number]:
     max_x = max(x)
     min_y = min(y)
     max_y = max(y)
-    return min_x, min_y, max_x - min_x, max_y - min_y
+    return [min_x, min_y, max_x - min_x + 1, max_y - min_y + 1]
 
 
 def do_overlap(bbox_a: Tuple[int, int, int, int], bbox_b: Tuple[int, int, int, int]):

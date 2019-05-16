@@ -12,7 +12,7 @@ from typing import Tuple
 import numpy as np
 
 from abyss_deep_learning import metrics
-from abyss_deep_learning.utils import bbox_to_segmentation
+from abyss_deep_learning.utils import bbox_to_polygon, MyCOCO
 
 np.set_printoptions(threshold=np.inf)
 
@@ -194,7 +194,7 @@ def confusion(args):
                 a['category_id'] = confusion_category_ids[
                     (second['annotations'][second_indexes[indices[1][i]]]['category_id'], a['category_id'])]
                 if not 'segmentation' in a or a['segmentation'] is None:
-                    a['segmentation'] = bbox_to_segmentation(a['bbox'])
+                    a['segmentation'] = bbox_to_polygon(a['bbox'])
                 result['annotations'].append(a)
             first_only = np.array(first_indexes)[np.nonzero(np.max(m, axis=1) == 0)[0]]
             second_only = np.array(second_indexes)[np.nonzero(np.max(m, axis=0) == 0)[0]]
@@ -205,7 +205,7 @@ def confusion(args):
                 a['score'] = 0
             a['category_id'] = confusion_category_ids[(background_id, a['category_id'])]
             if not 'segmentation' in a or a['segmentation'] is None:
-                a['segmentation'] = bbox_to_segmentation(a['bbox'])
+                a['segmentation'] = bbox_to_polygon(a['bbox'])
             result['annotations'].append(a)
         for i in second_only:
             a = copy.deepcopy(second['annotations'][i])
@@ -214,7 +214,7 @@ def confusion(args):
                 a['score'] = 0
             a['category_id'] = confusion_category_ids[(a['category_id'], background_id)]
             if not 'segmentation' in a or a['segmentation'] is None:
-                a['segmentation'] = bbox_to_segmentation(a['bbox'])
+                a['segmentation'] = bbox_to_polygon(a['bbox'])
             result['annotations'].append(a)
     # print("--> len(second['images']):", len(second['images']), file = sys.stderr)
     result['images'] = copy.deepcopy(second['images'])
@@ -435,7 +435,7 @@ def tfpn(args: argparse.Namespace):
                 a['score'] = ious[tp[0][i], tp[1][i]]
                 a['category_id'] = 1 + category_id_offset
                 if 'segmentation' not in a or a['segmentation'] is None:
-                    a['segmentation'] = bbox_to_segmentation(a['bbox'])
+                    a['segmentation'] = bbox_to_polygon(a['bbox'])
                 result['annotations'].append(a)
             for i in fp:
                 a = copy.deepcopy(predicted['annotations'][annotations[1][i]])
@@ -443,7 +443,7 @@ def tfpn(args: argparse.Namespace):
                 a['score'] = 0
                 a['category_id'] = 2 + category_id_offset
                 if 'segmentation' not in a or a['segmentation'] is None:
-                    a['segmentation'] = bbox_to_segmentation(a['bbox'])
+                    a['segmentation'] = bbox_to_polygon(a['bbox'])
                 result['annotations'].append(a)
             for i in tn:
                 a = copy.deepcopy(truth['annotations'][annotations[3][i]])
@@ -451,7 +451,7 @@ def tfpn(args: argparse.Namespace):
                 a['score'] = 0
                 a['category_id'] = 3 + category_id_offset
                 if 'segmentation' not in a or a['segmentation'] is None:
-                    a['segmentation'] = bbox_to_segmentation(a['bbox'])
+                    a['segmentation'] = bbox_to_polygon(a['bbox'])
                 result['annotations'].append(a)
             for i in fn:
                 a = copy.deepcopy(truth['annotations'][annotations[3][i]])
@@ -459,7 +459,7 @@ def tfpn(args: argparse.Namespace):
                 a['score'] = 0
                 a['category_id'] = 4 + category_id_offset
                 if 'segmentation' not in a or a['segmentation'] is None:
-                    a['segmentation'] = bbox_to_segmentation(a['bbox'])
+                    a['segmentation'] = bbox_to_polygon(a['bbox'])
                 result['annotations'].append(a)
     result['categories'] = []
     if args.flat_categories:
@@ -496,6 +496,50 @@ def tfpn(args: argparse.Namespace):
         url='http://www.abysssolutions.com.au',
     )
     json.dump(result, sys.stdout, indent=4)
+
+
+def roc_curve(args: argparse.Namespace) -> int:
+    raise NotImplementedError("receiver operating characteristic curve not yet implemented")
+    from abyss_deep_learning.metrics import poly_intersection_area
+
+    first_coco = None
+    if args.first is not None:
+        first_coco = MyCOCO(args.first)
+
+    second_coco = MyCOCO(args.second)
+
+    cats = second_coco.getCatIds()
+    coverage_cats = first_coco.getCatIds()
+    fpr, tpr, roc_auc = {}, {}, {}
+
+    for cat in cats:
+        for second_img_entry in second_coco.loadImgs(second_coco.getImgIds(catIds=cat)):
+            second_ann_entries = second_coco.loadAnns(second_coco.getAnnIds(imgIds=second_img_entry['id']))
+            if not second_ann_entries:
+                logging.info("Skipping image {} as no annotations exist for it".format(second_img_entry['id']))
+                continue
+
+            second_polys = []
+            for ann in second_ann_entries:
+                seg = ann['segmentation'][0]
+                num_points = len(seg) // 2
+                second_polys.append(np.reshape(np.array(seg), (num_points, 2)))
+
+            first_ann_entries = first_coco.loadAnns(first_coco.getAnnIds(imgIds=second_img_entry['id']))
+
+            first_polys = []
+            for ann in first_ann_entries:
+                seg = ann['segmentation'][0]
+                num_points = len(seg) // 2
+                first_polys.append(np.reshape(np.array(seg), (num_points, 2)))
+
+            first_areas, second_areas, intersection_areas = poly_intersection_area(first_polys, second_polys)
+
+    return 0
+
+
+def pr_curve(args: argparse.Namespace) -> int:
+    raise NotImplementedError("precision-recall curve has not yet been implemented")
 
 
 def get_args() -> argparse.Namespace:
@@ -609,17 +653,68 @@ def get_args() -> argparse.Namespace:
     )
     confusion_matrix_parser.set_defaults(func=confusion_matrix)
 
-    confusion_matrix_parser.add_argument('--normalize', action='store_true', help="normalize confusion matrix")
-    confusion_matrix_parser.add_argument('--plot', action='store_true',
-                                         help="plot confusion matrix, convenience option")
-    confusion_matrix_parser.add_argument('--save-figure', action='store_true',
-                                         help="save plotted confusion matrix, convenience option")
-    confusion_matrix_parser.add_argument('--suppress-background', action='store_true',
-                                         help="Set BG,BG predictions to 0 in output confusion")
-    confusion_matrix_parser.add_argument('--csv-output-per-image', action='store_true',
-                                         help="output to stdout the confusion values on a per image basis")
-    confusion_matrix_parser.add_argument('--header', '--head', action='store_true',
-                                         help="output csv header for each column")
+    confusion_matrix_parser.add_argument(
+        '--normalize',
+        action='store_true',
+        help="normalize confusion matrix",
+    )
+    confusion_matrix_parser.add_argument(
+        '--plot',
+        action='store_true',
+        help="plot confusion matrix, convenience option",
+    )
+    confusion_matrix_parser.add_argument(
+        '--save-figure',
+        action='store_true',
+        help="save plotted confusion matrix, convenience option",
+    )
+    confusion_matrix_parser.add_argument(
+        '--suppress-background',
+        action='store_true',
+        help="Set BG,BG predictions to 0 in output confusion",
+    )
+    confusion_matrix_parser.add_argument(
+        '--csv-output-per-image',
+        action='store_true',
+        help="output to stdout the confusion values on a per image basis",
+    )
+    confusion_matrix_parser.add_argument(
+        '--header', '--head',
+        action='store_true',
+        help="output csv header for each column",
+    )
+
+    roc_curve_parser = subparsers.add_parser(
+        'roc-curve',
+        description="TODO: ",
+        help="TODO: ",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[verbose, debug, files, thresholds],
+    )
+    roc_curve_parser.add_argument(
+        '--coverage',
+        action='store_const',
+        const='coverage',
+        dest='method',  # Not sure about naming of this,
+        help='intersection of first polys on second poly over second poly area',
+    )
+    roc_curve_parser.set_defaults(func=roc_curve)
+
+    pr_curve_parser = subparsers.add_parser(
+        'pr-curve',
+        description='TODO: ',
+        help='TODO: ',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[verbose, debug, files, thresholds],
+    )
+    pr_curve_parser.add_argument(
+        '--coverage',
+        action='store_const',
+        const='coverage',
+        dest='method',
+        help='intersection of first polys on second poly over second poly area',
+    )
+    pr_curve_parser.set_defaults(func=pr_curve)
 
     return parser.parse_args()
 
