@@ -16,7 +16,7 @@ from PIL import Image
 from pycocotools.coco import COCO
 
 from abyss_deep_learning.metrics import poly_intersection_area
-from abyss_deep_learning.utils import poly_area, imwrite, imread, do_overlap, poly_x, poly_y, MyCOCO
+from abyss_deep_learning.utils import polygon_area, imwrite, imread, do_overlap, polygon_x, polygon_y, MyCOCO
 
 __author__ = 'Kent Hu, Vsevolod Vlaskine'
 
@@ -132,7 +132,7 @@ def main(args: argparse.Namespace) -> int:
     logging.basicConfig(
         level=args.loglevel,
         datefmt='%Y-%m-%d %H:%M:%S',
-        format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
+        format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: line no %(lineno)s: %(message)s',
     )
 
     try:
@@ -236,7 +236,7 @@ def crop(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                 cropped_ann['image_id'] = cropped_entry['id']
                 if cropped_bbox is None or cropped_poly is None:
                     continue
-                cropped_ann['area'] = poly_area(np.array(cropped_poly[::2]), np.array(cropped_poly[1::2]))
+                cropped_ann['area'] = polygon_area(np.array(cropped_poly[::2]), np.array(cropped_poly[1::2]))
                 anns_out.append(cropped_ann)
             if args.apply_to_images:
                 imwrite(cropped, out_path)
@@ -448,7 +448,7 @@ def resize(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                 # Flatten the list of tuples
                 new_segment = list(itertools.chain(*new_segment))
                 ann['segmentation'] = [new_segment]
-                ann['area'] = poly_area(poly_x(new_segment), poly_y(new_segment))
+                ann['area'] = polygon_area(polygon_x(new_segment), polygon_y(new_segment))
             elif type(tmp) is dict:
                 logging.warning("RLE is not yet supported")
             else:
@@ -721,10 +721,11 @@ def intersections(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
         second_ann_entries, second_polys = get_img_polys(second_coco, second_img_entry['id'])
         first_areas, second_areas, intersection_areas = poly_intersection_area(first_polys, second_polys)
         if intersection_areas.size == 0:
-            logging.info("Skipping image {} as no annotations exist".format(first_img_entry['id']))
+            logging.warning("Skipping image {} as no annotations exist".format(first_img_entry['id']))
             continue
-        first_areas = np.array(first_areas, dtype=np.uint)
-        second_areas = np.array(second_areas, dtype=np.uint)
+
+        first_areas = np.array(first_areas, dtype=np.uint)  # cast to numpy array
+        second_areas = np.array(second_areas, dtype=np.uint)  # cast to numpy array
         if args.output_non_intersecting == 'first':
             first_idxs = np.where(~intersection_areas.any(axis=1))[0]
             for i in first_idxs.tolist():
@@ -748,6 +749,16 @@ def intersections(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
         else:
             first_idxs, second_idxs = np.where(intersection_areas != 0)
             for i, j in zip(first_idxs.tolist(), second_idxs.tolist()):
+                if first_areas[i] <= 0:
+                    logging.warning("annotation {} from {} may be malformed polygon as it has area {}".format(
+                        first_ann_entries[i]['id'], args.first, first_areas[i]
+                    ))
+
+                if second_areas[j] <= 0:
+                    logging.warning("annotation {} from {} may be malformed polygon as it has area {}".format(
+                        second_ann_entries[j]['id'], args.second, second_areas[j]
+                    ))
+
                 print(",".join(str(k) for k in (
                     first_img_entry['path'],
                     first_img_entry['id'],
@@ -779,41 +790,58 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
             first_coco = MyCOCO(args.first)
             second_coco = MyCOCO(args.second)
 
-        assert first_coco is not None and second_coco is not None, "Could not load first or second COCO file"
+        assert first_coco is not None and second_coco is not None, "could not load first or second COCO file"
 
         for first_img_entry in first_coco.images:
             try:
                 second_img_entry = second_coco.loadImgs(ids=first_img_entry['id']).pop()
             except KeyError as e:
                 logging.warning(
-                    "Cannot find matching image {} from stdin in JSON file {},"
-                    "try matching image ids using coco-calc assign-new-image-ids".format(first_img_entry['id'], args.second)
+                    "cannot find matching image {} from stdin in JSON file {},"
+                    "try matching image ids using coco-calc assign-new-image-ids".format(first_img_entry['id'],
+                                                                                         args.second)
                 )
                 raise e
             first_ann_entries, first_polys = get_img_polys(first_coco, first_img_entry['id'])
             second_ann_entries, second_polys = get_img_polys(second_coco, second_img_entry['id'])
             first_areas, _, intersection_areas = poly_intersection_area(first_polys, second_polys)
             if intersection_areas.size == 0:
-                logging.info("Skipping image {} as no annotations exist".format(first_img_entry['id']))
+                logging.warning("skipping image {} as no annotations exist".format(first_img_entry['id']))
                 continue
+
             first_areas = np.array(first_areas, dtype=np.uint)
             for i in range(len(first_ann_entries)):
+                first_area = first_areas[i]
+                if first_area <= 0:
+                    logging.warning("annotation {} from {} may be malformed polygon as it has area {}".format(
+                        first_ann_entries[i]['id'], args.first, first_area
+                    ))
+                    logging.warning("setting annotation {} to area from {} with area of {}".format(
+                        first_ann_entries[i]['id'], args.first, first_ann_entries[i].get('area')
+                    ))
+                    first_area = first_ann_entries[i].get('area', 0)
+
+                if first_area <= 0:
+                    logging.warning("annotation {} from {} has incorrect area value of {}, setting to -1".format(
+                        first_ann_entries[i]['id'], args.first, first_area
+                    ))
+                    first_area = -1
+
                 category_sums = {id_: 0 for id_ in second_coco.getCatIds()}
                 for j in range(len(second_ann_entries)):
                     category_sums[second_ann_entries[j]['category_id']] += intersection_areas[i][j]
 
                 for category, area in category_sums.items():
-                    if first_areas[i] != 0:
-                        print(",".join(str(k) for k in (
-                            first_img_entry['path'],
-                            first_img_entry['id'],
-                            first_ann_entries[i]['id'],
-                            first_ann_entries[i]['category_id'],
-                            first_areas[i],
-                            category,
-                            area,
-                            float(area / first_areas[i])
-                        )))
+                    print(",".join(str(k) for k in (
+                        first_img_entry['path'],
+                        first_img_entry['id'],
+                        first_ann_entries[i]['id'],
+                        first_ann_entries[i]['category_id'],
+                        first_area,
+                        category,
+                        area,
+                        float(area / first_area)
+                    )))
     else:
         # TODO: Check with Seva if category ids should be inferred from input JSON or from input CSV
         logging.warning("inferring coverage category ids from {}".format(args.intersections))
@@ -842,18 +870,35 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                         second_area = intersection.second_ann_area
                         category_sums[intersection.first_cat_id] += intersection.intersection_area
 
+                    if second_area <= 0:
+                        logging.warning(
+                            "annotation {} from {} may be malformed polygon or missing from {} as it has area {}".format(
+                                ann['id'], args.second, args.intersections, second_area
+                            ))
+                        logging.warning('consider recalculating annotation area')
+                        logging.warning("setting annotation {} to area from {} with area of {}".format(
+                            ann['id'], args.second, ann.get('area')
+                        ))
+                        second_area = ann.get('area', 0)
+
+                    if second_area <= 0:
+                        logging.warning("annotation {} from {} has incorrect area value of {}, setting to -1".format(
+                            ann['id'], args.second, second_area
+                        ))
+                        second_area = -1
+
                     for category, area in category_sums.items():
-                        if second_area:
-                            print(",".join(str(i) for i in (
-                                img_entry['path'],
-                                img_entry['id'],
-                                ann['id'],
-                                ann['category_id'],
-                                second_area,
-                                category,
-                                area,
-                                float(area / second_area),
-                            )))
+                        print(",".join(str(i) for i in (
+                            img_entry['path'],
+                            img_entry['id'],
+                            ann['id'],
+                            ann['category_id'],
+                            second_area,
+                            category,
+                            area,
+                            float(area / second_area),
+                        )))
+
         else:
             if args.first is None and args.second is None:
                 coco = MyCOCO(sys.stdin)
@@ -873,18 +918,34 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                         first_area = intersection.first_ann_area
                         category_sums[intersection.second_cat_id] += intersection.intersection_area
 
+                    if first_area <= 0:
+                        logging.warning(
+                            "annotation {} from {} may be malformed polygon or missing from {} as it has area {}".format(
+                                ann['id'], args.first, args.intersections, first_area
+                            ))
+                        logging.warning('consider recalculating annotation area')
+                        logging.warning("setting annotation {} to area from {} with area of {}".format(
+                            ann['id'], args.first, ann.get('area')
+                        ))
+                        first_area = ann.get('area', 0)
+
+                    if first_area <= 0:
+                        logging.warning("annotation {} from {} has incorrect area value of {}, setting to -1".format(
+                            ann['id'], args.first, first_area
+                        ))
+                        first_area = -1
+
                     for category, area in category_sums.items():
-                        if first_area != 0:
-                            print(",".join(str(i) for i in (
-                                img_entry['path'],
-                                img_entry['id'],
-                                ann['id'],
-                                ann['category_id'],
-                                first_area,
-                                category,
-                                area,
-                                float(area / first_area),
-                            )))
+                        print(",".join(str(i) for i in (
+                            img_entry['path'],
+                            img_entry['id'],
+                            ann['id'],
+                            ann['category_id'],
+                            first_area,
+                            category,
+                            area,
+                            float(area / first_area),
+                        )))
 
     return None, 0
 
