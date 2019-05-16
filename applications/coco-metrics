@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Tuple
 
 import numpy as np
+from skimage.draw import polygon_perimeter
 
 from abyss_deep_learning import metrics
 from abyss_deep_learning.utils import bbox_to_polygon, MyCOCO
@@ -342,18 +343,18 @@ def confusion_matrix(args):
             for category_id, annotations in image.items():
                 prediction_annotations = annotations[0]
                 for annotation in prediction_annotations:
+                    annotation = np.round(annotation).astype(int)
                     c = annotation[:, 0]
                     r = annotation[:, 1]
-                    rr, cc = polygon(r, c, shape)
-                    image_array_pred[rr, cc] = category_id
-                    image_array_pred[r, c] = category_id
+                    image_array_pred[polygon(r, c, shape)] = category_id
+                    image_array_pred[polygon_perimeter(r, c, shape)] = category_id
                 truth_annotations = annotations[2]
                 for annotation in truth_annotations:
+                    annotation = np.round(annotation).astype(int)
                     c = annotation[:, 0]
                     r = annotation[:, 1]
-                    rr, cc = polygon(r, c, shape)
-                    image_array_truth[rr, cc] = category_id
-                    image_array_truth[r, c] = category_id
+                    image_array_truth[polygon(r, c, shape)] = category_id
+                    image_array_truth[polygon_perimeter(r, c, shape)] = category_id
 
             image_matrix = sklearn.metrics.confusion_matrix(image_array_truth.ravel(), image_array_pred.ravel(),
                                                             category_ids).astype(matrix.dtype)
