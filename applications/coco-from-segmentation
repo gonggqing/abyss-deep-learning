@@ -13,7 +13,7 @@ import numpy as np
 import skimage
 from PIL import Image
 
-from abyss_deep_learning.utils import imread
+from abyss_deep_learning.utils import imread, polygon_to_bbox, polygon_to_mask
 
 __author__ = 'Kent Hu, and Jeff Mohammed'
 __maintainer__ = 'Kent Hu'
@@ -169,40 +169,33 @@ def main(args: argparse.Namespace):
             original_entry.update({'id': 0})
             coco_json['images'].append(original_entry)
             coco_json['annotations'] = []
+        shape = (mask_entry.get('height'), mask_entry.get('width'))
+        if None in shape:
+            logging.warning("shape of mask entry unknown, using height -> {} and width -> {}".format(height, width))
+            shape = height, width
         for contours, category_id in zip(category_contours, category_ids):
             logging.info("{} contours in category {}".format(len(contours), category_id))
+            contours = np.subtract(contours, 1)
             for contour in contours:
-                contour -= padding
                 contour = skimage.measure.approximate_polygon(contour, args.tolerance)
-
-                r = contour[:, 0]
-                c = contour[:, 1]
-                shape = (mask_entry.get('height'), mask_entry.get('width'))
-                if None in shape:
-                    shape = None
-                rr, cc = [i.astype(dtype=np.uint16) for i in skimage.draw.polygon(r, c, shape=shape)]
-
-                contour = contour[(r >= 0) & (c >= 0)]
-                if not rr.size:
-                    # Valid polygon could not be drawn
-                    logging.info('All polygon points (x, y) lie outside of mask height/width or a line')
-                r = contour[:, 0]
-                c = contour[:, 1]
-                area = len(rr) + len(r)
+                contour[contour < 0] = 0
+                polygon = np.flip(contour, axis=1).ravel().tolist()
+                grid = polygon_to_mask(polygon)
+                rr, cc = [i.astype(dtype=np.uint16) for i in skimage.draw.polygon(contour[:, 0], contour[:, 1], shape=shape)]
+                r, c = [i.astype(dtype=np.uint16) for i in skimage.draw.polygon_perimeter(contour[:, 0], contour[:, 1], shape=shape)]
+                area = np.count_nonzero(grid)
                 score = 0 if is_hole(contour) else original_mask[np.hstack([rr, r]), np.hstack([cc, c])].sum() / area
-
-                segmentation = np.flip(contour, axis=1).ravel().tolist()
-
                 coco_json['annotations'].append({
                     "id": len(coco_json['annotations']),
                     "image_id": original_entry['id'],
                     "category_id": category_id,
-                    "segmentation": [segmentation],
+                    "segmentation": [polygon],
                     "area": area,
-                    "bbox": bounding_box([segmentation[n:n + 2] for n in range(0, len(segmentation), 2)]),
+                    "bbox": polygon_to_bbox(polygon),
                     "iscrowd": 0,
                     "score": score,
                 })
+
         if args.save_per_image:
             with open(os.path.join(os.path.dirname(mask_entry['path']),
                                    "{}.{}".format(os.path.splitext(mask_entry['file_name'])[0], 'json')), "w") as f:
