@@ -837,20 +837,22 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
             for img_entry in coco.images:
                 for ann in coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id'])):
                     category_sums = {id_: 0 for id_ in df['first_cat_id'].unique().tolist()}
+                    second_area = 0
                     for intersection in df[df.second_ann_id == ann['id']].itertuples(index=False):
+                        second_area = intersection.second_ann_area
                         category_sums[intersection.first_cat_id] += intersection.intersection_area
 
                     for category, area in category_sums.items():
-                        if intersection.second_ann_area != 0:
+                        if second_area:
                             print(",".join(str(i) for i in (
                                 img_entry['path'],
                                 img_entry['id'],
                                 ann['id'],
                                 ann['category_id'],
-                                intersection.second_ann_area,
+                                second_area,
                                 category,
                                 area,
-                                float(area / intersection.second_ann_area),
+                                float(area / second_area),
                             )))
         else:
             if args.first is None and args.second is None:
@@ -866,20 +868,22 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
             for img_entry in coco.images:
                 for ann in coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id'])):
                     category_sums = {id_: 0 for id_ in df['second_cat_id'].unique().tolist()}
+                    first_area = 0
                     for intersection in df[df.first_ann_id == ann['id']].itertuples(index=False):
+                        first_area = intersection.first_ann_area
                         category_sums[intersection.second_cat_id] += intersection.intersection_area
 
                     for category, area in category_sums.items():
-                        if intersection.first_ann_area != 0:
+                        if first_area != 0:
                             print(",".join(str(i) for i in (
                                 img_entry['path'],
                                 img_entry['id'],
                                 ann['id'],
                                 ann['category_id'],
-                                intersection.first_ann_area,
+                                first_area,
                                 category,
                                 area,
-                                float(area / intersection.first_ann_area),
+                                float(area / first_area),
                             )))
 
     return None, 0
