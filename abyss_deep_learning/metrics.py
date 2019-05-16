@@ -83,7 +83,10 @@ def poly_intersection_area(first: List[np.array], second: List[np.array], grid_m
         c = array[:, 0]
         first_bboxes.append((min(c), min(r), max(c), max(r)))
         rr, cc = skimage.draw.polygon(r, c, grid.shape)
-        first_areas.append(len(rr))
+        array = array[(r >= 0) & (c >= 0)]
+        r = array[:, 1]
+        c = array[:, 0]
+        first_areas.append(len(rr) + len(r))
         grid[rr, cc] = 1
         grid[r.astype(int), c.astype(int)] = 1
         precompute_first.append(np.array(grid))
@@ -93,7 +96,10 @@ def poly_intersection_area(first: List[np.array], second: List[np.array], grid_m
         c = array[:, 0]
         second_bboxes.append((min(c), min(r), max(c), max(r)))
         rr, cc = skimage.draw.polygon(r, c, grid.shape)
-        second_areas.append(len(rr))
+        array = array[(r >= 0) & (c >= 0)]
+        r = array[:, 1]
+        c = array[:, 0]
+        second_areas.append(len(rr) + len(r))
         grid[rr, cc] = 1
         grid[r.astype(int), c.astype(int)] = 1
         precompute_second.append(np.array(grid))
