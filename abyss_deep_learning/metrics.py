@@ -4,6 +4,7 @@ from typing import List
 import numpy as np
 import skimage
 from scipy.optimize import linear_sum_assignment
+from skimage.draw import polygon, polygon_perimeter
 
 from abyss_deep_learning.utils import do_overlap
 
@@ -81,35 +82,32 @@ def poly_intersection_area(first: List[np.array], second: List[np.array], grid_m
     first_bboxes = []
     second_bboxes = []
     for array in first:
+        array = np.round(array).astype(int)
         r = array[:, 1]
         c = array[:, 0]
-        first_bboxes.append((min(c), min(r), max(c), max(r)))
-        rr, cc = skimage.draw.polygon(r, c, grid.shape)
-        # TODO: use skimage.draw.polygon_perimeter
         r[r < 0] = 0
         c[c < 0] = 0
         r[r >= grid_max_y] = grid_max_y - 1
         c[c >= grid_max_x] = grid_max_x - 1
-        # TODO: len(r) is naive solution, need to fix later
-        first_areas.append(len(rr) + len(r))
-        grid[rr, cc] = 1
-        grid[r.astype(int), c.astype(int)] = 1
-        precompute_first.append(np.array(grid))
+        first_bboxes.append((min(c), min(r), max(c), max(r)))
+        grid[polygon(r, c, grid.shape)] = 1
+        grid[polygon_perimeter(r, c, grid.shape)] = 1
+        first_areas.append(np.count_nonzero(grid))
+        precompute_first.append(np.array(grid))  # make a copy of grid
         grid[:] = 0
     for array in second:
+        array = np.round(array).astype(int)
         r = array[:, 1]
         c = array[:, 0]
-        second_bboxes.append((min(c), min(r), max(c), max(r)))
-        rr, cc = skimage.draw.polygon(r, c, grid.shape)
         r[r < 0] = 0
         c[c < 0] = 0
         r[r >= grid_max_y] = grid_max_y - 1
         c[c >= grid_max_x] = grid_max_x - 1
-        # TODO: len(r) is naive solution, need to fix later
-        second_areas.append(len(rr) + len(r))
-        grid[rr, cc] = 1
-        grid[r.astype(int), c.astype(int)] = 1
-        precompute_second.append(np.array(grid))
+        second_bboxes.append((min(c), min(r), max(c), max(r)))
+        grid[polygon(r, c, grid.shape)] = 1
+        grid[polygon_perimeter(r, c, grid.shape)] = 1
+        second_areas.append(np.count_nonzero(grid))
+        precompute_second.append(np.array(grid))  # make a copy of grid
         grid[:] = 0
     # intersections = np.zeros((len(first), len(second)))
     intersections = []
