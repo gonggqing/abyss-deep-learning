@@ -71,8 +71,10 @@ def poly_intersection_area(first: List[np.array], second: List[np.array], grid_m
         for array in first + second:
             # Get max value per row entry in the array
             upper_val_x, upper_val_y = array.max(axis=0)
-            if upper_val_x > grid_max_x: grid_max_x = int(upper_val_x) + 1
-            if upper_val_y > grid_max_y: grid_max_y = int(upper_val_y) + 1
+            if upper_val_x > grid_max_x:
+                grid_max_x = int(upper_val_x) + 1
+            if upper_val_y > grid_max_y:
+                grid_max_y = int(upper_val_y) + 1
     grid = np.zeros((grid_max_y, grid_max_x), dtype=np.uint8)
     first_areas = []
     second_areas = []
@@ -83,9 +85,12 @@ def poly_intersection_area(first: List[np.array], second: List[np.array], grid_m
         c = array[:, 0]
         first_bboxes.append((min(c), min(r), max(c), max(r)))
         rr, cc = skimage.draw.polygon(r, c, grid.shape)
-        array = array[(r >= 0) & (c >= 0)]
-        r = array[:, 1]
-        c = array[:, 0]
+        # TODO: use skimage.draw.polygon_perimeter
+        r[r < 0] = 0
+        c[c < 0] = 0
+        r[r >= grid_max_y] = grid_max_y - 1
+        c[c >= grid_max_x] = grid_max_x - 1
+        # TODO: len(r) is naive solution, need to fix later
         first_areas.append(len(rr) + len(r))
         grid[rr, cc] = 1
         grid[r.astype(int), c.astype(int)] = 1
@@ -96,9 +101,11 @@ def poly_intersection_area(first: List[np.array], second: List[np.array], grid_m
         c = array[:, 0]
         second_bboxes.append((min(c), min(r), max(c), max(r)))
         rr, cc = skimage.draw.polygon(r, c, grid.shape)
-        array = array[(r >= 0) & (c >= 0)]
-        r = array[:, 1]
-        c = array[:, 0]
+        r[r < 0] = 0
+        c[c < 0] = 0
+        r[r >= grid_max_y] = grid_max_y - 1
+        c[c >= grid_max_x] = grid_max_x - 1
+        # TODO: len(r) is naive solution, need to fix later
         second_areas.append(len(rr) + len(r))
         grid[rr, cc] = 1
         grid[r.astype(int), c.astype(int)] = 1
