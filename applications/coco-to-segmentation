@@ -10,7 +10,7 @@ from typing import Union
 
 import numpy as np
 from PIL import Image
-from skimage.draw import polygon
+from skimage.draw import polygon, polygon_perimeter
 
 __author__ = 'Kent Hu'
 __maintainer__ = 'Kent Hu'
@@ -101,7 +101,7 @@ def main(args: argparse.Namespace):
                 row = segmentation[1::2]
                 column = segmentation[::2]
                 img[polygon(row, column)] = annotation['category_id']
-                img[row, column] = annotation['category_id']
+                img[polygon_perimeter(row, column)] = annotation['category_id']
         bin_path = png_path = None
         if save_bin:
             bin_path = save_as_bin(img.astype(args.output_format), dir_name)
