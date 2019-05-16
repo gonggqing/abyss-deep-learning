@@ -320,7 +320,7 @@ def imwrite(im: Union[np.ndarray, PIL.Image.Image], path: str, size: Tuple[int, 
 
 def close_contour(contour: np.array):
     """
-    Snippet taken from pycococreator
+    Snippet taken from pycococreator, ensures contour is closed, i.e. first point and last point are the same
     """
     if not np.array_equal(contour[0], contour[-1]):
         contour = np.vstack([contour, contour[0]])
@@ -329,19 +329,41 @@ def close_contour(contour: np.array):
 
 
 def polygon_x(polygon_: List[Number]) -> np.array:
+    """
+    Get x points from list of [x1, y1, x2, y2, ..., xN, yN]
+    """
     return np.array(polygon_[::2])
 
 
 def polygon_y(polygon_: List[Number]) -> np.array:
+    """
+    Get y points from list of [x1, y1, x2, y2, ..., xN, yN]
+    """
     return np.array(polygon_[1::2])
 
 
-def polygon_area(x: np.array, y: np.array) -> float:
-    logging.warning("incorrect way of calculating polygon area, please use mask.area from pycocotools")
+def shoelace_area(polygon_: List[Union[int, float]]) -> float:
+    """
+    Uses shoelace formula to calculate the area of a polygon,
+    do not use to calculate area for COCO representation of polygon
+    """
+    x = polygon_x(polygon_)
+    y = polygon_y(polygon_)
     return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
 
 
+def polygon_area(polygon_: List[Union[int, float]]) -> float:
+    """
+    Converts a list of polygons into binary mask,
+    then to run-time length encoding format to calculate area using the pycocotools
+    """
+    return maskUtils.area(maskUtils.encode(np.asfortranarray(polygon_to_mask(polygon_).astype(np.uint8))))
+
+
 def x_y_to_polygon(x: np.array, y: np.array) -> np.array:
+    """
+    Flattens an array of x points and an array of y points to [x1, y1, x2, y2, ..., xN, yN]
+    """
     flat = np.empty([x.size + y.size], dtype=float)
     flat[0::2] = x
     flat[1::2] = y
@@ -349,6 +371,9 @@ def x_y_to_polygon(x: np.array, y: np.array) -> np.array:
 
 
 def polygon_to_mask(polygon_: List[Union[int, float]], value: float = 1) -> np.array:
+    """
+    Generates a mask from polygon, defaults to 1, i.e. a binary mask
+    """
     x = np.round(polygon_[::2]).astype(int)
     y = np.round(polygon_[1::2]).astype(int)
     max_x = np.max(x) + 1
@@ -360,12 +385,18 @@ def polygon_to_mask(polygon_: List[Union[int, float]], value: float = 1) -> np.a
 
 
 def polygon_points(polygon_: List[Union[int, float]]) -> np.array:
+    """
+    Given a polygon list, generate all indices of the polygon mask
+    """
     x = np.round(polygon_[::2]).astype(int)
     y = np.round(polygon_[1::2]).astype(int)
     return np.hstack([polygon(y, x), polygon_perimeter(y, x)])
 
 
 def mask_to_polygon(mask: np.array, value: float = 1, tolerance: float = 0) -> List[Union[int, float]]:
+    """
+    Converts a mask of a given value to a list of polygon points
+    """
     polygons = []
     padded_mask = np.pad(mask, pad_width=1, mode='constant', constant_values=0)
     contours = find_contours(padded_mask, value - np.finfo(type(value)) * 2)
@@ -382,17 +413,16 @@ def mask_to_polygon(mask: np.array, value: float = 1, tolerance: float = 0) -> L
 
 
 def bbox_area(bbox: List[Number]) -> Number:
+    """
+    Calculate area of a bounding box in the COCO format
+    """
     x, y, width, height = bbox
     return width * height
 
 
 def bbox_to_polygon(bbox: List[Union[int, float]]) -> List[Union[int, float]]:
     """
-    Args:
-        bbox: [x, y, width, height]
-
-    Returns:
-        Polygon equivalent of bounding box
+    Polygon equivalent of a bounding box in the COCO format
     """
     x, y, width, height = bbox
     return [x, y, x + width, y, x + width, y + height, x, y + height]
@@ -400,11 +430,7 @@ def bbox_to_polygon(bbox: List[Union[int, float]]) -> List[Union[int, float]]:
 
 def polygon_to_bbox(poly: List[Union[int, float]]) -> List[Union[int, float]]:
     """
-    Args:
-        poly: List of alternating <x, y> points i.e. [x1, y1, x2, y2, ..., xN, yN]
-
-    Returns:
-        Bounding box of polygon contour
+    Bounding box equivalent of polygon in the COCO format
     """
     x = poly[::2]
     y = poly[1::2]
@@ -417,12 +443,11 @@ def polygon_to_bbox(poly: List[Union[int, float]]) -> List[Union[int, float]]:
 
 def do_overlap(bbox_a: Tuple[int, int, int, int], bbox_b: Tuple[int, int, int, int]):
     """
+    Checks to see if two bounding boxes overlap eachother
+
     Args:
         bbox_a: (x1, y1, x2, y2) where <x1>,<y1> is top left and <x2>,<y2> is bottom right
         bbox_b: (x1, y1, x2, y2) where <x1>,<y1> is top left and <x2>,<y2> is bottom right
-
-    Returns:
-        True if a overlaps b
     """
     assert len(bbox_a) == 4, "There should be 4 values in bbox_a"
     assert len(bbox_b) == 4, "There should be 4 values in bbox_b"
@@ -507,7 +532,6 @@ def image_streamer(sources, start=0, remap_func=None):
     """
     from warnings import warn
     from glob import glob
-    from pycocotools.coco import COCO
     from skvideo.io import FFmpegReader
     from contextlib import closing, redirect_stdout
 
