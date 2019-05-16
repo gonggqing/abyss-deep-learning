@@ -25,6 +25,7 @@ bounding boxes: path,x1,y1,x2,y2,score,category_id
 examples
     bounding boxes
         cat retina-predictions.csv | coco-from-csv --fields path,,x1,y1,x2,y2,score,category_id --map class-mapping.csv > retina-predictions.json
+        cat input.csv | coco-from-csv --fields path,,x,y,w,h,score,category_id --map class-mapping.csv > output.json
         
     categories
         cat images.csv | coco-from-csv -f path --categories some-coco.json
@@ -51,6 +52,12 @@ def main(args):
 
     coco_json = {}
     if all(field in df for field in ['path', 'x1', 'y1', 'x2', 'y2', 'category_id']):
+        coco_json = generate_from_bounding_boxes(df, args)
+    if all(field in df for field in ['path', 'x', 'y', 'w', 'h', 'category_id']):
+        df['x1'] = df['x']
+        df['y1'] = df['y']
+        df['x2'] = df['x'] + df['w']
+        df['y2'] = df['y'] + df['h']
         coco_json = generate_from_bounding_boxes(df, args)
     elif all(field in df for field in ['path', 'begin_frame', 'end_frame', 'caption']):
         coco_json = generate_from_video_frames(df, args)
