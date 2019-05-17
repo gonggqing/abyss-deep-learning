@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 from pycocotools import mask as maskUtils
 from pycocotools.coco import COCO
-from skimage.draw import polygon, polygon_perimeter
+from skimage.draw import polygon, polygon_perimeter, line
 from skimage.measure import find_contours, approximate_polygon
 
 
@@ -374,16 +374,27 @@ def polygon_to_mask(polygon_: List[Union[int, float]], value: float = 1) -> np.a
     """
     Generates a mask from polygon, defaults to 1, i.e. a binary mask
     """
+    max_x = np.round(np.max(polygon_[::2])) + 1
+    max_y = np.round(np.max(polygon_[1::2])) + 1
+    grid = np.zeros([max_y, max_x])
+    return draw_polygon(polygon_, grid, value)
+
+
+def draw_polygon(polygon_: List[Union[int, float]], grid: np.array, value: float = 1) -> np.array:
     x = np.round(polygon_[::2]).astype(int)
     y = np.round(polygon_[1::2]).astype(int)
-    max_x = np.max(x) + 1
-    max_y = np.max(y) + 1
-    grid = np.zeros([max_y, max_x])
     grid[polygon(y, x)] = value
-    try:
+    if len(x) > 2:
         grid[polygon_perimeter(y, x)] = value
-    except IndexError:
-        logging.warning(f"invalid polygon, perimeter not drawn {polygon_}")
+    elif len(x) == 2:
+        if y[0] == y[1] and x[0] == x[1]:
+            grid[y, x] = value  # single pixel drawn
+        else:
+            grid[line(y[0], x[0], y[1], x[1])] = value
+    elif len(x) == 1:
+        grid[y, x] = value
+    else:
+        logging.warning(f'empty polygon')
     return grid
 
 
