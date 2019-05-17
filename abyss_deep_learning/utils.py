@@ -380,7 +380,10 @@ def polygon_to_mask(polygon_: List[Union[int, float]], value: float = 1) -> np.a
     max_y = np.max(y) + 1
     grid = np.zeros([max_y, max_x])
     grid[polygon(y, x)] = value
-    grid[polygon_perimeter(y, x)] = value
+    try:
+        grid[polygon_perimeter(y, x)] = value
+    except IndexError:
+        logging.warning(f"invalid polygon, perimeter not drawn {polygon_}")
     return grid
 
 

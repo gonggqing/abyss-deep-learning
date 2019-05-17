@@ -819,10 +819,12 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                     first_area = first_ann_entries[i].get('area', 0)
 
                 if first_area <= 0:
-                    logging.warning("annotation {} from {} has incorrect area value of {}, setting to -1".format(
-                        first_ann_entries[i]['id'], args.first, first_area
+                    calc_area = polygon_area(first_ann_entries[i].get('segmentation'))
+
+                    logging.warning("annotation {} from {} has incorrect area value of {}, setting to {}".format(
+                        first_ann_entries[i]['id'], args.first, first_area, calc_area
                     ))
-                    first_area = -1
+                    first_area = calc_area
 
                 category_sums = {id_: 0 for id_ in second_coco.getCatIds()}
                 for j in range(len(second_ann_entries)):
@@ -878,10 +880,11 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                         second_area = ann.get('area', 0)
 
                     if second_area <= 0:
-                        logging.warning("annotation {} from {} has incorrect area value of {}, setting to -1".format(
-                            ann['id'], args.second, second_area
+                        calc_area = polygon_area(ann.get('segmentation'))
+                        logging.warning("annotation {} from {} has incorrect area value of {}, setting to {}".format(
+                            ann['id'], args.second, second_area, calc_area
                         ))
-                        second_area = -1
+                        second_area = calc_area
 
                     for category, area in category_sums.items():
                         print(",".join(str(i) for i in (
@@ -925,10 +928,11 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                         first_area = ann.get('area', 0)
 
                     if first_area <= 0:
-                        logging.warning("annotation {} from {} has incorrect area value of {}, setting to -1".format(
-                            ann['id'], args.first, first_area
+                        calc_area = polygon_area(ann.get('segmentation')[0])
+                        logging.warning("annotation {} from {} has incorrect area value of {}, setting to {}".format(
+                            ann['id'], args.first, first_area, calc_area
                         ))
-                        first_area = -1
+                        first_area = calc_area
 
                     for category, area in category_sums.items():
                         print(",".join(str(i) for i in (
