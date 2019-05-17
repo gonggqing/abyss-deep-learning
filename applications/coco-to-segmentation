@@ -97,9 +97,20 @@ def main(args: argparse.Namespace):
         for annotation_id in image_id_to_ann_id[image_entry['id']]:
             annotation = coco['annotations'][annotation_id]
             for segmentation in annotation.get('segmentation', [[]]):
+
                 segmentation = [int(round(i)) for i in segmentation]
+
+                # truncate 0 for bounding box out of bounds
+                segmentation = [0 if i < 0 else i for i in segmentation]
                 row = segmentation[1::2]
                 column = segmentation[::2]
+
+                # truncate bounding box out of bounds
+                height = image_entry['height']
+                row = [y if y < height else height - 1 for y in row]
+                width = image_entry['width']
+                column = [x if x < width else width - 1 for x in column]
+
                 if len(row) == len(column) == 0:
                     logging.warning("empty segmentation list {}".format(segmentation))
                     continue
