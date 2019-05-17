@@ -104,7 +104,12 @@ def main(args: argparse.Namespace):
                     logging.warning("empty segmentation list {}".format(segmentation))
                     continue
                 img[polygon(row, column)] = annotation['category_id']
-                img[polygon_perimeter(row, column)] = annotation['category_id']
+                try:
+                    img[polygon_perimeter(row, column)] = annotation['category_id']
+                except IndexError:
+                    logging.warning("could not draw perimeter of polygon, may be a point or a line")
+                    logging.warning("polygon -> {}".format(segmentation))
+                    img[row, column] = annotation['category_id']
         bin_path = png_path = None
         if save_bin:
             bin_path = save_as_bin(img.astype(args.output_format), dir_name)
