@@ -100,6 +100,9 @@ def main(args: argparse.Namespace):
                 segmentation = [int(round(i)) for i in segmentation]
                 row = segmentation[1::2]
                 column = segmentation[::2]
+                if len(row) == len(column) == 0:
+                    logging.warning("empty segmentation list {}".format(segmentation))
+                    continue
                 img[polygon(row, column)] = annotation['category_id']
                 img[polygon_perimeter(row, column)] = annotation['category_id']
         bin_path = png_path = None
