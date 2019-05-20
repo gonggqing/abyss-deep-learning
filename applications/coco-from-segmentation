@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import time
+import gzip
 from datetime import datetime
 from numbers import Number
 from typing import Union
@@ -278,26 +279,35 @@ def load_input(image_entry: dict, input_format: str, max_: Number = None, paddin
         try:
             width, height = Image.open(image_entry['path']).size
         except OSError:
-            pass  # Unidentifiable image type
+            logging.error("height or width no specified in input coco and cannot be deduced from image file '{}'".format(image_entry['path']))
+            sys.exit( 1 )
     img = np.zeros((height + padding * 2, width + padding * 2), dtype=np.float16)
     ext = get_file_ext(image_entry['path'])
+    
+    
+    # todo
+    #if ext in {'bin', 'gz'}:
+    #    with gzip.open( image_entry['path'], 'rb' ) if ext == 'gz' else open( image_entry['path'], 'wb' ) as f:
+    #        f.write( v[j].tobytes() )
+    
+    
     if ext in {'bin'}:
         img_buf = np.fromfile(image_entry['path'], dtype=input_format)
         try:
             img_buf = np.reshape(img_buf, (height, width))
         except TypeError:
-            logging.error("Unable to find height or width value to reshape binary into image")
-            return None
+            logging.error( "failed to reshape to height: {} width: {} input from file '{}'".format( height, width, image_entry['path'] ) )
+            sys.exit( 1 )
         if normalize:
             min_ = np.min(img_buf)
-            if max_ is None:
-                max_ = np.max(img_buf)
+            if max_ is None: max_ = np.max(img_buf)
             img_buf = (img_buf - min_) / (max_ - min_)
     elif ext in {'png', 'jpg'}:
         img_buf = imread(image_entry['path'], dtype=np.float16)
         img_buf /= 255
     else:
-        return None
+        logging.error( "unsupported file type: '{}'".format( image_entry['path'] ) )
+        sys.exit( 1 )
     img[padding: padding + height, padding: padding + width] = img_buf[:, :]
     return img
 
