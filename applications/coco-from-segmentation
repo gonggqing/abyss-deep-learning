@@ -284,19 +284,26 @@ def load_input(image_entry: dict, input_format: str, max_: Number = None, paddin
     img = np.zeros((height + padding * 2, width + padding * 2), dtype=np.float16)
     ext = get_file_ext(image_entry['path'])
     
+    #if ext in {'bin'}:
+    #    img_buf = np.fromfile(image_entry['path'], dtype=input_format)
+    #    try:
+    #        img_buf = np.reshape(img_buf, (height, width))
+    #    except TypeError:
+    #        logging.error( "failed to reshape to height: {} width: {} input from file '{}'".format( height, width, image_entry['path'] ) )
+    #        sys.exit( 1 )
+    #    if normalize:
+    #        min_ = np.min(img_buf)
+    #        if max_ is None: max_ = np.max(img_buf)
+    #        img_buf = (img_buf - min_) / (max_ - min_)
     
-    # todo
-    #if ext in {'bin', 'gz'}:
-    #    with gzip.open( image_entry['path'], 'rb' ) if ext == 'gz' else open( image_entry['path'], 'wb' ) as f:
-    #        f.write( v[j].tobytes() )
-    
-    
-    if ext in {'bin'}:
-        img_buf = np.fromfile(image_entry['path'], dtype=input_format)
+    if ext in {'bin', 'gz'}:
+        with gzip.open( image_entry['path'], 'rb' ) if ext == 'gz' else open( image_entry['path'], 'rb' ) as f:
+            buffer = f.read()
+            img_buf = np.frombuffer( gzip.decompress( buffer ) if ext == 'gz' else buffer, dtype = input_format )
         try:
             img_buf = np.reshape(img_buf, (height, width))
         except TypeError:
-            logging.error( "failed to reshape to height: {} width: {} input from file '{}'".format( height, width, image_entry['path'] ) )
+            logging.error( "failed to reshape buffer of {} items to height: {} width: {} input from file '{}'".format( len( img_buf ), height, width, image_entry['path'] ) )
             sys.exit( 1 )
         if normalize:
             min_ = np.min(img_buf)
