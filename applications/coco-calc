@@ -448,7 +448,8 @@ def resize(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                 # Flatten the list of tuples
                 new_segment = list(itertools.chain(*new_segment))
                 ann['segmentation'] = [new_segment]
-                ann['area'] = polygon_area(polygon_x(new_segment), polygon_y(new_segment))
+                ann['area'] = int(polygon_area(ann.get('segmentation')[0]))
+
             elif type(tmp) is dict:
                 logging.warning("RLE is not yet supported")
             else:
@@ -1047,6 +1048,11 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         type=int,
         help="number of decimal digits in bbox and segmentation coordinates; default: %(default)s",
     )
+    # parser_resize.add_argument(
+    #     '--input',
+    #     default=None,
+    #     help="optional path to coco input",
+    # )
     parser_resize_mx = parser_resize.add_mutually_exclusive_group(required=True)
     parser_resize_mx.add_argument(
         '-f', '--factor',
@@ -1057,6 +1063,7 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         '-s', '--size',
         help="<width>,<height> size",
     )
+
 
     parser_remap = subparsers.add_parser(
         'remap',
@@ -1210,6 +1217,7 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         default='path',
         help="Key to match by. Default is %(default)s.",
     )
+
 
     parser_crop.set_defaults(func=crop)
     parser_coverage.set_defaults(func=coverage)
