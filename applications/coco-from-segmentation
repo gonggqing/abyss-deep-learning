@@ -106,6 +106,12 @@ def main(args: argparse.Namespace):
         width = original_entry.get('width')
         if height is None or width is None:
             width, height = Image.open(original_entry['path']).size
+        if height is None or width is None:
+            logging.error("width/height not available (checked image header and coco)")
+            sys.exit(1)
+        width = int(width)
+        height = int(height)
+
         padded_mask = load_input(mask_entry, args.input_format, args.num_classes, padding=padding, normalize=args.norm,
                                  height=height, width=width)
         if padded_mask is None:
@@ -170,10 +176,8 @@ def main(args: argparse.Namespace):
             original_entry.update({'id': 0})
             coco_json['images'].append(original_entry)
             coco_json['annotations'] = []
-        shape = (mask_entry.get('height'), mask_entry.get('width'))
-        if None in shape:
-            logging.warning("shape of mask entry unknown, using height -> {} and width -> {}".format(height, width))
-            shape = height, width
+        shape = height, width
+
         for contours, category_id in zip(category_contours, category_ids):
             logging.info("{} contours in category {}".format(len(contours), category_id))
             contours = np.subtract(contours, 1)
