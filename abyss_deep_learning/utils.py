@@ -373,6 +373,7 @@ def x_y_to_polygon(x: np.array, y: np.array) -> np.array:
 def polygon_to_mask(polygon_: List[Union[int, float]], value: float = 1) -> np.array:
     """
     Generates a mask from polygon, defaults to 1, i.e. a binary mask
+    TODO: for efficeincy do min_x and min_y so the made grid is smaller
     """
     max_x = np.round(np.max(polygon_[::2])) + 1
     max_y = np.round(np.max(polygon_[1::2])) + 1
@@ -384,14 +385,17 @@ def draw_polygon(polygon_: List[Union[int, float]], grid: np.array, value: float
     x = np.round(polygon_[::2]).astype(int)
     y = np.round(polygon_[1::2]).astype(int)
     grid[polygon(y, x)] = value
-    if len(x) > 2:
+    nx = len(np.unique(x))
+    ny = len(np.unique(y))
+    if nx > 2 or ny > 2:
         grid[polygon_perimeter(y, x)] = value
-    elif len(x) == 2:
-        if y[0] == y[1] and x[0] == x[1]:
-            grid[y, x] = value  # single pixel drawn
-        else:
-            grid[line(y[0], x[0], y[1], x[1])] = value
-    elif len(x) == 1:
+    elif nx == 2 or ny == 2:
+        for i in range(len(x)-1):
+            if(y[i] == y[i+1] and x[i] == x[i+1]):
+                grid[y, x] = value # single pixel drawn
+            else:
+                grid[line(y[i], x[i], y[i+1], x[i+1])] = value # draw line
+    elif nx == 1 and ny == 1:
         grid[y, x] = value
     else:
         logging.warning(f'empty polygon')
