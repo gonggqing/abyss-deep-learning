@@ -32,6 +32,7 @@ function filter_options()
 --output-suffix=<suffix>; default=bin; output filename suffix
 --permissive; skip non-existent files
 --type=<type>; default=f; image type: f for float32, i for int32, ub for uint8, etc, same as in cv-cat
+--verbose; print more logging info
 eof
 }
 
@@ -52,7 +53,13 @@ function filter_run()
                       say "width or height missing for: '$path'"
                       (( options_permissive )) || die "please use --permissive to skip"
                   fi
+                  # ensure width and height are integers
+                  width=${width%.*}
+                  height=${height%.*}
+
                   output_path=$( sed "s#\.bin\$#.$options_output_suffix#" <<< "$path" )
+
+                  (( options_verbose )) && say cv-cat --input "no-header;rows=$height;cols=$width;type=$options_type" "$options_expression"
                   cat "$path" \
                       | cv-cat --input "no-header;rows=$height;cols=$width;type=$options_type" "$options_expression" \
                       | sponge "$output_path"
