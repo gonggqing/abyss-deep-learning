@@ -53,7 +53,7 @@ def main(args):
     coco_json = {}
     if all(field in df for field in ['path', 'x1', 'y1', 'x2', 'y2', 'category_id']):
         coco_json = generate_from_bounding_boxes(df, args)
-    if all(field in df for field in ['path', 'x', 'y', 'w', 'h', 'category_id']):
+    elif all(field in df for field in ['path', 'x', 'y', 'w', 'h', 'category_id']):
         df['x1'] = df['x']
         df['y1'] = df['y']
         df['x2'] = df['x'] + df['w']
