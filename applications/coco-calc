@@ -514,7 +514,7 @@ def non_max_suppression_impl(boxes, overlap_thresh):
     # compute the area of the bounding boxes and sort the bounding
     # boxes by the bottom-right y-coordinate of the bounding box
     area = (x2 - x1 + 1) * (y2 - y1 + 1)
-    idxs = np.argsort(y2)
+    idxs = np.argsort(area)
 
     # keep looping while some indexes still remain in the indexes
     # list
@@ -1173,7 +1173,7 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
     )
     parser_non_max_suppression.add_argument(
         '--overlap-threshold',
-        default=0.5,
+        default=0.5, type=float,
         help="Remove where overlap > overlap threshold default: %(default)s.",
     )
 
