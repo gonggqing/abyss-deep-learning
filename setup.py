@@ -11,6 +11,7 @@ setup(
     url='http://github.com/abyss-solutions/deep-learning',
     packages=[
         'abyss_deep_learning',
+        'abyss_deep_learning.base',
         'abyss_deep_learning.keras',
         'abyss_deep_learning.datasets',
         'abyss_deep_learning.datasets.mrcnn',

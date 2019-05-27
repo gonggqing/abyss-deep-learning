@@ -125,7 +125,7 @@ class ImageDatatype(CocoInterface, DatasetTypeBase):
             assert self.image_dir, "Dataset image dir must be set as no path is provided in database."
             path = os.path.join(self.image_dir, self.coco.imgs[image_id]['file_name'])
 
-        return self._preprocess_data(imread(path, plugin='imread'))
+        return self._preprocess_data(imread(path, plugin='imageio'))
 
     def sample(self, data_id=None, **kwargs):
         if not data_id:
@@ -167,6 +167,7 @@ class ClassificationTask(CocoInterface, DatasetTaskBase):
             if self.translator.filter(annotation)
             for caption in self.translator.translate(annotation)
         ]))
+
         self.num_classes = len(self.captions)
         self.stats = dict()
         self._targets = dict()
@@ -311,7 +312,7 @@ class SemanticSegmentationTask(CocoInterface, DatasetTaskBase):
 #### COCO Realisations ########
 
 class ImageClassificationDataset(CocoDataset, ImageDatatype, ClassificationTask):
-    # TODO: 
+    # TODO:
     #   *  Class statistics readout
     #   *  Support for computing class weights given current dataset config
     #   *  Support for forcing class balance by selecting IDs evenly
@@ -321,15 +322,15 @@ class ImageClassificationDataset(CocoDataset, ImageDatatype, ClassificationTask)
     def __init__(self, json_path, **kwargs):
         CocoDataset.__init__(self, json_path, **kwargs)
         """
-        kwargs - 
+        kwargs -
         """
         ImageDatatype.__init__(self, self.coco, **kwargs)
         """
-            kwargs - 
+            kwargs -
         """
         ClassificationTask.__init__(self, self.coco, **kwargs)
         """
-            kwargs - 
+            kwargs -
         """
 
     def sample(self, image_id=None, **kwargs):
@@ -348,7 +349,7 @@ class ImageClassificationDataset(CocoDataset, ImageDatatype, ClassificationTask)
 
 
 class ImageSemanticSegmentationDataset(CocoDataset, ImageDatatype, SemanticSegmentationTask):
-    # TODO: 
+    # TODO:
     #   *  Class statistics readout
     #   *  Support for computing class weights given current dataset config
     #   *  Support for forcing class balance by selecting IDs evenly
@@ -372,4 +373,3 @@ class ImageSemanticSegmentationDataset(CocoDataset, ImageDatatype, SemanticSegme
         iterator = itertools.cycle if endless else iter
         for data_id in iterator(data_ids):
             yield self.load_data(data_id, **kwargs), self.load_targets(data_id, **kwargs)
-

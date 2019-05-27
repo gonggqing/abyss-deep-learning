@@ -7,10 +7,10 @@ class AnnotationTranslator(object):
         def filter(self, annotation):
             '''Filter function for annotations.
             Useful to filter out non-task related annotations.
-            
+
             Args:
                 annotation: An annotation object, structure is dataset dependent.
-            
+
             Returns:
                 boolean: Whether or not to use this annotation.
             '''
@@ -18,10 +18,10 @@ class AnnotationTranslator(object):
 
         def translate(self, annotation):
             '''Transform the annotation for use with a new task.
-            
+
             Args:
                 annotation: An annotation object, structure is dataset and task dependent.
-            
+
             Returns:
                 The transformed annotation.
             '''
@@ -34,7 +34,7 @@ class CocoCaptionTranslator(AnnotationTranslator):
     def __init__(self, separator=None):
         """Instantiate a translator that reads standard COCO captions as a string.
         Optionally separate fields by a delimiter.
-        
+
         Args:
             separator (str, optional): A delimiter to separate fields
         """
@@ -70,7 +70,7 @@ class CaptionMapTranslator(AnnotationTranslator):
             e.g.:
                 mapping={word: number for number, word in enumerate(list("abcdefg"))}
                 >> {'a': 0, 'b': 1, 'c': 2, 'd': 3, 'e': 4, 'f': 5, 'g': 6}
-        
+
         Args:
             mapping (dict): A dictionary mapping source keys to target values.
         """
@@ -80,4 +80,4 @@ class CaptionMapTranslator(AnnotationTranslator):
         return 'caption' in annotation
 
     def translate(self, annotation):
-        return self.map[annotation['caption']]
+        return [self.map[annotation['caption']]]
