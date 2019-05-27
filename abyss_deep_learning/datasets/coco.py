@@ -161,12 +161,22 @@ class ClassificationTask(CocoInterface, DatasetTaskBase):
         CocoInterface.__init__(self, coco, **kwargs)
         self.translator = translator or AnnotationTranslator()
         assert isinstance(translator, (AnnotationTranslator, type(None)))
+        # TODO - self.captions implemented like this doesn't allow full use of translators
+        # TODO - Get captions from categories instead
         self.captions = set(sorted([
             caption
             for annotation in self.coco.loadAnns(self.coco.getAnnIds(imgIds=[]))
             if self.translator.filter(annotation)
             for caption in self.translator.translate(annotation)
         ]))
+        # Debugging
+        # captions = []
+        # for annotation in self.coco.loadAnns(self.coco.getAnnIds(imgIds=[])):
+        #     for caption in self.translator.translate(annotation):
+        #         if self.translator.filter(annotation):
+        #             captions.append(caption)
+        # print(captions)
+        # captions = set(sorted(captions))
 
         self.num_classes = len(self.captions)
         self.stats = dict()
@@ -191,6 +201,14 @@ class ClassificationTask(CocoInterface, DatasetTaskBase):
         if data_id in self._targets:
             return self._targets[data_id]
         return self.load_caption(data_id, **kwargs)
+
+    def __len__(self):
+        """
+        Denotes the number of images in the dataset
+        Returns:
+            (int): number of images in the dataset
+        """
+        return len(self.coco.loadImgs(self.coco.getImgIds()))
 
     def _calc_class_stats(self):
         if not self.stats:
