@@ -126,7 +126,8 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         Raises:
             ValueError: If backbone is invalid.
         """
-        from keras_applications.xception import Xception#, preprocess_input
+        # from keras_applications.xception import Xception#, preprocess_input
+        from keras.applications.xception import Xception
         from keras.models import Model
         from keras.layers import Dense
 
@@ -554,7 +555,7 @@ class FcnCrfSegmenter(ImageClassifier, ModelPersistence):
             super().set_trainable(train_layers)
         else:
             super().set_trainable(trainable)
-            
+
     @staticmethod
     def load(filepath):
         """Load a model, its state and its hyperparameters from file.
@@ -563,4 +564,3 @@ class FcnCrfSegmenter(ImageClassifier, ModelPersistence):
             filepath (TYPE): Path to model to load
         """
         return ModelPersistence._load_model(filepath, FcnCrfSegmenter)
-    
