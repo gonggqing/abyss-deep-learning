@@ -68,7 +68,7 @@ def main(args):
     logging.info("Search expressions is [{}]".format(args.expression))
 
     # Empty file check
-    if(len(args.input_file) > 0):
+    if len(args.input_file) > 0:
         with open(args.input_file, 'r') as file_handle:
             buffer = file_handle.read().strip()
             data = json.loads(buffer)
@@ -105,19 +105,19 @@ def main(args):
     category_keys = df_categories.keys()
 
     logging.info("Joining annotations, categories and images")
-    try:
+
+    if df_categories.empty and not df_annotations.empty:
+        logging.error("Annotations exist without category definition")
+        sys.exit(0)
+
+    if not df_categories.empty and not df_annotations.empty:
         df = pd.merge(left=df_annotations, right=df_categories, on='category_id')
-    except KeyError:
-        # Not point in having a category data frame as images do not contain a category id field
-        df = df_annotations
-    try:
-        pass
-    except KeyError:
-        # Original df was df_annotations, if empty, then assign df_images
-        df = df_images if df.empty else df
-    df = pd.merge(left=df, right=df_images, on='image_id')
-    unlabelled_image_df = df_images[~df_images['image_id'].isin(df_annotations['image_id'])]
-    df = pd.concat([df, unlabelled_image_df], sort=True, ignore_index=True)
+        df = pd.merge(left=df, right=df_images, on='image_id')
+        unlabelled_image_df = df_images[~df_images['image_id'].isin(df_annotations['image_id'])]
+        df = pd.concat([df, unlabelled_image_df], sort=True, ignore_index=True)
+    else:
+        unlabelled_image_df = df_images
+        df = df_images
 
     Keys = namedtuple("Keys", ['ann_keys', 'img_keys', 'cat_keys'])
     keys = Keys(ann_keys=annotation_keys, img_keys=image_keys, cat_keys=category_keys)
