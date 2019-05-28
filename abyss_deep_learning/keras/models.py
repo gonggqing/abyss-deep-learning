@@ -33,7 +33,7 @@ class ModelPersistence:
             parameters.attrs['format'] = 'json'
 
     def load(self, filepath):
-        raise UnimplementedError("ModelPersistence::load has not been overridden for this class.")
+        raise NotImplementedError("ModelPersistence::load has not been overridden for this class.")
 
     @staticmethod
     def _load_model(filepath, model_class):
@@ -65,7 +65,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
                  backbone='xception', output_activation='softmax',
                  input_shape=(299, 299, 3), pooling='avg', classes=2,
                  init_weights='imagenet', init_epoch=0, init_lr=1e-3,
-                 trainable=True, loss='categorical_crossentropy'):
+                 trainable=True, loss='categorical_crossentropy', metrics=None):
         """Summary
 
         Args:
@@ -90,6 +90,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         self.init_weights = init_weights
         self.init_lr = init_lr
         self.init_epoch = init_epoch
+        self.metrics = metrics
 
     def set_weights(self, weights):
         """Set the weights of the model.
@@ -236,7 +237,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
                 if self.loss is None:
                     raise ValueError(
                         "ImageClassifier::fit(): Trying to compile a model without a loss function.")
-                self.model_.compile('nadam', loss=self.loss)
+                self.model_.compile('nadam', loss=self.loss, metrics=self.metrics)
                 self.set_lr(self.init_lr)
             else:
                 warnings.warn(
