@@ -134,7 +134,7 @@ def main(args):
 
     # for x,y in pipeline(dataset.generator(), dataset.num_classes):
     #     print(y.shape)
-    classifier.fit_generator(generator=pipeline(dataset.generator(), num_classes, args.batch_size),
+    classifier.fit_generator(generator=pipeline(dataset.generator(endless=True), num_classes, args.batch_size),
                              epochs=args.epochs,
                              verbose=1,
                              shuffle=True,
