@@ -398,7 +398,8 @@ def draw_polygon(polygon_: List[Union[int, float]], grid: np.array, value: float
     elif nx == 1 and ny == 1:
         grid[y, x] = value
     else:
-        logging.warning(f'empty polygon')
+        # logging.warning(f'empty polygon')
+        logging.warning('empty polygon')
     return grid
 
 
@@ -543,10 +544,10 @@ def image_streamer(sources, start=0, remap_func=None):
                  Can be an image, video or COCO json, globs accepted.
         start: int (optional); Start from this position in the list.
         remap_func: lambda or function; A function that accepts a filename
-                    parameter and outputs the path to the file. Used to 
+                    parameter and outputs the path to the file. Used to
                     change relative directories of COCO datasets.
 
-    
+
     """
     from warnings import warn
     from glob import glob
