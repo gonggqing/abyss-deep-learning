@@ -7,6 +7,7 @@ from keras.callbacks import TensorBoard, Callback
 from keras.models import Model
 from tensorboard import summary
 from tensorboard.plugins.custom_scalar import layout_pb2
+from tensorboard.plugins.scalar import summary as scalar_summary
 from tensorboard.plugins.pr_curve import summary as pr_summary
 import keras.backend as K
 
@@ -15,10 +16,10 @@ class ImprovedTensorBoard(TensorBoard):
     """An improved keras tensorboard callback including easy interface support for
     adding scalar summaries and the Custom Scalars, PR Curve and Embeddings plugins.
     """
-    
-    def __init__(self, scalars=None, groups=None, pr_curve=None, num_classes=None, **kwargs):
+
+    def __init__(self, scalars=None, groups=None, pr_curve=None, tfpn=None, num_classes=None, **kwargs):
         """Constructor
-        
+
         Args:
             scalars:
                 A dict mapping strings to tensors.
@@ -29,6 +30,8 @@ class ImprovedTensorBoard(TensorBoard):
                 Example: {'category A': {'chart A1': ['op_name_1', r'.*acc.*']}}
             pr_curve:
                 Evaluate the precision-recall curve.
+            tfpn:
+                Publish TP (True Positives), FP (False Positives), FN (False Negatives), F1 Score, Precision, Recall. (DEVEL).
             num_classes:
                 The number of classes (dimension 1 of the data).
             log_dir: the path of the directory where to save the log
@@ -96,6 +99,14 @@ class ImprovedTensorBoard(TensorBoard):
             self.layout_summary = summary.custom_scalar_pb(
                 layout_pb2.Layout(category=categories))
 
+        self.tfpn = tfpn
+        self.precision_summary = None
+        self.recall_summary = None
+        self.f1_summary = None
+        self.tp_summary = None
+        self.fn_summary = None
+        self.fp_summary = None
+
 
     def set_model(self, model):
         super().set_model(model)
@@ -112,6 +123,23 @@ class ImprovedTensorBoard(TensorBoard):
                     labels=labels,
                     display_name='Precision-Recall (Class ' + str(class_idx) + ')')
                 self.pr_summary.append(summary_op)
+
+        if self.tfpn:
+            predictions = self.model._feed_outputs[0]
+            labels = tf.cast(self.model._feed_targets[0], tf.bool)
+
+            _, precision = tf.metrics.precision(labels, predictions)
+            _, recall = tf.metrics.recall(labels, predictions)
+            _, tp = tf.metrics.true_positives(labels, predictions)
+            _, fn = tf.metrics.false_negatives(labels, predictions)
+            _, fp = tf.metrics.false_positives(labels, predictions)
+
+            self.precision_summary = scalar_summary.op(name='precision', data=precision)
+            self.recall_summary = scalar_summary.op(name='recall', data=recall)
+            self.fp_summary = scalar_summary.op(name='fp', data=fp)
+            self.tp_summary = scalar_summary.op(name='tp', data=tp)
+            self.fn_summary = scalar_summary.op(name='fn', data=fn)
+
         self.merged = tf.summary.merge_all()
 
     def on_epoch_end(self, epoch, logs=None):
@@ -131,13 +159,36 @@ class ImprovedTensorBoard(TensorBoard):
             predictions = self.model.predict(self.validation_data[0])
             feed_dict = dict(zip(tensors, [self.validation_data[1], predictions]))
             results = self.sess.run(self.pr_summary, feed_dict=feed_dict)
-        
+            for result in results:
+                self.writer.add_summary(result, epoch)
+
+        if self.tfpn:
+            init_g = tf.global_variables_initializer()
+            init_l = tf.local_variables_initializer()
+            self.sess.run(init_g)
+            self.sess.run(init_l)
+
+            tensors = self.model._feed_targets + self.model._feed_outputs
+            predictions = self.model.predict(self.validation_data[0])  # TODO if keeping these changes, only do this once for pr_curve and tfpn
+            feed_dict = dict(zip(tensors, [self.validation_data[1], predictions]))
+            precision_result = self.sess.run(self.precision_summary, feed_dict=feed_dict)
+            recall_result = self.sess.run(self.recall_summary, feed_dict=feed_dict)
+            fp_result = self.sess.run(self.fp_summary, feed_dict=feed_dict)
+            tp_result = self.sess.run(self.tp_summary, feed_dict=feed_dict)
+            fn_result = self.sess.run(self.fn_summary, feed_dict=feed_dict)
+
+            self.writer.add_summary(precision_result, global_step=epoch)
+            self.writer.add_summary(recall_result, global_step=epoch)
+            self.writer.add_summary(fp_result, global_step=epoch)
+            self.writer.add_summary(tp_result, global_step=epoch)
+            self.writer.add_summary(fn_result, global_step=epoch)
+
         super().on_epoch_end(epoch, logs)
 
 
 def procuce_embeddings_tsv(path, headers, labels):
     """Produce the tab separated values required for visualizing the classes on the embeddings.
-    
+
     Args:
         path (str):
             The path to save the tsv to. Should match the embeddings_metadata argument to TensorBoard.
@@ -156,11 +207,11 @@ def procuce_embeddings_tsv(path, headers, labels):
 def weight_sparsity(weights, min_value):
     '''Returns a tensor with the fraction of approximately zero valued weights in the model.
     Note that the min_value is around 1e-7 for the upper layers, and 5e-6 for the lower layers.
-    
+
     Args:
         model (keras.Model): The keras model to monitor.
         min_value (float, optional): The smallest value at which to consider a weight as being sparse.
-    
+
     Returns:
         tf.Tensor: A tensor containing the mean kernel sparsity of the selected weights.
     '''
@@ -175,11 +226,11 @@ def weight_sparsity(weights, min_value):
 def avg_update_ratio(model, weights):
     '''Returns the average update-to-weight ratio for the given weights and model.
     This should be in the realm of 1e-3 for a healthy network.
-    
+
     Args:
         model (keras.Model): The model the weight belongs to.
         weight (tf.Tensor): The weight tensor to monitor.
-    
+
     Returns:
         tf.Tensor: A tensor containing the average update to weight ratio.
     '''
