@@ -21,10 +21,7 @@ from abyss_deep_learning.keras.classification import (onehot_gen, augmentation_g
 from callbacks import SaveModelCallback, PrecisionRecallF1Callback
 from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard
 # from metrics import f1_m, recall_m, precision_m
-
 NN_DTYPE = np.float32
-
-
 
 def to_multihot(captions, num_classes):
     """
@@ -43,7 +40,6 @@ def to_multihot(captions, num_classes):
         for c in captions:
             hot[int(c)] = 1
     return hot
-
 
 def multihot_gen(gen, num_classes):
     """A stream modifier that converts categorical labels into one-hot vectors.
@@ -130,24 +126,19 @@ def postprocess(image):
     """
     return ((image + 1) * 127.5).astype(np.uint8)
 
-
 def main(args):
-    # Create the scratch dir
+    # Set up logging and scratch directories
     os.makedirs(args.scratch_dir, exist_ok=True)
     model_dir = os.path.join(args.scratch_dir, 'models')
     os.makedirs(model_dir, exist_ok=True)
     log_dir = os.path.join(args.scratch_dir, 'logs')
-    # Load the caption map - caption_map should live on place on servers
-    caption_map = json.load(open(args.caption_map, 'r'))
-    # Initialise the translator
-    caption_translator = CaptionMapTranslator(mapping=caption_map)
-    # Get num classes from caption map
-    num_classes = len(set(caption_map.values()))
-    # Hot translator encodes as a multi-hot vector
-    hot_translator = HotTranslator(num_classes)
-    # Apply multiple translators
-    translator = MultipleTranslators([caption_translator, hot_translator])
 
+    # do the caption translations and any preprocessing set-up
+    caption_map = json.load(open(args.caption_map, 'r')) # Load the caption map - caption_map should live on place on servers
+    caption_translator = CaptionMapTranslator(mapping=caption_map) # Initialise the translator
+    num_classes = len(set(caption_map.values())) # Get num classes from caption map
+    hot_translator = HotTranslator(num_classes) # Hot translator encodes as a multi-hot vector
+    translator = MultipleTranslators([caption_translator, hot_translator])# Apply multiple translators
     image_shape = [int(x) for x in args.image_shape.split(',')]
 
     def preprocess(image, caption):
@@ -214,28 +205,33 @@ def main(args):
         loss='categorical_crossentropy',
         metrics=['accuracy']
     )
-
-    # Dump the validation data into a tuple(x,y). Necessary to get PR Curve.
-    val_data = gen_dump_data(gen=val_pipeline(val_dataset.generator(endless=True), num_classes), num_images=len(val_dataset))
     # A callback to save the model
     save_callback = SaveModelCallback(classifier.save, model_dir)
-    # A Precision Recall F1 Score Callback
-    prf1_callback = PrecisionRecallF1Callback(val_data)
     # A tensorboard callback
-    tb_callback = ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True, write_grads=True, num_classes=num_classes, pr_curve=True)
-
+    tb_callback = ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
+                                      write_grads=True, num_classes=num_classes, pr_curve=True)
     # Construct a list of callbacks to send the model
-    callbacks = [save_callback, tb_callback, prf1_callback]
+    callbacks = [save_callback, tb_callback]
+    # Dump the validation data into a tuple(x,y). Necessary to get PR Curve.
+    if val_dataset is not None:
+        val_data = gen_dump_data(gen=val_pipeline(val_dataset.generator(endless=True), num_classes),
+                                 num_images=len(val_dataset))
+        # A Precision Recall F1 Score Callback
+        prf1_callback = PrecisionRecallF1Callback(val_data)
+        callbacks.append(prf1_callback)
 
+    training_pipeline = pipeline(dataset.generator(endless=True), num_classes, args.batch_size)
     # Train the classifier
-    classifier.fit_generator(generator=pipeline(dataset.generator(endless=True), num_classes, args.batch_size),  # The generator wrapped in the pipline loads x,y
-                             validation_data=val_data,  # Pass in the validation data array
-                             validation_steps=val_data[0].shape[0],  # Validate on the entire val set
+    classifier.fit_generator(generator=training_pipeline,  # The generator wrapped in the pipline loads x,y
+                             validation_data= val_data if val_dataset is not None else None,  # Pass in the validation data array
+                             validation_steps= np.floor(val_data[0].shape[0] / args.batch_size) if val_dataset is not None else None,  # Validate on the entire val set
                              epochs=args.epochs,
                              verbose=1,
                              shuffle=True,
-                             steps_per_epoch=len(dataset),
+                             steps_per_epoch=np.floor(len(dataset) / args.batch_size),
                              callbacks=callbacks)
+    K.clear_session()
+    print("Done training image classification network.\n")
 
 if __name__ == "__main__":
     main(get_args())
