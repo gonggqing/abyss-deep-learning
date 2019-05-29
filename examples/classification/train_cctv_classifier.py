@@ -18,7 +18,7 @@ from abyss_deep_learning.keras.models import ImageClassifier
 from abyss_deep_learning.keras.utils import batching_gen, lambda_gen, gen_dump_data
 from abyss_deep_learning.keras.classification import (onehot_gen, augmentation_gen)
 
-from callbacks import SaveModelCallback, PrecisionRecallF1Callback_ERIC
+from callbacks import SaveModelCallback, PrecisionRecallF1Callback
 from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard
 # from metrics import f1_m, recall_m, precision_m
 NN_DTYPE = np.float32
@@ -174,7 +174,7 @@ def main(args):
     # Create the validation dataset
     if args.val_coco_path:
         val_dataset = ImageClassificationDataset(args.val_coco_path, translator=caption_translator)
-        validation_pipeline = pipeline(val_dataset.generator(endless=True), num_classes, 1)
+        validation_pipeline = pipeline(val_dataset.generator(endless=True), num_classes, batch_size=1) # note, known bug here. Batch size must be 1. If it is N, then PrecisionRecallF1Callback will run N mulitple times.
     else:
         val_dataset = None
 
@@ -204,7 +204,7 @@ def main(args):
                                   num_images=len(val_dataset))
         # A Precision Recall F1 Score Callback
         # prf1_callback = PrecisionRecallF1Callback(val_data)
-        prf1_callback = PrecisionRecallF1Callback_ERIC(generator = validation_pipeline,
+        prf1_callback = PrecisionRecallF1Callback(generator = validation_pipeline,
                                                        labels=[el.pop() for el in val_data[1]])         # A Precision Recall F1 Score Callback
         callbacks.append(prf1_callback)
 
