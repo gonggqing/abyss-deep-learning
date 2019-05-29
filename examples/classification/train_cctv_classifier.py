@@ -18,7 +18,7 @@ from abyss_deep_learning.keras.models import ImageClassifier
 from abyss_deep_learning.keras.utils import batching_gen, lambda_gen, gen_dump_data
 from abyss_deep_learning.keras.classification import (onehot_gen, augmentation_gen)
 
-from callbacks import SaveModelCallback, PrecisionRecallF1Callback
+from callbacks import SaveModelCallback, PrecisionRecallF1Callback_ERIC
 from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard
 # from metrics import f1_m, recall_m, precision_m
 NN_DTYPE = np.float32
@@ -40,7 +40,6 @@ def to_multihot(captions, num_classes):
         for c in captions:
             hot[int(c)] = 1
     return hot
-
 def multihot_gen(gen, num_classes):
     """A stream modifier that converts categorical labels into one-hot vectors.
 
@@ -53,7 +52,6 @@ def multihot_gen(gen, num_classes):
     """
     for image, captions in gen:
         yield image, to_multihot(captions, num_classes)
-
 # TODO use this to replace multihot gen. abyss_deep_learning.datasets.coco.py needs to be fixed first.
 class HotTranslator(AnnotationTranslator):
     """
@@ -76,7 +74,6 @@ class HotTranslator(AnnotationTranslator):
 
         """
         return to_multihot(annotation, self.num_classes)
-
 class MultipleTranslators(AnnotationTranslator):
     """
     Used when multiple sequential translations are needed to transform the annotations
@@ -100,7 +97,6 @@ class MultipleTranslators(AnnotationTranslator):
         for tr in self.translators:
             annotation = tr.translate(annotation)
         return annotation
-
 def get_args():
         parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter,
@@ -116,7 +112,6 @@ def get_args():
         parser.add_argument("--epochs", type=int, default=2, help="Image shape")
         args = parser.parse_args()
         return args
-
 def postprocess(image):
     """
     Converts an image from a float with range -1,1 to a rgb image.
@@ -125,8 +120,14 @@ def postprocess(image):
     Returns: (uint8 np array) a rgb8 image
     """
     return ((image + 1) * 127.5).astype(np.uint8)
-
 def main(args):
+    # limit the process GPU usage. Without this, eric gets CUDNN_STATUS_INTENERAL_ERROR
+    import tensorflow as tf
+    from keras.backend.tensorflow_backend import set_session
+    config = tf.ConfigProto()
+    config.gpu_options.per_process_gpu_memory_fraction = 0.8
+    set_session(tf.Session(config=config))
+
     # Set up logging and scratch directories
     os.makedirs(args.scratch_dir, exist_ok=True)
     model_dir = os.path.join(args.scratch_dir, 'models')
@@ -154,17 +155,6 @@ def main(args):
         """
         image = resize(image, image_shape, preserve_range=True)
         return preprocess_input(image.astype(NN_DTYPE)), caption
-
-    # Create the dataset
-    dataset = ImageClassificationDataset(args.coco_path, translator=caption_translator)
-
-    # Create the validation dataset
-    if args.val_coco_path:
-        val_dataset = ImageClassificationDataset(args.val_coco_path, translator=caption_translator)
-    else:
-        val_dataset = None
-
-    # Create the pipeline
     def pipeline(gen, num_classes, batch_size):
         """
         A sequence of generators that perform operations on the data
@@ -176,21 +166,17 @@ def main(args):
         Returns:
 
         """
-        return (batching_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes), batch_size=batch_size))
-
-    def val_pipeline(gen, num_classes):
-        """
-        A sequence of generators that perform operations on the data.
-        The val pipeline doesn't have batching_gen as it is getting cached. Also augmentation_gen would be skipped as well.
-
-        Args:
-            gen:  the base generator (e.g. from dataset.generator())
-            num_classes: (int) the number of classes, to create a multihot vector
-
-        Returns:
-
-        """
-        return (multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes))
+        return (batching_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes),
+                             batch_size=batch_size))
+     # Create the dataset and pipelines
+    train_dataset = ImageClassificationDataset(args.coco_path, translator=caption_translator)
+    training_pipeline = pipeline(train_dataset.generator(endless=True), num_classes, args.batch_size)
+    # Create the validation dataset
+    if args.val_coco_path:
+        val_dataset = ImageClassificationDataset(args.val_coco_path, translator=caption_translator)
+        validation_pipeline = pipeline(val_dataset.generator(endless=True), num_classes, 1)
+    else:
+        val_dataset = None
 
     classifier = ImageClassifier(
         backbone='xception',
@@ -205,30 +191,32 @@ def main(args):
         loss='categorical_crossentropy',
         metrics=['accuracy']
     )
-    # A callback to save the model
-    save_callback = SaveModelCallback(classifier.save, model_dir)
-    # A tensorboard callback
+
+    # Generate callbacks
+    save_callback = SaveModelCallback(classifier.save, model_dir)     # A callback to save the model
     tb_callback = ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
-                                      write_grads=True, num_classes=num_classes, pr_curve=True)
-    # Construct a list of callbacks to send the model
-    callbacks = [save_callback, tb_callback]
-    # Dump the validation data into a tuple(x,y). Necessary to get PR Curve.
+                                      write_grads=True, num_classes=num_classes, pr_curve=True)     # A tensorboard callback
+    callbacks = [save_callback, tb_callback]     # Construct a list of callbacks to send the model
+
     if val_dataset is not None:
-        val_data = gen_dump_data(gen=val_pipeline(val_dataset.generator(endless=True), num_classes),
-                                 num_images=len(val_dataset))
+        # Dump the validation data into a tuple(x,y). Necessary to get PR Curve.
+        val_data = gen_dump_data(gen=val_dataset.generator(endless=True),
+                                  num_images=len(val_dataset))
         # A Precision Recall F1 Score Callback
-        prf1_callback = PrecisionRecallF1Callback(val_data)
+        # prf1_callback = PrecisionRecallF1Callback(val_data)
+        prf1_callback = PrecisionRecallF1Callback_ERIC(generator = validation_pipeline,
+                                                       labels=[el.pop() for el in val_data[1]])         # A Precision Recall F1 Score Callback
         callbacks.append(prf1_callback)
 
-    training_pipeline = pipeline(dataset.generator(endless=True), num_classes, args.batch_size)
     # Train the classifier
     classifier.fit_generator(generator=training_pipeline,  # The generator wrapped in the pipline loads x,y
-                             validation_data= val_data if val_dataset is not None else None,  # Pass in the validation data array
-                             validation_steps= np.floor(val_data[0].shape[0] / args.batch_size) if val_dataset is not None else None,  # Validate on the entire val set
+                             steps_per_epoch=np.floor(len(train_dataset) / args.batch_size),
+                             #validation_data= val_data if val_dataset is not None else None,  # Pass in the validation data array
+                             validation_data= validation_pipeline if args.val_coco_path is not None else None,
+                             validation_steps= np.floor(len(val_dataset)/ args.batch_size) if val_dataset is not None else None,
                              epochs=args.epochs,
                              verbose=1,
                              shuffle=True,
-                             steps_per_epoch=np.floor(len(dataset) / args.batch_size),
                              callbacks=callbacks)
     K.clear_session()
     print("Done training image classification network.\n")
