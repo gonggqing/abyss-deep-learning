@@ -107,7 +107,6 @@ class ImprovedTensorBoard(TensorBoard):
         self.fn_summary = None
         self.fp_summary = None
 
-
     def set_model(self, model):
         super().set_model(model)
         if self.layout_summary:
@@ -240,4 +239,4 @@ def avg_update_ratio(model, weights):
         for weight in weights:
             grads = model.optimizer.get_gradients(model.total_loss, [weight])[0]
             grad_sum += tf.norm(grads) * model.optimizer.lr / tf.norm(weight)
-        return tf.math.divide(grad_sum, len(weights), name='ratio')
+        return tf.divide(grad_sum, len(weights), name='ratio')
