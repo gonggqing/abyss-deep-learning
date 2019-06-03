@@ -1,28 +1,21 @@
-#!/usr/bin/env python3
-import argparse
-import keras
-import keras.backend as K
-import numpy as np
-import json
 import os
+import argparse
+import json
+import cv2
 from skimage.transform import resize
-import keras.callbacks
 import matplotlib.pyplot as plt
+import numpy as np
 from keras.applications.xception import preprocess_input
-from keras.utils import to_categorical
-from abyss_deep_learning.datasets.coco import ImageClassificationDataset, ClassificationTask
-from abyss_deep_learning.datasets.translators import AbyssCaptionTranslator, CaptionMapTranslator, AnnotationTranslator
-from keras.callbacks import TensorBoard
+#import keras.callbacks
+from keras.callbacks import TensorBoard, ReduceLROnPlateau, EarlyStopping, Callback, TerminateOnNaN
+import tensorflow as tf
 
+from abyss_deep_learning.datasets.coco import ImageClassificationDataset
+from abyss_deep_learning.datasets.translators import  AbyssCaptionTranslator, CaptionMapTranslator, AnnotationTranslator
+from abyss_deep_learning.keras.classification import caption_map_gen, onehot_gen
 from abyss_deep_learning.keras.models import ImageClassifier
-from abyss_deep_learning.keras.utils import batching_gen, lambda_gen, gen_dump_data
-from abyss_deep_learning.keras.classification import (onehot_gen, augmentation_gen)
-
-from callbacks import SaveModelCallback, PrecisionRecallF1Callback
-from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard
-# from metrics import f1_m, recall_m, precision_m
+from abyss_deep_learning.keras.utils import lambda_gen, batching_gen
 NN_DTYPE = np.float32
-
 def to_multihot(captions, num_classes):
     """
     Converts a list of classes (int) to a multihot vector
@@ -52,7 +45,99 @@ def multihot_gen(gen, num_classes):
     """
     for image, captions in gen:
         yield image, to_multihot(captions, num_classes)
-# TODO use this to replace multihot gen. abyss_deep_learning.datasets.coco.py needs to be fixed first.
+def compute_class_weights(dataset):
+    '''
+    computes the ideal weights from each class based on the frequency of each class.
+    For example, if there are 12.5 times more of class 0 than class 1, then returns {0: 12.5,
+                                                                                     1: 1.0}
+    '''
+    dataset._calc_class_stats()
+    min_val = dataset.stats['class_weights'][
+        min(dataset.stats['class_weights'].keys(), key=(lambda k: dataset.stats['class_weights'][k]))]
+    return dataset.stats['class_weights'].update((x,y/min_val) for x,y in dataset.stats['class_weights'].items())
+
+'''
+implementation from:
+# https://github.com/keras-team/keras/issues/5400
+ you can use it like this
+model.compile(loss='binary_crossentropy',
+              optimizer="adam",
+              metrics=[mcor, recall, f1])
+'''
+from keras import backend as K
+def mcor(y_true, y_pred):
+    # matthews_correlation
+    y_pred_pos = K.round(K.clip(y_pred, 0, 1))
+    y_pred_neg = 1 - y_pred_pos
+
+    y_pos = K.round(K.clip(y_true, 0, 1))
+    y_neg = 1 - y_pos
+
+    tp = K.sum(y_pos * y_pred_pos)
+    tn = K.sum(y_neg * y_pred_neg)
+
+    fp = K.sum(y_neg * y_pred_pos)
+    fn = K.sum(y_pos * y_pred_neg)
+
+    numerator = (tp * tn - fp * fn)
+    denominator = K.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+
+    return numerator / (denominator + K.epsilon())
+def precision(y_true, y_pred):
+    """Precision metric.
+
+    Only computes a batch-wise average of precision.
+
+    Computes the precision, a metric for multi-label classification of
+    how many selected items are relevant.
+    """
+    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+    predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+    precision = true_positives / (predicted_positives + K.epsilon())
+    return precision
+def recall(y_true, y_pred):
+    """Recall metric.
+
+    Only computes a batch-wise average of recall.
+
+    Computes the recall, a metric for multi-label classification of
+    how many relevant items are selected.
+    """
+    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+    possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+    recall = true_positives / (possible_positives + K.epsilon())
+    return recall
+def f1(y_true, y_pred):
+    def recall(y_true, y_pred):
+        """Recall metric.
+
+        Only computes a batch-wise average of recall.
+
+        Computes the recall, a metric for multi-label classification of
+        how many relevant items are selected.
+        """
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+        recall = true_positives / (possible_positives + K.epsilon())
+        return recall
+
+    def precision(y_true, y_pred):
+        """Precision metric.
+
+        Only computes a batch-wise average of precision.
+
+        Computes the precision, a metric for multi-label classification of
+        how many selected items are relevant.
+        """
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+        precision = true_positives / (predicted_positives + K.epsilon())
+        return precision
+
+    precision = precision(y_true, y_pred)
+    recall = recall(y_true, y_pred)
+    return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
+
 class HotTranslator(AnnotationTranslator):
     """
     A translator to convert annotations to multihot encoding
@@ -97,37 +182,94 @@ class MultipleTranslators(AnnotationTranslator):
         for tr in self.translators:
             annotation = tr.translate(annotation)
         return annotation
+class SaveModelCallback(Callback):
+    """
+    Saves the model at the end of an epoch. To be used with an ImageClassifier class.
+
+    Usage:
+        callbacks = [SaveModelCallback(classifier.save, 'models')]
+    """
+    def __init__(self, save_fn, model_dir, save_interval=1):
+        self.model_dir = model_dir
+        self.save_fn = save_fn
+        self.save_interval = save_interval
+    def on_epoch_end(self, epoch, logs={}):
+        if epoch % self.save_interval == 0:
+            self.save_fn(os.path.join(self.model_dir, 'model_%d.h5'%epoch))
+        return
+    def on_train_end(self, epoch):
+        self.save_fn(os.path.join(self.model_dir, 'best_model.h5'))
+class TrainValTensorBoard(TensorBoard):
+    '''
+    Additional and improved logging parameters with tensorboard. Wraps around tensorboard callback.
+    adapted from:
+    https://stackoverflow.com/questions/47877475/keras-tensorboard-plot-train-and-validation-scalars-in-a-same-figure
+    '''
+    def __init__(self, log_dir='./logs', update_freq='epoch', update_step=1, **kwargs):
+        # Make the original `TensorBoard` log to a subdirectory 'training'
+        training_log_dir = os.path.join(log_dir, 'training')
+        super(TrainValTensorBoard, self).__init__(training_log_dir, **kwargs)
+        if update_freq not in ['epoch', 'batch']:
+            raise ValueError("TrainValTensorBoard callback update frequency is invalid. "
+                             "Select either: update_freq = epoch or batch.")
+        self.update_freq = update_freq
+        self.update_step = update_step
+        self.losses = [] # this is here accumulate metrics every batch, rather than the default on_epoch_end
+        # Log the validation metrics to a separate subdirectory
+        self.val_log_dir = os.path.join(log_dir, 'validation')
+    def set_model(self, model):
+        # Setup writer for validation metrics
+        self.val_writer = tf.summary.FileWriter(self.val_log_dir)
+        super(TrainValTensorBoard, self).set_model(model)
+    def handle_validation(self, count, logs=None):
+        '''
+        # Pop the validation logs and handle them separately with
+        # `self.val_writer`. Also rename the keys so that they can
+        # be plotted on the same figure with the training metrics
+        takes the logs, and processing any validation ones so they will be plotted on the same tensorboard graph as
+        their training counterparts. Any remaining, no processed logs are returned.
+
+        '''
+        logs = logs or {}
+        if self.update_freq is 'batch':
+            val_logs = {k.replace('val_', ''): v for k, v in logs.items() if k.startswith('val_')}
+            for name, value in val_logs.items():
+                summary = tf.Summary()
+                summary_value = summary.value.add()
+                summary_value.simple_value = value.item()
+                summary_value.tag = name
+                self.val_writer.add_summary(summary, count)
+            self.val_writer.flush()
+        return {k: v for k, v in logs.items() if not k.startswith('val_')}
+    def on_epoch_end(self, epoch, logs=None):
+            logs = self.handle_validation(epoch, logs)
+            logs.update({'learning_rate': K.eval(self.model.optimizer.lr)}) # additioanlly log learning rate
+            super(TrainValTensorBoard, self).on_epoch_end(epoch, logs)
+    def on_batch_end(self, batch, logs=None):
+        if batch % self.update_step is 0 or self.update_freq is 'epoch':
+            logs = self.handle_validation(batch, logs)
+            # Pass the remaining logs to `TensorBoard.on_epoch_end`
+            super(TrainValTensorBoard, self).on_epoch_end(epoch=batch, logs=logs)
+    def on_train_end(self, logs=None):
+        self.val_writer.close()
+
 def get_args():
-        parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter,
         description="""
-        This script is designed to test loading a coco image classification dataset
-        """)
-        parser.add_argument("coco_path", type=str, help="Path to the coco dataset")
-        parser.add_argument("--val-coco-path", type=str, help="Path to the validation coco dataset")
-        parser.add_argument("--scratch_dir", type=str, default="scratch/", help="Where to save models, logs, etc.")
-        parser.add_argument("--caption-map", type=str, help="Path to the caption map")
-        parser.add_argument("--image-shape", type=str, default="320,240,3", help="Image shape")
-        parser.add_argument("--batch-size", type=int, default=2, help="Image shape")
-        parser.add_argument("--epochs", type=int, default=2, help="Image shape")
-        args = parser.parse_args()
-        return args
-def postprocess(image):
-    """
-    Converts an image from a float with range -1,1 to a rgb image.
-    Args:
-        image: (float np array) an image with range -1,1
-    Returns: (uint8 np array) a rgb8 image
-    """
-    return ((image + 1) * 127.5).astype(np.uint8)
-def main(args):
-    # limit the process GPU usage. Without this, eric gets CUDNN_STATUS_INTENERAL_ERROR
-    import tensorflow as tf
-    from keras.backend.tensorflow_backend import set_session
-    config = tf.ConfigProto()
-    config.gpu_options.per_process_gpu_memory_fraction = 0.8
-    set_session(tf.Session(config=config))
+    This script is designed to get eric going with CCTV training.
+    """)
+    parser.add_argument("coco_path", type=str, help="Path to the coco dataset")
+    parser.add_argument("--val-coco-path", type=str, help="Path to the validation coco dataset")
+    parser.add_argument("--scratch_dir", type=str, default="scratch/", help="Where to save models, logs, etc.")
+    parser.add_argument("--caption-map", type=str, help="Path to the caption map")
+    parser.add_argument("--image-shape", type=str, default="320,240,3", help="Image shape")
+    parser.add_argument("--batch-size", type=int, default=2, help="Image shape")
+    parser.add_argument("--epochs", type=int, default=2, help="Image shape")
+    args = parser.parse_args()
+    return args
 
+def main(args):
     # Set up logging and scratch directories
     os.makedirs(args.scratch_dir, exist_ok=True)
     model_dir = os.path.join(args.scratch_dir, 'models')
@@ -135,12 +277,20 @@ def main(args):
     log_dir = os.path.join(args.scratch_dir, 'logs')
 
     # do the caption translations and any preprocessing set-up
-    caption_map = json.load(open(args.caption_map, 'r')) # Load the caption map - caption_map should live on place on servers
-    caption_translator = CaptionMapTranslator(mapping=caption_map) # Initialise the translator
-    num_classes = len(set(caption_map.values())) # Get num classes from caption map
-    hot_translator = HotTranslator(num_classes) # Hot translator encodes as a multi-hot vector
-    translator = MultipleTranslators([caption_translator, hot_translator])# Apply multiple translators
+    caption_map = json.load(open(args.caption_map, 'r'))  # Load the caption map - caption_map should live on place on servers
+    caption_translator = CaptionMapTranslator(mapping=caption_map)  # Initialise the translator
+    num_classes = len(set(caption_map.values()))  # Get num classes from caption map
+    hot_translator = HotTranslator(num_classes)  # Hot translator encodes as a multi-hot vector
+    translator = MultipleTranslators([caption_translator, hot_translator])  # Apply multiple translators
     image_shape = [int(x) for x in args.image_shape.split(',')]
+
+    train_dataset = ImageClassificationDataset(args.coco_path, translator=caption_translator)
+    train_gen = train_dataset.generator(endless=True, shuffle_ids=True)
+    if args.val_coco_path:
+        val_dataset = ImageClassificationDataset(args.val_coco_path, translator=caption_translator)
+        val_gen = val_dataset.generator(endless=True, shuffle_ids=True)
+    else:
+        val_gen = None
 
     def preprocess(image, caption):
         """
@@ -168,58 +318,54 @@ def main(args):
         """
         return (batching_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes),
                              batch_size=batch_size))
-     # Create the dataset and pipelines
-    train_dataset = ImageClassificationDataset(args.coco_path, translator=caption_translator)
-    training_pipeline = pipeline(train_dataset.generator(endless=True), num_classes, args.batch_size)
-    # Create the validation dataset
-    if args.val_coco_path:
-        val_dataset = ImageClassificationDataset(args.val_coco_path, translator=caption_translator)
-        validation_pipeline = pipeline(val_dataset.generator(endless=True), num_classes, batch_size=1) # note, known bug here. Batch size must be 1. If it is N, then PrecisionRecallF1Callback will run N mulitple times.
-    else:
-        val_dataset = None
 
+    # limit the process GPU usage. Without this, eric gets CUDNN_STATUS_INTENERAL_ERROR
+    import tensorflow as tf
+    from keras.backend.tensorflow_backend import set_session
+    config = tf.ConfigProto()
+    config.gpu_options.per_process_gpu_memory_fraction = 0.8
+    set_session(tf.Session(config=config))
+    # create classifier model
     classifier = ImageClassifier(
         backbone='xception',
         output_activation='softmax',
         pooling='avg',
-        classes=2,
+        classes=num_classes,
         input_shape=tuple(image_shape),
         init_weights='imagenet',
         init_epoch=0,
         init_lr=1e-3,
         trainable=True,
         loss='categorical_crossentropy',
-        metrics=['accuracy']
+        metrics=['accuracy', mcor, recall, f1, precision]
     )
 
-    # Generate callbacks
-    save_callback = SaveModelCallback(classifier.save, model_dir)     # A callback to save the model
-    tb_callback = ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
-                                      write_grads=True, num_classes=num_classes, pr_curve=True)     # A tensorboard callback
-    callbacks = [save_callback, tb_callback]     # Construct a list of callbacks to send the model
+    ## callbacks
+    callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=5),  # A callback to save the model
+                 TrainValTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=32, write_graph=True,
+                                             write_grads=True, write_images=False, embeddings_freq=0,
+                                             embeddings_layer_names=None, embeddings_metadata=None,
+                                             embeddings_data=None, update_freq='batch', update_step=10),
+                 ReduceLROnPlateau(monitor='acc', factor=0.2,
+                                   patience=5, min_lr=1e-4),
+                 EarlyStopping(monitor='acc', min_delta=1e-4, patience=6, verbose=1, mode='auto',
+                                               baseline=None, restore_best_weights=True),
+                 TerminateOnNaN()
+                 ]
 
-    if val_dataset is not None:
-        # Dump the validation data into a tuple(x,y). Necessary to get PR Curve.
-        val_data = gen_dump_data(gen=val_dataset.generator(endless=True),
-                                  num_images=len(val_dataset))
-        # A Precision Recall F1 Score Callback
-        # prf1_callback = PrecisionRecallF1Callback(val_data)
-        prf1_callback = PrecisionRecallF1Callback(generator = validation_pipeline,
-                                                       labels=[el.pop() for el in val_data[1]])         # A Precision Recall F1 Score Callback
-        callbacks.append(prf1_callback)
-
-    # Train the classifier
-    classifier.fit_generator(generator=training_pipeline,  # The generator wrapped in the pipline loads x,y
-                             steps_per_epoch=np.floor(len(train_dataset) / args.batch_size),
-                             #validation_data= val_data if val_dataset is not None else None,  # Pass in the validation data array
-                             validation_data= validation_pipeline if args.val_coco_path is not None else None,
-                             validation_steps= np.floor(len(val_dataset)/ args.batch_size) if val_dataset is not None else None,
+    train_steps = np.floor(len(train_dataset) / args.batch_size)
+    val_steps = np.floor(len(val_dataset) / args.batch_size) if val_dataset is not None else None
+    class_weights = compute_class_weights(train_dataset)
+    classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size),  # The generator wrapped in the pipline loads x,y
+                             steps_per_epoch=train_steps,
+                             # validation_data= val_data if val_dataset is not None else None,  # Pass in the validation data array
+                             validation_data=pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size),
+                             validation_steps=val_steps,
                              epochs=args.epochs,
+                             class_weight=class_weights,
                              verbose=1,
                              shuffle=True,
                              callbacks=callbacks)
-    K.clear_session()
-    print("Done training image classification network.\n")
 
 if __name__ == "__main__":
     main(get_args())
