@@ -15,24 +15,17 @@ from abyss_deep_learning.datasets.translators import  AbyssCaptionTranslator, Ca
 from abyss_deep_learning.keras.classification import caption_map_gen, onehot_gen
 from abyss_deep_learning.keras.models import ImageClassifier
 from abyss_deep_learning.keras.utils import lambda_gen, batching_gen
+
+from callbacks import SaveModelCallback, PrecisionRecallF1Callback, TrainValTensorBoard
+from utils import to_multihot
+from translators import MultipleTranslators, HotTranslator
+from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard
+
+
+
 NN_DTYPE = np.float32
-def to_multihot(captions, num_classes):
-    """
-    Converts a list of classes (int) to a multihot vector
-    Args:
-        captions: (list of ints). Each class in the caption list
-        num_classes: (int) The total number of classes
 
-    Returns:
 
-    """
-    hot = np.zeros([num_classes])
-    if isinstance(captions, int):
-        hot[captions] = 1
-    else:
-        for c in captions:
-            hot[int(c)] = 1
-    return hot
 def multihot_gen(gen, num_classes):
     """A stream modifier that converts categorical labels into one-hot vectors.
 
@@ -45,6 +38,8 @@ def multihot_gen(gen, num_classes):
     """
     for image, captions in gen:
         yield image, to_multihot(captions, num_classes)
+
+
 def compute_class_weights(dataset):
     '''
     computes the ideal weights from each class based on the frequency of each class.
@@ -56,202 +51,6 @@ def compute_class_weights(dataset):
         min(dataset.stats['class_weights'].keys(), key=(lambda k: dataset.stats['class_weights'][k]))]
     return dataset.stats['class_weights'].update((x,y/min_val) for x,y in dataset.stats['class_weights'].items())
 
-'''
-implementation from:
-# https://github.com/keras-team/keras/issues/5400
- you can use it like this
-model.compile(loss='binary_crossentropy',
-              optimizer="adam",
-              metrics=[mcor, recall, f1])
-'''
-from keras import backend as K
-def mcor(y_true, y_pred):
-    # matthews_correlation
-    y_pred_pos = K.round(K.clip(y_pred, 0, 1))
-    y_pred_neg = 1 - y_pred_pos
-
-    y_pos = K.round(K.clip(y_true, 0, 1))
-    y_neg = 1 - y_pos
-
-    tp = K.sum(y_pos * y_pred_pos)
-    tn = K.sum(y_neg * y_pred_neg)
-
-    fp = K.sum(y_neg * y_pred_pos)
-    fn = K.sum(y_pos * y_pred_neg)
-
-    numerator = (tp * tn - fp * fn)
-    denominator = K.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
-
-    return numerator / (denominator + K.epsilon())
-def precision(y_true, y_pred):
-    """Precision metric.
-
-    Only computes a batch-wise average of precision.
-
-    Computes the precision, a metric for multi-label classification of
-    how many selected items are relevant.
-    """
-    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-    predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
-    precision = true_positives / (predicted_positives + K.epsilon())
-    return precision
-def recall(y_true, y_pred):
-    """Recall metric.
-
-    Only computes a batch-wise average of recall.
-
-    Computes the recall, a metric for multi-label classification of
-    how many relevant items are selected.
-    """
-    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-    possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
-    recall = true_positives / (possible_positives + K.epsilon())
-    return recall
-def f1(y_true, y_pred):
-    def recall(y_true, y_pred):
-        """Recall metric.
-
-        Only computes a batch-wise average of recall.
-
-        Computes the recall, a metric for multi-label classification of
-        how many relevant items are selected.
-        """
-        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-        possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
-        recall = true_positives / (possible_positives + K.epsilon())
-        return recall
-
-    def precision(y_true, y_pred):
-        """Precision metric.
-
-        Only computes a batch-wise average of precision.
-
-        Computes the precision, a metric for multi-label classification of
-        how many selected items are relevant.
-        """
-        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-        predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
-        precision = true_positives / (predicted_positives + K.epsilon())
-        return precision
-
-    precision = precision(y_true, y_pred)
-    recall = recall(y_true, y_pred)
-    return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
-
-class HotTranslator(AnnotationTranslator):
-    """
-    A translator to convert annotations to multihot encoding
-    """
-    def __init__(self, num_classes):
-        self.num_classes = num_classes
-    def filter(self, annotation):
-        """
-        Filters the annotations
-        """
-        return True
-    def translate(self, annotation):
-        """
-        Translates the annotation into a multihot vector
-        Args:
-            annotation:
-
-        Returns:
-
-        """
-        return to_multihot(annotation, self.num_classes)
-class MultipleTranslators(AnnotationTranslator):
-    """
-    Used when multiple sequential translations are needed to transform the annotations
-    """
-    def __init__(self, translators):
-        for tr in translators:
-            assert isinstance(tr, (AnnotationTranslator, type(None)))
-        self.translators = translators
-    def filter(self, annotation):
-        """
-        Filters the annotations
-        """
-        for tr in self.translators:
-            if not tr.filter(annotation):
-                return False
-        return True
-    def translate(self, annotation):
-        """
-        Translates the annotation
-        """
-        for tr in self.translators:
-            annotation = tr.translate(annotation)
-        return annotation
-class SaveModelCallback(Callback):
-    """
-    Saves the model at the end of an epoch. To be used with an ImageClassifier class.
-
-    Usage:
-        callbacks = [SaveModelCallback(classifier.save, 'models')]
-    """
-    def __init__(self, save_fn, model_dir, save_interval=1):
-        self.model_dir = model_dir
-        self.save_fn = save_fn
-        self.save_interval = save_interval
-    def on_epoch_end(self, epoch, logs={}):
-        if epoch % self.save_interval == 0:
-            self.save_fn(os.path.join(self.model_dir, 'model_%d.h5'%epoch))
-        return
-    def on_train_end(self, epoch):
-        self.save_fn(os.path.join(self.model_dir, 'best_model.h5'))
-class TrainValTensorBoard(TensorBoard):
-    '''
-    Additional and improved logging parameters with tensorboard. Wraps around tensorboard callback.
-    adapted from:
-    https://stackoverflow.com/questions/47877475/keras-tensorboard-plot-train-and-validation-scalars-in-a-same-figure
-    '''
-    def __init__(self, log_dir='./logs', update_freq='epoch', update_step=1, **kwargs):
-        # Make the original `TensorBoard` log to a subdirectory 'training'
-        training_log_dir = os.path.join(log_dir, 'training')
-        super(TrainValTensorBoard, self).__init__(training_log_dir, **kwargs)
-        if update_freq not in ['epoch', 'batch']:
-            raise ValueError("TrainValTensorBoard callback update frequency is invalid. "
-                             "Select either: update_freq = epoch or batch.")
-        self.update_freq = update_freq
-        self.update_step = update_step
-        self.losses = [] # this is here accumulate metrics every batch, rather than the default on_epoch_end
-        # Log the validation metrics to a separate subdirectory
-        self.val_log_dir = os.path.join(log_dir, 'validation')
-    def set_model(self, model):
-        # Setup writer for validation metrics
-        self.val_writer = tf.summary.FileWriter(self.val_log_dir)
-        super(TrainValTensorBoard, self).set_model(model)
-    def handle_validation(self, count, logs=None):
-        '''
-        # Pop the validation logs and handle them separately with
-        # `self.val_writer`. Also rename the keys so that they can
-        # be plotted on the same figure with the training metrics
-        takes the logs, and processing any validation ones so they will be plotted on the same tensorboard graph as
-        their training counterparts. Any remaining, no processed logs are returned.
-
-        '''
-        logs = logs or {}
-        if self.update_freq is 'batch':
-            val_logs = {k.replace('val_', ''): v for k, v in logs.items() if k.startswith('val_')}
-            for name, value in val_logs.items():
-                summary = tf.Summary()
-                summary_value = summary.value.add()
-                summary_value.simple_value = value.item()
-                summary_value.tag = name
-                self.val_writer.add_summary(summary, count)
-            self.val_writer.flush()
-        return {k: v for k, v in logs.items() if not k.startswith('val_')}
-    def on_epoch_end(self, epoch, logs=None):
-            logs = self.handle_validation(epoch, logs)
-            logs.update({'learning_rate': K.eval(self.model.optimizer.lr)}) # additioanlly log learning rate
-            super(TrainValTensorBoard, self).on_epoch_end(epoch, logs)
-    def on_batch_end(self, batch, logs=None):
-        if batch % self.update_step is 0 or self.update_freq is 'epoch':
-            logs = self.handle_validation(batch, logs)
-            # Pass the remaining logs to `TensorBoard.on_epoch_end`
-            super(TrainValTensorBoard, self).on_epoch_end(epoch=batch, logs=logs)
-    def on_train_end(self, logs=None):
-        self.val_writer.close()
 
 def get_args():
     parser = argparse.ArgumentParser(
@@ -266,6 +65,7 @@ def get_args():
     parser.add_argument("--image-shape", type=str, default="320,240,3", help="Image shape")
     parser.add_argument("--batch-size", type=int, default=2, help="Image shape")
     parser.add_argument("--epochs", type=int, default=2, help="Image shape")
+    parser.add_argument("--save-model-interval", type=int, default=1, help="How often to save the mdoel interval")
     args = parser.parse_args()
     return args
 
@@ -291,6 +91,7 @@ def main(args):
         val_gen = val_dataset.generator(endless=True, shuffle_ids=True)
     else:
         val_gen = None
+        val_dataset = None
 
     def preprocess(image, caption):
         """
@@ -337,18 +138,17 @@ def main(args):
         init_lr=1e-3,
         trainable=True,
         loss='categorical_crossentropy',
-        metrics=['accuracy', mcor, recall, f1, precision]
+        #metrics=['accuracy', mcor, recall, f1, precision]
+        metrics=['accuracy']
     )
 
     ## callbacks
-    callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=5),  # A callback to save the model
-                 TrainValTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=32, write_graph=True,
-                                             write_grads=True, write_images=False, embeddings_freq=0,
-                                             embeddings_layer_names=None, embeddings_metadata=None,
-                                             embeddings_data=None, update_freq='batch', update_step=10),
-                 ReduceLROnPlateau(monitor='acc', factor=0.2,
+    callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=10000),  # A callback to save the model
+                 ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
+                                     write_grads=True, num_classes=num_classes, pr_curve=True, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if val_gen else None, val_steps=len(val_dataset), tfpn=True),
+                 ReduceLROnPlateau(monitor='val_loss', factor=0.2,
                                    patience=5, min_lr=1e-4),
-                 EarlyStopping(monitor='acc', min_delta=1e-4, patience=6, verbose=1, mode='auto',
+                 EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=6, verbose=1, mode='auto',
                                                baseline=None, restore_best_weights=True),
                  TerminateOnNaN()
                  ]
@@ -359,13 +159,14 @@ def main(args):
     classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size),  # The generator wrapped in the pipline loads x,y
                              steps_per_epoch=train_steps,
                              # validation_data= val_data if val_dataset is not None else None,  # Pass in the validation data array
-                             validation_data=pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size),
+                             validation_data=pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size) if val_gen else None,
                              validation_steps=val_steps,
                              epochs=args.epochs,
                              class_weight=class_weights,
                              verbose=1,
                              shuffle=True,
-                             callbacks=callbacks)
+                             callbacks=callbacks,
+                             use_multiprocessing=True)
 
 if __name__ == "__main__":
     main(get_args())
