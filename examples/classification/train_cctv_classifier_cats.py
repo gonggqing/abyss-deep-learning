@@ -11,7 +11,7 @@ from keras.callbacks import TensorBoard, ReduceLROnPlateau, EarlyStopping, Callb
 import tensorflow as tf
 
 from abyss_deep_learning.datasets.coco import ImageClassificationDataset
-from abyss_deep_learning.datasets.translators import  AbyssCaptionTranslator, CaptionMapTranslator, AnnotationTranslator
+from abyss_deep_learning.datasets.translators import  AbyssCaptionTranslator, CaptionMapTranslator, AnnotationTranslator, CategoryTranslator
 from abyss_deep_learning.keras.classification import caption_map_gen, onehot_gen
 from abyss_deep_learning.keras.models import ImageClassifier
 from abyss_deep_learning.keras.utils import lambda_gen, batching_gen
@@ -37,7 +37,7 @@ def get_args():
     parser.add_argument("coco_path", type=str, help="Path to the coco dataset")
     parser.add_argument("--val-coco-path", type=str, help="Path to the validation coco dataset")
     parser.add_argument("--scratch-dir", type=str, default="scratch/", help="Where to save models, logs, etc.")
-    parser.add_argument("--caption-map", type=str, help="Path to the caption map")
+    parser.add_argument("--category-map", type=str, help="Path to the caption map")
     parser.add_argument("--image-shape", type=str, default="320,240,3", help="Image shape")
     parser.add_argument("--batch-size", type=int, default=2, help="Image shape")
     parser.add_argument("--epochs", type=int, default=2, help="Image shape")
@@ -53,17 +53,19 @@ def main(args):
     log_dir = os.path.join(args.scratch_dir, 'logs')
 
     # do the caption translations and any preprocessing set-up
-    caption_map = json.load(open(args.caption_map, 'r'))  # Load the caption map - caption_map should live on place on servers
-    caption_translator = CaptionMapTranslator(mapping=caption_map)  # Initialise the translator
-    num_classes = len(set(caption_map.values()))  # Get num classes from caption map
+    raw_cat_map = json.load(open(args.category_map, 'r'))  # Load the caption map - caption_map should live on place on servers
+    cat_map = {}
+    for k,v in raw_cat_map.items():
+        cat_map[int(k)] = v
+    cat_translator = CategoryTranslator(mapping=cat_map)
+    num_classes = len(set(cat_map.values()))  # Get num classes from caption map
     hot_translator = HotTranslator(num_classes)  # Hot translator encodes as a multi-hot vector
-    translator = MultipleTranslators([caption_translator, hot_translator])  # Apply multiple translators
     image_shape = [int(x) for x in args.image_shape.split(',')]
 
-    train_dataset = ImageClassificationDataset(args.coco_path, translator=caption_translator)
+    train_dataset = ImageClassificationDataset(args.coco_path, translator=cat_translator)
     train_gen = train_dataset.generator(endless=True, shuffle_ids=True)
     if args.val_coco_path:
-        val_dataset = ImageClassificationDataset(args.val_coco_path, translator=caption_translator)
+        val_dataset = ImageClassificationDataset(args.val_coco_path, translator=cat_translator)
         val_gen = val_dataset.generator(endless=True, shuffle_ids=True)
     else:
         val_gen = None
@@ -129,15 +131,21 @@ def main(args):
                  TerminateOnNaN()
                  ]
 
+    # TEST GENERATOR
+
+    for i, (inp, tgt) in enumerate(pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size)):
+        print(tgt)
+        if i >= 5:
+            break
+
     train_steps = np.floor(len(train_dataset) / args.batch_size)
     val_steps = np.floor(len(val_dataset) / args.batch_size) if val_dataset is not None else None
-    class_weights = compute_class_weights(train_dataset)
+    # class_weights = compute_class_weights(train_dataset)
     classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size),  # The generator wrapped in the pipline loads x,y
                              steps_per_epoch=train_steps,
                              validation_data=pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size) if val_gen else None,
                              validation_steps=val_steps,
                              epochs=args.epochs,
-                             class_weight=class_weights,
                              verbose=1,
                              shuffle=True,
                              callbacks=callbacks,

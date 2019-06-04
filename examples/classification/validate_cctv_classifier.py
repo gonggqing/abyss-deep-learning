@@ -58,13 +58,7 @@ def main(args):
     num_classes = len(set(caption_map.values()))  # Get num classes from caption map
 
 
-    classifier = loadImageClassifierByDict(os.path.join(args.logdir, 'params.json'))
-
-    classifier._maybe_create_model()
-
-    # classifier.model_.load_weights(os.path.join(args.logdir, 'models', 'model_%d.h5'%args.checkpoint))
-
-    classifier.load(os.path.join(args.logdir, 'models', 'model_%d.h5'%args.checkpoint))
+    classifier = ImageClassifier.load(os.path.join(args.logdir, 'models', 'model_%d.h5'%args.checkpoint))
 
 
     def preprocess(image, caption):
@@ -99,7 +93,7 @@ def main(args):
     for batch, (inp, tgt) in enumerate(pipeline(dataset.generator(endless=True), num_classes=num_classes, batch_size=1)):
         if batch >= args.num_samples:
             break
-        pred = np.argmax(np.squeeze(classifier.predict(inp, batch_size=1),axis=0))
+        pred = int(np.squeeze(classifier.predict(inp, batch_size=1),axis=0))
         preds.append(pred)
         trues.append(np.argmax(np.squeeze(tgt, axis=0)))
 

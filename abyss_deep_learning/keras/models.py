@@ -139,8 +139,8 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         Returns:
 
         """
-        if not os.path.exists(os.path.basename(json_path)):
-            os.makedirs(os.path.basename(json_path))
+        if not os.path.exists(os.path.dirname(json_path)):
+            os.makedirs(os.path.dirname(json_path))
 
         params = {}
         params['backbone'] = self.backbone
