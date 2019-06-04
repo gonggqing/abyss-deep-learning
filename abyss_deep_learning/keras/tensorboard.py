@@ -10,6 +10,8 @@ from tensorboard.plugins.custom_scalar import layout_pb2
 from tensorboard.plugins.scalar import summary as scalar_summary
 from tensorboard.plugins.pr_curve import summary as pr_summary
 import keras.backend as K
+import numpy as np
+
 
 class ImprovedTensorBoard(TensorBoard):
 
@@ -17,7 +19,7 @@ class ImprovedTensorBoard(TensorBoard):
     adding scalar summaries and the Custom Scalars, PR Curve and Embeddings plugins.
     """
 
-    def __init__(self, scalars=None, groups=None, pr_curve=None, tfpn=None, num_classes=None, **kwargs):
+    def __init__(self, scalars=None, groups=None, pr_curve=None, tfpn=None, num_classes=None, val_generator=None, val_steps=None, **kwargs):
         """Constructor
 
         Args:
@@ -34,6 +36,11 @@ class ImprovedTensorBoard(TensorBoard):
                 Publish TP (True Positives), FP (False Positives), FN (False Negatives), F1 Score, Precision, Recall. (DEVEL).
             num_classes:
                 The number of classes (dimension 1 of the data).
+            val_generator:
+                The PR curve callback only works with a static validation_data. Pass a generator here to generate the val data
+                on the fly.
+            val_steps:
+                The number of steps to use for the val_generator.
             log_dir: the path of the directory where to save the log
                 files to be parsed by TensorBoard.
             histogram_freq: frequency (in epochs) at which to compute activation
@@ -83,6 +90,9 @@ class ImprovedTensorBoard(TensorBoard):
         self.pr_curve = pr_curve
         self.pr_summary = []
         self.num_classes = num_classes
+
+        self.val_generator = val_generator
+        self.val_steps = val_steps
 
         self.layout_summary = None
         if groups:
@@ -153,23 +163,39 @@ class ImprovedTensorBoard(TensorBoard):
                     feed_dict = dict(zip(tensors, self.validation_data))
                     logs[name] = K.get_session().run([value], feed_dict=feed_dict)[0]
 
-        if self.pr_curve and self.validation_data:
+        if (self.validation_data or self.val_generator) and (self.pr_curve or self.tfpn):
+            if self.validation_data:  # Use the validation data
+                predictions = self.model.predict(self.validation_data[0])
+                targets = self.validation_data[1]
+            elif self.val_generator and (self.validation_data or self.val_generator):  # Use the validation generator
+                y_preds = []
+                y_true = []
+                for batch, (val_x, val_y) in enumerate(self.val_generator):
+                    if batch >= self.val_steps:
+                        break
+                    preds = np.squeeze(self.model.predict(val_x), axis=0)  # Predict - relies on batch_size=1
+                    preds = preds.round().astype(int)
+                    y_preds.append(preds)
+                    y_true.append(np.squeeze(val_y, axis=0).round().astype(int))
+                predictions = np.asarray(y_preds)
+                targets = np.asarray(y_true)
+
+
+        if self.pr_curve and (self.validation_data or self.val_generator):
             tensors = self.model._feed_targets + self.model._feed_outputs
-            predictions = self.model.predict(self.validation_data[0])
-            feed_dict = dict(zip(tensors, [self.validation_data[1], predictions]))
+            feed_dict = dict(zip(tensors, [targets, predictions]))
             results = self.sess.run(self.pr_summary, feed_dict=feed_dict)
             for result in results:
                 self.writer.add_summary(result, epoch)
 
-        if self.tfpn:
+        if self.tfpn and (self.validation_data or self.val_generator):
             init_g = tf.global_variables_initializer()
             init_l = tf.local_variables_initializer()
             self.sess.run(init_g)
             self.sess.run(init_l)
 
             tensors = self.model._feed_targets + self.model._feed_outputs
-            predictions = self.model.predict(self.validation_data[0])  # TODO if keeping these changes, only do this once for pr_curve and tfpn
-            feed_dict = dict(zip(tensors, [self.validation_data[1], predictions]))
+            feed_dict = dict(zip(tensors, [targets, predictions]))
             precision_result = self.sess.run(self.precision_summary, feed_dict=feed_dict)
             recall_result = self.sess.run(self.recall_summary, feed_dict=feed_dict)
             fp_result = self.sess.run(self.fp_summary, feed_dict=feed_dict)
