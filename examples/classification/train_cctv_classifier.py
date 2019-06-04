@@ -17,7 +17,7 @@ from abyss_deep_learning.keras.models import ImageClassifier
 from abyss_deep_learning.keras.utils import lambda_gen, batching_gen
 
 from callbacks import SaveModelCallback, PrecisionRecallF1Callback, TrainValTensorBoard
-from utils import to_multihot
+from utils import to_multihot, multihot_gen, compute_class_weights
 from translators import MultipleTranslators, HotTranslator
 from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard
 
@@ -26,30 +26,6 @@ from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard
 NN_DTYPE = np.float32
 
 
-def multihot_gen(gen, num_classes):
-    """A stream modifier that converts categorical labels into one-hot vectors.
-
-    Args:
-        gen (generator): A keras compatible generator where the targets are a list of categorical labels.
-        num_classes (int): Total number of categories to represent.
-
-    Yields:
-        generator: A keras compatible generator with the targets modified.
-    """
-    for image, captions in gen:
-        yield image, to_multihot(captions, num_classes)
-
-
-def compute_class_weights(dataset):
-    '''
-    computes the ideal weights from each class based on the frequency of each class.
-    For example, if there are 12.5 times more of class 0 than class 1, then returns {0: 12.5,
-                                                                                     1: 1.0}
-    '''
-    dataset._calc_class_stats()
-    min_val = dataset.stats['class_weights'][
-        min(dataset.stats['class_weights'].keys(), key=(lambda k: dataset.stats['class_weights'][k]))]
-    return dataset.stats['class_weights'].update((x,y/min_val) for x,y in dataset.stats['class_weights'].items())
 
 
 def get_args():
@@ -138,18 +114,18 @@ def main(args):
         init_lr=1e-3,
         trainable=True,
         loss='categorical_crossentropy',
-        #metrics=['accuracy', mcor, recall, f1, precision]
         metrics=['accuracy']
     )
+    classifier.dump_args(os.path.join(args.scratch_dir, 'params.json'))
 
     ## callbacks
-    callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=10000),  # A callback to save the model
+    callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=10),  # A callback to save the model
                  ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
                                      write_grads=True, num_classes=num_classes, pr_curve=True, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if val_gen else None, val_steps=len(val_dataset), tfpn=True),
                  ReduceLROnPlateau(monitor='val_loss', factor=0.2,
                                    patience=5, min_lr=1e-4),
-                 EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=6, verbose=1, mode='auto',
-                                               baseline=None, restore_best_weights=True),
+                 # EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=6, verbose=1, mode='auto',
+                 #                               baseline=None, restore_best_weights=True),
                  TerminateOnNaN()
                  ]
 
@@ -158,7 +134,6 @@ def main(args):
     class_weights = compute_class_weights(train_dataset)
     classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size),  # The generator wrapped in the pipline loads x,y
                              steps_per_epoch=train_steps,
-                             # validation_data= val_data if val_dataset is not None else None,  # Pass in the validation data array
                              validation_data=pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size) if val_gen else None,
                              validation_steps=val_steps,
                              epochs=args.epochs,
