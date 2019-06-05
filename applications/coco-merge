@@ -50,6 +50,20 @@ Output merged coco json contents in stdout.
 
 examples:
     coco-merge labelled/abc/coco.json labelled/def/coco.json
+    
+    --append-category:
+        Consider two JSONs - a.json has two categories with ids 0 and 100, b.json has five categories with ids from 0 to 5.
+        
+        coco-merge a.json b.json --append-category
+        
+            The resulting JSON will have category ids 0, 100, 101, 102, 103, 104, 105, with 0 and 100 matching the
+            categories found in a.json.
+        
+        Switching the order:
+        coco-merge b.json a.json --append-category
+        
+            The resulting JSON will have category ids 0, 1, 2, 3, 4, 5, 6, 106, with 0 to 5 matching the categories
+            found in b.json.
 """
 
 
