@@ -26,7 +26,7 @@ Entries in the 'images' array with duplicate path are removed.
 Entries in the 'annotations' array with duplicate fields, except for id, are removed
 
 Categories are removed on a per category basis if the category names, super-category and description are identical to one another.
-The exception to this is if the --append-category option is used, in which duplicates are maintained.
+The exception to this is if the --append-categories option is used, in which duplicates are maintained.
 TODO: Review this behaviour and remove if appropriate (Search for "NOTE_1")
 
 Images are removed on a per image basis on the path
@@ -51,16 +51,16 @@ Output merged coco json contents in stdout.
 examples:
     coco-merge labelled/abc/coco.json labelled/def/coco.json
     
-    --append-category:
+    --append-categories:
         Consider two JSONs - a.json has two categories with ids 0 and 100, b.json has six categories with ids from 0 to 5.
         
-        coco-merge a.json b.json --append-category
+        coco-merge a.json b.json --append-categories
         
             The resulting JSON will have category ids 0, 100, 101, 102, 103, 104, 105, with 0 and 100 matching the
             categories found in a.json.
         
         Switching the order:
-        coco-merge b.json a.json --append-category
+        coco-merge b.json a.json --append-categories
         
             The resulting JSON will have category ids 0, 1, 2, 3, 4, 5, 6, 106, with 0 to 5 matching the categories
             found in b.json.
@@ -317,7 +317,7 @@ def get_args():
         help="COCO json file to copy info to new dataset. Default is the first json file",
     )
     parser.add_argument(
-        '--append-category',
+        '--append-categories',
         action='store_true',
         help="Assign category IDs in an appending fashion, such that the ranges of IDs from different JSONs do not overlap",
     )
