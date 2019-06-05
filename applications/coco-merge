@@ -21,8 +21,13 @@ merge together 'images', 'annotations', 'categories' and 'licenses' array.
 
 TODO: LICENSE
 
+Entries in the 'categories' array with duplicate fields, except for id, are removed unless --append-category is used
 Entries in the 'images' array with duplicate path are removed.
 Entries in the 'annotations' array with duplicate fields, except for id, are removed
+
+Categories are removed on a per category basis if the category names, super-category and description are identical to one another.
+The exception to this is if the --append-category option is used, in which duplicates are maintained.
+TODO: Review this behaviour and remove if appropriate (Search for "NOTE_1")
 
 Images are removed on a per image basis on the path
 i.e. if dataset has two images that have file name /home/user/images/0001.jpeg and /home/user/images/0001.png, none will be discarded
@@ -106,6 +111,7 @@ def main(args):
 
     # Handle duplicate values in whole list of COCO JSONS
     for curr_coco in coco_list:
+
         # Get current relevant values for images, annotations and categories
         curr_img_map, curr_img_vals = get_header_vals(curr_coco.images, field='path')
         curr_cat_map, curr_cat_vals = get_header_vals(curr_coco.categories)
@@ -135,8 +141,9 @@ def main(args):
         for ann in dupe_img_val_entries:
             ann['image_id'] = seen_img_maps[curr_img_map[ann['image_id']]]
 
-        for ann in dupe_cat_val_entries:
-            ann['category_id'] = seen_cat_maps[curr_cat_map[ann['category_id']]]
+        if not args.append_category:  # NOTE_1
+            for ann in dupe_cat_val_entries:
+                ann['category_id'] = seen_cat_maps[curr_cat_map[ann['category_id']]]
 
         # Drop duplicate annotations
         curr_ann_map, curr_ann_vals = get_header_vals(curr_coco.annotations)
@@ -148,7 +155,8 @@ def main(args):
         curr_coco.images = [img for img in curr_coco.images if img['id'] not in dupe_img_val_ids]
 
         # Drop duplicate categories
-        curr_coco.categories = [cat for cat in curr_coco.categories if cat['id'] not in dupe_cat_val_ids]
+        if not args.append_category: # NOTE_1
+            curr_coco.categories = [cat for cat in curr_coco.categories if cat['id'] not in dupe_cat_val_ids]
 
         # Update sets of vals
         seen_img_vals |= curr_img_vals
@@ -194,10 +202,13 @@ def main(args):
 
         curr_cat_ids = set(curr_coco.getCatIds())
         out_cat_ids = set(coco_out.getCatIds())
-        cats_to_extend = curr_coco.loadCats(curr_cat_ids - out_cat_ids)  # Cat id doesn't exist in out coco
-        duplicate_id_cats = curr_coco.loadCats(curr_cat_ids & out_cat_ids)
-        coco_out.categories.extend(cats_to_extend)
-        cat_id_range -= curr_cat_ids
+        if not args.append_category:
+            cats_to_extend = curr_coco.loadCats(curr_cat_ids - out_cat_ids)  # Cat id doesn't exist in out coco
+            duplicate_id_cats = curr_coco.loadCats(curr_cat_ids & out_cat_ids)
+            coco_out.categories.extend(cats_to_extend)
+            cat_id_range -= curr_cat_ids
+        else:
+            duplicate_id_cats = curr_coco.loadCats(curr_cat_ids)
 
         # Create duplicates JSON and run another loop to clean duplicate ids by taking from leftover ids in id ranges
         dupes.append(dict(
@@ -210,6 +221,7 @@ def main(args):
         coco_out.createIndex()
 
     for dupe in dupes:
+        max_cat_id = max(coco_out.getCatIds()) if coco_out.getCatIds() and args.append_category else -1
         dupe_coco = MyCOCO()
         dupe_coco.dataset = dupe
         dupe_coco.createIndex()
@@ -227,7 +239,10 @@ def main(args):
 
         # Reassign category id and save mapping to update annotation category id
         for cat in dupe_coco.categories:
-            old_cat_id_2_new_cat_id[cat['id']] = cat_id_range.pop()
+            if not args.append_category:
+                old_cat_id_2_new_cat_id[cat['id']] = cat_id_range.pop()
+            else:
+                old_cat_id_2_new_cat_id[cat['id']] = cat['id'] + max_cat_id + 1
             cat['id'] = old_cat_id_2_new_cat_id[cat['id']]
             logging.warning("Assigning new category id {} to {}".format(cat['id'], cat['name']))
 
@@ -252,19 +267,19 @@ def main(args):
     return 0
 
 
-def get_header_vals(header: list, field: str = None):
+def get_header_vals(header: list, field: str = None, translate: int = 0):
     uniq_vals = [copy.deepcopy(i) for i in header]
     map_ = {}
     entries = set()
     if field is None:
         for entry in uniq_vals:
-            id_ = entry.pop('id')
+            id_ = entry.pop('id') + translate
             entry = to_tuple([list(i) for i in sorted(entry.items())])
             map_[id_] = entry
             entries.add(entry)
     else:
         for entry in uniq_vals:
-            id_ = entry.pop('id')
+            id_ = entry.pop('id') + translate
             entry = to_tuple([list(i) for i in sorted(((field, entry[field]),))])
             map_[id_] = entry
             entries.add(entry)
@@ -286,6 +301,11 @@ def get_args():
         '-f', '--file',
         nargs=1,
         help="COCO json file to copy info to new dataset. Default is the first json file",
+    )
+    parser.add_argument(
+        '--append-category',
+        action='store_true',
+        help="Assign category IDs in an appending fashion, such that the ranges of IDs from different JSONs do not overlap",
     )
     logging_group = parser.add_mutually_exclusive_group()
     logging_group.add_argument(
