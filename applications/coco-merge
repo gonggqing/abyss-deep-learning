@@ -126,9 +126,11 @@ def main(args):
     # Handle duplicate values in whole list of COCO JSONS
     for curr_coco in coco_list:
 
+        max_cat_id = max(seen_cat_maps.values()) if seen_cat_maps.values() and args.append_categories else -1
+
         # Get current relevant values for images, annotations and categories
         curr_img_map, curr_img_vals = get_header_vals(curr_coco.images, field='path')
-        curr_cat_map, curr_cat_vals = get_header_vals(curr_coco.categories)
+        curr_cat_map, curr_cat_vals = get_header_vals(curr_coco.categories, translate=max_cat_id+1)
 
         # Find those with duplicates
         dupe_img_vals = curr_img_vals & seen_img_vals
@@ -155,7 +157,10 @@ def main(args):
         for ann in dupe_img_val_entries:
             ann['image_id'] = seen_img_maps[curr_img_map[ann['image_id']]]
 
-        if not args.append_category:  # NOTE_1
+        if args.append_categories:
+            for ann in curr_coco.loadAnns(curr_coco.getAnnIds()):
+                ann['category_id'] += max_cat_id + 1
+        else:
             for ann in dupe_cat_val_entries:
                 ann['category_id'] = seen_cat_maps[curr_cat_map[ann['category_id']]]
 
@@ -169,7 +174,7 @@ def main(args):
         curr_coco.images = [img for img in curr_coco.images if img['id'] not in dupe_img_val_ids]
 
         # Drop duplicate categories
-        if not args.append_category: # NOTE_1
+        if not args.append_categories: # NOTE_1
             curr_coco.categories = [cat for cat in curr_coco.categories if cat['id'] not in dupe_cat_val_ids]
 
         # Update sets of vals
@@ -216,7 +221,7 @@ def main(args):
 
         curr_cat_ids = set(curr_coco.getCatIds())
         out_cat_ids = set(coco_out.getCatIds())
-        if not args.append_category:
+        if not args.append_categories:
             cats_to_extend = curr_coco.loadCats(curr_cat_ids - out_cat_ids)  # Cat id doesn't exist in out coco
             duplicate_id_cats = curr_coco.loadCats(curr_cat_ids & out_cat_ids)
             coco_out.categories.extend(cats_to_extend)
@@ -235,7 +240,7 @@ def main(args):
         coco_out.createIndex()
 
     for dupe in dupes:
-        max_cat_id = max(coco_out.getCatIds()) if coco_out.getCatIds() and args.append_category else -1
+        max_cat_id = max(coco_out.getCatIds()) if coco_out.getCatIds() and args.append_categories else -1
         dupe_coco = MyCOCO()
         dupe_coco.dataset = dupe
         dupe_coco.createIndex()
@@ -253,7 +258,7 @@ def main(args):
 
         # Reassign category id and save mapping to update annotation category id
         for cat in dupe_coco.categories:
-            if not args.append_category:
+            if not args.append_categories:
                 old_cat_id_2_new_cat_id[cat['id']] = cat_id_range.pop()
             else:
                 old_cat_id_2_new_cat_id[cat['id']] = cat['id'] + max_cat_id + 1
