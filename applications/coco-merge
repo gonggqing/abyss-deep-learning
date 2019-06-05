@@ -52,7 +52,7 @@ examples:
     coco-merge labelled/abc/coco.json labelled/def/coco.json
     
     --append-category:
-        Consider two JSONs - a.json has two categories with ids 0 and 100, b.json has five categories with ids from 0 to 5.
+        Consider two JSONs - a.json has two categories with ids 0 and 100, b.json has six categories with ids from 0 to 5.
         
         coco-merge a.json b.json --append-category
         
