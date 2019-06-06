@@ -9,6 +9,8 @@ import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 # from sklearn.utils.deprecation import deprecated
 from sklearn.utils.validation import check_is_fitted
+import os
+import json
 
 from abyss_deep_learning.utils import cat_to_onehot, warn_on_call
 
@@ -51,9 +53,45 @@ class ModelPersistence:
         parameters = loads(str(f['parameters']))
         model = model_class(**parameters)
         model._maybe_create_model()
-        model.model_.load_weights(filepath)
+        model.model_.load_weights(filepath, by_name=True)
         f.close()
         return model
+
+
+def loadImageClassifierByDict(json_path):
+    """
+    Allows the user to instantiate the Image Classifier using a dictionary of arguments. The same one that is created by ImageClassifier.dump_args.
+
+    This is useful for loading the classifier for validation/prediction.
+
+    Args:
+        json_path: path to the params json
+
+    Returns:
+        ImageClassifier: The initialised Image Classifier.
+
+    """
+    params = json.load(open(json_path, 'r'))
+
+    if params['metrics']:
+        mets = params['metrics'].split(',')
+    else:
+        mets = None
+
+    return ImageClassifier(
+        backbone=params['backbone'],
+        output_activation=params['output_activation'],
+        input_shape=params['input_shape'],
+        pooling=params['pooling'],
+        classes=params['classes'],
+        init_weights=params['init_weights'],
+        init_epoch=params['init_epoch'],
+        init_lr=params['init_lr'],
+        trainable=params['trainable'],
+        loss=params['loss'],
+        metrics=mets
+    )
+
 
 class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
 
@@ -91,6 +129,46 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         self.init_lr = init_lr
         self.init_epoch = init_epoch
         self.metrics = metrics
+
+    def dump_args(self, json_path):
+        """
+        Dump the arguments to initialise this class to file.
+        Args:
+            json_path: Path to the JSON file.
+
+        Returns:
+
+        """
+        if not os.path.exists(os.path.dirname(json_path)):
+            os.makedirs(os.path.dirname(json_path))
+
+        params = {}
+        params['backbone'] = self.backbone
+        if isinstance(self.loss, str):
+            params['loss'] = self.loss
+        else:
+            params['loss'] = None
+        params['output_activation'] = self.output_activation
+        params['input_shape'] = self.input_shape
+        params['pooling'] = self.pooling
+        params['classes'] = self.classes
+        params['trainable'] = self.trainable
+        params['init_weights'] = self.init_weights
+        params['init_epoch'] = self.init_epoch
+        params['init_lr'] = self.init_lr
+        if isinstance(self.metrics, str):
+            params['metrics'] = self.metrics
+        elif isinstance(self.metrics, list):
+            try:
+                mets = ','.join(self.metrics)
+            finally:
+                mets = None
+            params['metrics'] = mets
+        else:
+            params['metrics'] = None
+
+        json.dump(params, open(json_path, 'w'), indent=4, sort_keys=True)
+
 
     def set_weights(self, weights):
         """Set the weights of the model.

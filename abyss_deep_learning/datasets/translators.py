@@ -80,4 +80,37 @@ class CaptionMapTranslator(AnnotationTranslator):
         return 'caption' in annotation
 
     def translate(self, annotation):
-        return [self.map[annotation['caption']]]
+        # return [self.map[annotation['caption']]]
+        return [self.map[caption] for caption in annotation['caption'].split(',')]
+
+
+class CategoryTranslator(AnnotationTranslator):
+    """
+    Gets the category id from the annoations and translates this to logits
+    """
+    def __init__(self, mapping):
+        """
+
+        Args:
+            mapping: key=category_id, value=logit_id. e.g. {1: 0, 2: 1, 3: 2}
+
+        """
+        self.map = mapping
+
+    def filter(self, annotation):
+        return annotation['category_id'] in list(self.map.keys())
+
+    def translate(self, annotation):
+        """
+        Translates the annotation to logits
+        Args:
+            annotation: (dict) the annotation dictionary, as retrieved from the coco dataset
+
+        Returns:
+            (list) A list of logit ids
+
+
+        """
+        return [self.map[annotation['category_id']]]
+
+

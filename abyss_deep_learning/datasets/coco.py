@@ -145,7 +145,7 @@ class ImageDatatype(CocoInterface, DatasetTypeBase):
 ########### COCO Task Types #################
 
 class ClassificationTask(CocoInterface, DatasetTaskBase):
-    def __init__(self, coco, translator=None, **kwargs):
+    def __init__(self, coco, translator=None, use_captions=False, **kwargs):
         '''Assumes that the data can be anything, but each data has 0 or more targets.
 
         kwargs:
@@ -163,22 +163,26 @@ class ClassificationTask(CocoInterface, DatasetTaskBase):
         assert isinstance(translator, (AnnotationTranslator, type(None)))
         # TODO - self.captions implemented like this doesn't allow full use of translators
         # TODO - Get captions from categories instead
-        self.captions = set(sorted([
-            caption
-            for annotation in self.coco.loadAnns(self.coco.getAnnIds(imgIds=[]))
-            if self.translator.filter(annotation)
-            for caption in self.translator.translate(annotation)
-        ]))
-        # Debugging
-        # captions = []
-        # for annotation in self.coco.loadAnns(self.coco.getAnnIds(imgIds=[])):
-        #     for caption in self.translator.translate(annotation):
-        #         if self.translator.filter(annotation):
-        #             captions.append(caption)
-        # print(captions)
-        # captions = set(sorted(captions))
-
-        self.num_classes = len(self.captions)
+        self.use_captions = use_captions
+        if self.use_captions:
+            self.captions = set(sorted([
+                caption
+                for annotation in self.coco.loadAnns(self.coco.getAnnIds(imgIds=[]))
+                if self.translator.filter(annotation)
+                for caption in self.translator.translate(annotation)
+            ]))
+            # Debugging
+            # captions = []
+            # for annotation in self.coco.loadAnns(self.coco.getAnnIds(imgIds=[])):
+            #     for caption in self.translator.translate(annotation):
+            #         if self.translator.filter(annotation):
+            #             captions.append(caption)
+            # print(captions)
+            # captions = set(sorted(captions))
+            self.num_classes = len(self.captions)
+        else:
+            self.categories = self.coco.loadCats(self.coco.getCatIds())
+            self.num_classes = len(self.categories)
         self.stats = dict()
         self._targets = dict()
 
