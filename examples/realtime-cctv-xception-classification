@@ -1,0 +1,25 @@
+#!/bin/bash
+frozen_graph="/mnt/hippo/mnt/ssd1/scratch/pmax/example_keras_pb/frozen_graph.pb"
+video="$1"
+
+
+if [[ -n "$1" ]]; then cv-cat --file "$video" "view;resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header; else cat; fi \
+    | tensor-cat --input input_1:0 --output logits/Softmax:0 --graph "$frozen_graph" --keep-input --verbose \
+    | python3 -c "
+import numpy as np
+import os
+import sys
+
+i = np.zeros( ( 320, 240, 3 ), dtype = np.float32 )
+s = np.zeros( ( 2 ), dtype = np.float32 )
+with os.fdopen( sys.stdout.fileno(), 'wb' ) as stdout:
+    with os.fdopen( sys.stdin.fileno(), 'rb' ) as stdin:
+        while True:
+            if stdin.readinto( i ) != 320 * 240 * 3 * 4: break
+            if stdin.readinto( s ) != 2 * 4: break
+            i = i.reshape( 320, 240, 3 )
+            i[0:40,0:40] = [ ( 1 - s[0] ) * 2 - 1, ( 1 - s[0] * 2 ) - 1, 1 ]
+            stdout.write( i.tobytes() )
+            stdout.flush()
+" \
+    | cv-cat --input "rows=320;cols=240;type=3f;no-header" "transpose;convert-to=f,127,128;convert-to=ub;resize=2;view;null"
