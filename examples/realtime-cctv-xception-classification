@@ -1,7 +1,25 @@
 #!/bin/bash
-frozen_graph="/mnt/hippo/mnt/ssd1/scratch/pmax/example_keras_pb/frozen_graph.pb"
-video="$1"
 
+function usage()
+{
+    cat <<eof >&2
+    
+usage: ./realtime-cctv-xception-classification <video>
+
+original video and inference video will be displayed
+
+square in the upper right corner of inference video will be
+white on normal pipeline; the more red it turns, the more
+likely there is a fault in the pipeline
+    
+eof
+    exit
+}
+
+[[ -n "$1" ]] || usage
+
+frozen_graph="/mnt/pond/processed/abyss-internal/cctv/classification/models/frozen-graph-demo/frozen_graph.pb"
+video="$1"
 
 if [[ -n "$1" ]]; then cv-cat --file "$video" "view;resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header; else cat; fi \
     | tensor-cat --input input_1:0 --output logits/Softmax:0 --graph "$frozen_graph" --keep-input --verbose \
@@ -24,4 +42,4 @@ with os.fdopen( sys.stdout.fileno(), 'wb' ) as stdout:
             stdout.write( i.tobytes() )
             stdout.flush()
 " \
-    | cv-cat --input "rows=320;cols=240;type=3f;no-header" "transpose;convert-to=f,127,128;convert-to=ub;resize=2;view;null"
+    | cv-cat --input "rows=320;cols=240;type=3f;no-header" "transpose;convert-to=f,127,128;convert-to=ub;resize=2;text=inference,20,45,red;view;null"
