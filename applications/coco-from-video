@@ -43,8 +43,9 @@ output COCO JSON files in respective subdirectories in the current directory,
 optionally, split videos into PNG frames
 
 examples
-    coco-from-video coco.cloud.001.json --dir /mnt/ssd1/processed/industry/what/not --cloud
-    find . -name my-coco.json | coco-from-video --dir /mnt/ssd1/processed/industry/what/not --cloud
+    coco-from-video coco.cloud.001.json -v /mnt/ssd1/processed/industry/what/not --cloud-factory
+    find . -name my-coco.json | coco-from-video -v /mnt/ssd1/processed/industry/what/not --cloud-factory
+    coco-from-video cloud-factory-labels.json -v ./ouput-location/  -i --cloud-factory -f cloud-factory
 """
 
 
@@ -70,9 +71,10 @@ def main():
         sys.exit()
 
     stdin_string = ""
+    ## NOTE: this crashes out with pycharm debugging.
     if not sys.stdin.isatty():
-        for line in sys.stdin:
-            stdin_string += line.strip()
+         for line in sys.stdin:
+             stdin_string += line.strip()
 
     if stdin_string:
         args.json_files.append(stdin_string)
@@ -206,7 +208,8 @@ def main():
                     'total_time': old_info['total_time'] if 'total_time' in old_info else info['total_time'],
                     'date_created': old_info['date_created'] if 'date_created' in old_info else info['date_created'],
                 }
-
+            if info.get('dataset') is None:
+                info['dataset'] = {}
             info['dataset']['video'] = {
                 "height": int(video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
                 "width": int(video_capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
