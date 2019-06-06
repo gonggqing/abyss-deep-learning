@@ -18,7 +18,9 @@ with os.fdopen( sys.stdout.fileno(), 'wb' ) as stdout:
             if stdin.readinto( i ) != 320 * 240 * 3 * 4: break
             if stdin.readinto( s ) != 2 * 4: break
             i = i.reshape( 320, 240, 3 )
-            i[0:40,0:40] = [ ( 1 - s[0] ) * 2 - 1, ( 1 - s[0] * 2 ) - 1, 1 ]
+            c = ( ( s[1] - 0.1 ) / 0.9 ) * 2 - 1
+            i[269:301,14:46] = [ -1, -1, -1 ]
+            i[270:300,15:45] = [ c, c, 1 ]
             stdout.write( i.tobytes() )
             stdout.flush()
 " \
