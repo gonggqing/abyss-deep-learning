@@ -1,0 +1,62 @@
+#!/bin/bash
+
+function usage()
+{
+    cat <<eof >&2
+    
+usage: ./realtime-cctv-xception-classification <video>
+       cv-cat --file my-video.mp4 | ./realtime-cctv-xception-classification -
+       cv-cat --camera | ./realtime-cctv-xception-classification -
+
+original video and inference video will be displayed
+
+square in the upper right corner of inference video will be
+white on normal pipeline; the more red it turns, the more
+likely there is a fault in the pipeline
+    
+eof
+    exit
+}
+
+[[ -n "$1" ]] || usage
+
+frozen_graph="/mnt/pond/processed/abyss-internal/cctv/classification/models/frozen-graph-demo/frozen_graph.pb"
+video="$1"
+
+# get operations
+# tensor-cat --graph /mnt/pond/processed/abyss-internal/cctv/classification/models/frozen-graph-demo/frozen_graph.pb --operations | less
+# get tensor type
+# tensor-cat --graph /mnt/pond/processed/abyss-internal/cctv/classification/models/frozen-graph-demo/frozen_graph.pb --tensor conv2d_2/convolution:0 --tensor-type
+# get tensor shape
+# tensor-cat --graph /mnt/pond/processed/abyss-internal/cctv/classification/models/frozen-graph-demo/frozen_graph.pb --tensor conv2d_2/convolution:0 --tensor-shape
+
+#layer='conv2d_1/convolution:0'
+#rows=79
+#cols=59
+#channels=128
+#untile=16,8
+#resize=2
+
+layer='conv2d_2/convolution:0'
+rows=40
+cols=30
+channels=256
+untile=16,16
+resize=2
+
+#layer='conv2d_2/convolution:0'
+#rows=10
+#cols=8
+#channels=1024
+#untile=32,16
+#resize=4
+
+normalize_each="normalize=all;"
+normalize_all="normalize=all;"
+
+if [[ "$video" == "-" ]]; then cv-cat "resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header
+else cv-cat --file "$video" "view;resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header; fi \
+    | tensor-cat --input input_1:0 --output "$layer" --graph "$frozen_graph" --verbose \
+    | math-array transpose --to-axes 2,0,1 --shape "$rows,$cols,$channels" \
+    | cv-cat --input "no-header;rows=$rows;cols=$cols;type=f" "${normalize_each}transpose" \
+    | cv-cat --input "no-header;rows=$(( cols * channels ));cols=$rows;type=f" "untile=$untile;${normalize_all}resize=$resize;view;null"
