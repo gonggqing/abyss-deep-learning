@@ -42,7 +42,7 @@ rows=40
 cols=30
 channels=256
 untile=16,16
-resize=2
+resize=4
 
 #layer='conv2d_2/convolution:0'
 #rows=10
@@ -59,4 +59,4 @@ else cv-cat --file "$video" "view;resize=320,240;transpose;convert-to=f,0.0078,-
     | tensor-cat --input input_1:0 --output "$layer" --graph "$frozen_graph" --verbose \
     | math-array transpose --to-axes 2,0,1 --shape "$rows,$cols,$channels" \
     | cv-cat --input "no-header;rows=$rows;cols=$cols;type=f" "${normalize_each}transpose" \
-    | cv-cat --input "no-header;rows=$(( cols * channels ));cols=$rows;type=f" "untile=$untile;${normalize_all}resize=$resize;view;null"
+    | cv-cat --input "no-header;rows=$(( cols * channels ));cols=$rows;type=f" "untile=$untile;${normalize_all}resize=$resize;convert-to=ub,256;color-map=jet;view;null"
