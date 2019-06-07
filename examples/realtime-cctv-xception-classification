@@ -22,7 +22,7 @@ eof
 
 frozen_graph="/mnt/pond/processed/abyss-internal/cctv/classification/models/frozen-graph-demo/frozen_graph.pb"
 video="$1"
-thinning_rate=0.34
+thinning_rate=1 #thinning_rate=0.34
 
 if [[ "$video" == "-" ]]; then cv-cat "view;resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header
 else cv-cat --file "$video" "view;resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header; fi \
@@ -35,20 +35,29 @@ import sys
 
 i = np.zeros( ( 320, 240, 3 ), dtype = np.float32 )
 s = np.zeros( ( 2 ), dtype = np.float32 )
+count = 0
+t = np.ones( ( 248, 8, 3 ), dtype = np.float32 ) * -1
+frames = 4 * 60 * 25 # cycle through it every 4 minutes at 25 fps
+
 with os.fdopen( sys.stdout.fileno(), 'wb' ) as stdout:
     with os.fdopen( sys.stdin.fileno(), 'rb' ) as stdin:
         while True:
             if stdin.readinto( i ) != 320 * 240 * 3 * 4: break
             if stdin.readinto( s ) != 2 * 4: break
             i = i.reshape( 320, 240, 3 )
-            c = ( ( s[1] - 0.1 ) / 0.9 ) * 2 - 1
-            print( s[0], file = sys.stderr )
+            c = s[1] * 2 - 1
+            #print( s[0], file = sys.stderr )
             d = int( s[1] * 80 ) + 80
             i[269:301,14:46] = [ -1, -1, -1 ]
             i[270:300,15:45] = [ c, c, 1 ]
             i[285,80:160] = [ -1, -1, -1 ]
             i[280:290,d] = [ -1, -1, -1 ]
+            i[35:285,224:234] = [ -1, -1, -1 ]
+            t[ int( count / frames ), 0:8 ] = [ c, c, 1 ]
+            i[36:284,225:233] = t
             stdout.write( i.tobytes() )
             stdout.flush()
+            count += 248
+            if count >= frames * 248: count = 0; t = np.ones( ( 248, 8, 3 ), dtype = np.float32 ) * -1
 " \
     | cv-cat --input "rows=320;cols=240;type=3f;no-header" "transpose;convert-to=f,127,128;convert-to=ub;resize=2;text=fault,530,140,black;text=no fault,500,360,black;view;null"
