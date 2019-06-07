@@ -10,8 +10,8 @@ __author__ = 'Kent Hu, Jamie McColl, Toby Dunne'
 __maintainer__ = 'Kent Hu'
 
 DESCRIPTION = """
-Read coco.json file(s) defined on command line and
-merge together 'images', 'annotations', 'categories' and 'licenses' array.
+Read coco.json file(s) defined on command line
+merge together 'images', 'annotations', 'categories' array.
 
 Merges images and categories by id.
 If there is a conflict:
@@ -38,6 +38,8 @@ Output merged coco json contents in stdout.
 
 examples:
     coco-merge labelled/abc/coco.json labelled/def/coco.json
+    
+    cat labelled/abc/coco.json | coco-merge - labelled/def/coco.json
     
     --append-categories:
         Consider two JSONs - a.json has two categories with ids 0 and 100, b.json has six categories with ids from 0 to 5.
@@ -188,12 +190,11 @@ def get_args():
     parser.add_argument(
         'files',
         nargs='*',
-        help="JSON files to merge together into one json",
+        help="JSON files to merge together into one json (use - to read one file from stdin)",
     )
     parser.add_argument(
         '--append-categories',
         action='store_true',
-
         help='Assign category IDs in by appending, such that the ranges of IDs from different JSONs do not overlap\n'
              'e.g.\n'
              '[{ "id":0: "name": "A"}, { "id":1: "name": "B"}]\n'   
@@ -205,7 +206,6 @@ def get_args():
     parser.add_argument(
         '--merge-categories',
         action='store_true',
-
         help='Assign category IDs by merging (a warning is produced on re-assignment),\n'
              'e.g.\n'
              '[{ "id":0: "name": "A"}, { "id":1: "name": "B"}]\n'
