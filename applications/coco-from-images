@@ -26,23 +26,24 @@ def main(args):
     image_paths = sys.stdin.read().strip().split('\n')
 
     coco_json = {
-
         'images'     : [],
         'annotations': [],
         'categories' : []
-
     }
 
+    force = False
+
+    if args.force is not None:
+        force = True
+        width, height = args.force.split(',')
+
     for i, image_path in enumerate(image_paths):
-        try:
-            width, height = Image.open(image_path).size
-        except OSError:
-            
-            if(args.force):
-                print("coco-from-images: WARNING image not found '{}' - width and height will be null".format(image_path), file=sys.stderr)
-                width = height = None
-            else:
-                print("coco-from-images: ERROR image not found '{}' - use --force to override".format(image_path), file=sys.stderr)
+        if not force:
+            try:
+                width, height = Image.open(image_path).size
+            except OSError:
+                print("coco-from-images: ERROR image read error '{}' - use --force to override".format(image_path),
+                      file=sys.stderr)
                 sys.exit(1)
 
         coco_json['images'].append(
@@ -62,8 +63,10 @@ def main(args):
 def get_args():
 
     parser = argparse.ArgumentParser(description=_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--force', '-f', action="store_true", help="Force running without checking images (width and height will be null)")
-    parser.add_argument('--indent', type=int, help="json indent, if none, output minimised json default: %(default)s", default=4)
+    parser.add_argument('--force', type=str,
+                        help="<width>,<height> Force running without checking images, sets specified width,height")
+    parser.add_argument('--indent', type=int, help="json indent, if none, output minimised json default: %(default)s",
+                        default=4)
     return parser.parse_args()
 
 
