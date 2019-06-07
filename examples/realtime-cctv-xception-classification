@@ -46,6 +46,8 @@ with os.fdopen( sys.stdout.fileno(), 'wb' ) as stdout:
             if stdin.readinto( s ) != 2 * 4: break
             i = i.reshape( 320, 240, 3 )
             c = s[1] * 2 - 1
+            # c = abs( s[1] - 0.5 ) * 4 - 1
+            # c = abs( s[1] - 0.3 ) * 4 - 1
             #print( s[0], file = sys.stderr )
             d = int( s[1] * 80 ) + 80
             i[269:301,14:46] = [ -1, -1, -1 ]
@@ -60,4 +62,4 @@ with os.fdopen( sys.stdout.fileno(), 'wb' ) as stdout:
             count += 248
             if count >= frames * 248: count = 0; t = np.ones( ( 248, 8, 3 ), dtype = np.float32 ) * -1
 " \
-    | cv-cat --input "rows=320;cols=240;type=3f;no-header" "transpose;convert-to=f,127,128;convert-to=ub;resize=2;text=fault,530,140,black;text=no fault,500,360,black;view;null"
+    | cv-cat --input "rows=320;cols=240;type=3f;no-header" "transpose;convert-to=f,127,128;convert-to=ub;resize=4;text=fault,1100,300,black;text=no fault,1080,680,black;view;null"
