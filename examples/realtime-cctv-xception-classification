@@ -22,9 +22,11 @@ eof
 
 frozen_graph="/mnt/pond/processed/abyss-internal/cctv/classification/models/frozen-graph-demo/frozen_graph.pb"
 video="$1"
+thinning_rate=0.34
 
-if [[ "$video" == "-" ]]; then cv-cat "resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header
+if [[ "$video" == "-" ]]; then cv-cat "view;resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header
 else cv-cat --file "$video" "view;resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header; fi \
+    | csv-thin $thinning_rate --deterministic --size $(( 320 * 240 * 3 * 4 )) \
     | tensor-cat --input input_1:0 --output logits/Softmax:0 --graph "$frozen_graph" --keep-input --verbose \
     | python3 -c "
 import numpy as np
