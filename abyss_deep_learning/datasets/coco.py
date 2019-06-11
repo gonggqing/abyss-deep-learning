@@ -171,18 +171,16 @@ class ClassificationTask(CocoInterface, DatasetTaskBase):
                 if self.translator.filter(annotation)
                 for caption in self.translator.translate(annotation)
             ]))
-            # Debugging
-            # captions = []
-            # for annotation in self.coco.loadAnns(self.coco.getAnnIds(imgIds=[])):
-            #     for caption in self.translator.translate(annotation):
-            #         if self.translator.filter(annotation):
-            #             captions.append(caption)
-            # print(captions)
-            # captions = set(sorted(captions))
             self.num_classes = len(self.captions)
-        else:
-            self.categories = self.coco.loadCats(self.coco.getCatIds())
-            self.num_classes = len(self.categories)
+        else:  # Categories and captions are now interchangeable
+            self.categories = set(sorted([
+                caption
+                for annotation in self.coco.loadAnns(self.coco.getAnnIds(imgIds=[]))
+                if self.translator.filter(annotation)
+                for caption in self.translator.translate(annotation)
+            ]))
+            self.captions = self.categories
+            self.num_classes = len(self.captions)
         self.stats = dict()
         self._targets = dict()
 
@@ -233,6 +231,8 @@ class ClassificationTask(CocoInterface, DatasetTaskBase):
     @property
     def class_weights(self):
         '''Returns the class weights that will balance the backprop update over the class distribution.'''
+        if not self.stats:
+            self._calc_class_stats()
         return self.stats['class_weights']
 
     def print_class_stats(self):
