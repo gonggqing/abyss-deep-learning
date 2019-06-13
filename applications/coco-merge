@@ -4,7 +4,6 @@ import json
 import logging
 import sys
 from itertools import groupby
-from abyss_deep_learning.utils import MyCOCO
 
 __author__ = 'Kent Hu, Jamie McColl, Toby Dunne'
 __maintainer__ = 'Kent Hu'
@@ -67,21 +66,28 @@ def max_or_zero(i):
 
 def merge(args, dest_coco, source_coco):
 
-    max_image_id = max(max_or_zero(dest_coco.getImgIds()), max_or_zero(source_coco.getImgIds()))
+    dest_image_id_list = [e['id'] for e in dest_coco['images']]
+    source_image_id_list = [e['id'] for e in source_coco['images']]
 
-    dest_max_category_id = max_or_zero(dest_coco.getCatIds())
-    max_category_id = max(dest_max_category_id, max_or_zero(source_coco.getCatIds()))
+    dest_category_id_list = [e['id'] for e in dest_coco['categories']]
+    source_category_id_list = [e['id'] for e in source_coco['categories']]
+
+    max_image_id = max(max_or_zero(dest_image_id_list), max_or_zero(source_image_id_list))
+
+    dest_max_category_id = max_or_zero(dest_category_id_list)
+    max_category_id = max(dest_max_category_id, max_or_zero(source_category_id_list))
 
     # Merge categories
-    curr_cat_map = {el['id']: el for el in dest_coco.categories}
+    dest_categories = dest_coco['categories']
+    curr_cat_map = {el['id']: el for el in dest_categories}
 
-    for category in source_coco.categories:
+    for category in source_coco['categories']:
         existing = curr_cat_map.get(category['id'], None)
         if args.append_categories:
             # append all categories, no merge
             existing_category_id = existing['id']
             category_id = dest_max_category_id + existing_category_id + 1
-            for ann in filter(lambda x: x['category_id'] == existing_category_id, source_coco.annotations):
+            for ann in filter(lambda x: x.get('category_id', None) == existing_category_id, source_coco['annotations']):
                 ann['category_id'] = category_id
             category['id'] = category_id
             logging.info("Assigning new category id {} -> {}".format(existing_category_id, category_id))
@@ -90,7 +96,7 @@ def merge(args, dest_coco, source_coco):
                 # duplicate category id - same id, different name
                 max_category_id += 1
                 existing_category_id = existing['id']
-                for ann in filter(lambda x: x['category_id'] == existing_category_id, source_coco.annotations):
+                for ann in filter(lambda x: x.get('category_id', None) == existing_category_id, source_coco['annotations']):
                     ann['category_id'] = max_category_id
                 category['id'] = max_category_id
                 if args.merge_categories:
@@ -104,51 +110,59 @@ def merge(args, dest_coco, source_coco):
             else:
                 # same category_id, same name - skip second copy
                 continue
-        dest_coco.categories.append(category)
+        dest_categories.append(category)
+
+    dest_coco['categories'] = dest_categories
 
     # merge images
-    curr_img_map = {el['id']: el for el in dest_coco.images}
+    dest_images = dest_coco['images']
+    curr_img_map = {el['id']: el for el in dest_images}
 
-    for image in source_coco.images:
+    for image in source_coco['images']:
         existing = curr_img_map.get(image['id'], None)
         if existing is not None:
             if existing['path'] != image['path']:
                 # duplicate image id - same id, different path
                 max_image_id += 1
                 reassign_image_id = existing['id']
-                for ann in filter(lambda x: x['image_id'] == reassign_image_id, source_coco.annotations):
+                for ann in filter(lambda x: x['image_id'] == reassign_image_id, source_coco['annotations']):
                     ann['image_id'] = max_image_id
                 image['id'] = max_image_id
                 logging.warning("Assigning new image id {} -> {}".format(reassign_image_id, max_image_id))
             else:
                 # same image_id, same path - skip second copy
                 continue
-        dest_coco.images.append(image)
+        dest_images.append(image)
 
-    dest_annotations_sorted = sorted(dest_coco.annotations, key=lambda x: x['image_id'])
+    dest_coco['images'] = dest_images
+
+    dest_annotations = dest_coco['annotations']
+
+    dest_annotations_sorted = sorted(dest_annotations, key=lambda x: x['image_id'])
     dest_annotations_dict = dict([(key, group) for key, group in
                                   groupby(dest_annotations_sorted, lambda x: x['image_id'])])
 
-    max_ann_id = max_or_zero(dest_coco.getAnnIds())
-    source_annotations_sorted = sorted(source_coco.annotations, key=lambda x: x['image_id'])
+    max_ann_id = max_or_zero([e['id'] for e in dest_coco['annotations']])
+    source_annotations_sorted = sorted(source_coco['annotations'], key=lambda x: x['image_id'])
     for key, group in groupby(source_annotations_sorted, lambda x: x['image_id']):
         dest_group = dest_annotations_dict.get(key, None)
         if dest_group is None:
             for ann in group:
                 max_ann_id += 1
                 ann['id'] = max_ann_id
-                dest_coco.annotations.append(ann)
+                dest_annotations.append(ann)
         else:
             for source_ann in group:
                 if not any_lambda(dest_group, lambda x: x['image_id'] == source_ann['image_id']
-                                          and x['category_id'] == source_ann['category_id']
-                                          and x['bbox'] == source_ann['bbox']
-                                          and x['segmentation'] == source_ann['segmentation']):
+                                          and x.get('category_id', None) == source_ann.get('category_id', None)
+                                          and x.get('bbox', None) == source_ann.get('bbox', None)
+                                          and x.get('segmentation', None) == source_ann.get('segmentation', None)):
                     max_ann_id += 1
                     source_ann['id'] = max_ann_id
-                    dest_coco.annotations.append(source_ann)
+                    dest_annotations.append(source_ann)
 
-    dest_coco.createIndex()
+    dest_coco['annotations'] = dest_annotations
+
     return dest_coco
 
 
@@ -165,10 +179,19 @@ def main(args):
         else:
             file = file_arg
         try:
-            curr_coco = MyCOCO(file)
+            with open(file, 'r') as f:
+                curr_coco = json.load(f)
+
+            if curr_coco.get('images', None) is None:
+                curr_coco['images'] = []
+            if curr_coco.get('annotations', None) is None:
+                curr_coco['annotations'] = []
+            if curr_coco.get('categories', None) is None:
+                curr_coco['categories'] = []
+
             coco_list.append(curr_coco)
-        except json.decoder.JSONDecodeError:
-            logging.error("File is not valid JSON: {}".format(file))
+        except json.decoder.JSONDecodeError as ex:
+            logging.error("File is not valid JSON: {} {}".format(file, ex))
             sys.exit(-1)
         except Exception as ex:
             logging.error("Error loading: {} {}".format(file, ex))
@@ -181,7 +204,7 @@ def main(args):
         for i in range(1, len(coco_list)):
             coco_out = merge(args, coco_out, coco_list[i])
 
-    json.dump(coco_out.dataset, sys.stdout, indent=args.indent)
+    json.dump(coco_out, sys.stdout, indent=args.indent)
     return 0
 
 
@@ -201,7 +224,6 @@ def get_args():
              '[{ "id":0: "name": "A"}, { "id":1: "name": "B"}]\n'
              ' vvv\n'
              '[{ "id":0: "name": "A"}, { "id":1: "name": "B"}, { "id":2: "name": "A"}, { "id":3: "name": "B"},]'
-
     )
     parser.add_argument(
         '--merge-categories',
