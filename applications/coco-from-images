@@ -33,16 +33,16 @@ def main(args):
 
     force = False
 
-    if args.force is not None:
+    if args.image_size is not None:
         force = True
-        width, height = args.force.split(',')
+        width, height = args.image_size.split(',')
 
     for i, image_path in enumerate(image_paths):
         if not force:
             try:
                 width, height = Image.open(image_path).size
             except OSError:
-                print("coco-from-images: ERROR image read error '{}' - use --force to override".format(image_path),
+                print("coco-from-images: ERROR image read error '{}' - use --image_size to override".format(image_path),
                       file=sys.stderr)
                 sys.exit(1)
 
@@ -63,8 +63,8 @@ def main(args):
 def get_args():
 
     parser = argparse.ArgumentParser(description=_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--force', type=str,
-                        help="<width>,<height> Force running without checking images, sets specified width,height")
+    parser.add_argument('--image-size', type=str,
+                        help="<width>,<height> run without checking images, sets specified width,height")
     parser.add_argument('--indent', type=int, help="json indent, if none, output minimised json default: %(default)s",
                         default=4)
     return parser.parse_args()
