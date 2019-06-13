@@ -41,7 +41,7 @@ def get_args():
     parser.add_argument("--image-shape", type=str, default="320,240,3", help="Image shape")
     parser.add_argument("--batch-size", type=int, default=2, help="Image shape")
     parser.add_argument("--epochs", type=int, default=2, help="Image shape")
-    parser.add_argument("--save-model-interval", type=int, default=1, help="How often to save the mdoel interval")
+    parser.add_argument("--save-model-interval", type=int, default=1, help="How often to save the model interval")
     args = parser.parse_args()
     return args
 
@@ -140,7 +140,9 @@ def main(args):
 
     train_steps = np.floor(len(train_dataset) / args.batch_size)
     val_steps = np.floor(len(val_dataset) / args.batch_size) if val_dataset is not None else None
-    # class_weights = compute_class_weights(train_dataset)
+    class_weights = train_dataset.class_weights
+    print("Using class weights: ", class_weights)
+
     classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size),  # The generator wrapped in the pipline loads x,y
                              steps_per_epoch=train_steps,
                              validation_data=pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size) if val_gen else None,
