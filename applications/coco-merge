@@ -182,6 +182,10 @@ def main(args):
             with open(file, 'r') as f:
                 curr_coco = json.load(f)
 
+            if all([curr_coco.get(x,None) is None for x in ['images','annotations','categories']]):
+                logging.error("Error file is not coco: {}".format(file))
+                sys.exit(-1)
+
             if curr_coco.get('images', None) is None:
                 curr_coco['images'] = []
             if curr_coco.get('annotations', None) is None:
