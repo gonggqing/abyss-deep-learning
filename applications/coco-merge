@@ -85,22 +85,22 @@ def merge(args, dest_coco, source_coco):
         existing = curr_cat_map.get(category['id'], None)
         if args.append_categories:
             # append all categories, no merge
-            existing_category_id = existing['id']
-            category_id = dest_max_category_id + existing_category_id + 1
-            for ann in filter(lambda x: x.get('category_id', None) == existing_category_id, source_coco['annotations']):
+            old_category_id = category['id']
+            category_id = dest_max_category_id + old_category_id + 1
+            for ann in filter(lambda x: x.get('category_id', None) == old_category_id, source_coco['annotations']):
                 ann['category_id'] = category_id
             category['id'] = category_id
-            logging.info("Assigning new category id {} -> {}".format(existing_category_id, category_id))
+            logging.info("Assigning new category id {} -> {}".format(old_category_id, category_id))
         elif existing is not None:
             if existing['name'] != category['name']:
                 # duplicate category id - same id, different name
                 max_category_id += 1
-                existing_category_id = existing['id']
-                for ann in filter(lambda x: x.get('category_id', None) == existing_category_id, source_coco['annotations']):
+                old_category_id = category['id']
+                for ann in filter(lambda x: x.get('category_id', None) == old_category_id, source_coco['annotations']):
                     ann['category_id'] = max_category_id
                 category['id'] = max_category_id
                 if args.merge_categories:
-                    logging.info("Assigning new category id {} -> {}".format(existing_category_id, max_category_id))
+                    logging.info("Assigning new category id {} -> {}".format(old_category_id, max_category_id))
                 else:
                     logging.error("Category conflict ID: {} '{}' != '{}'. "
                                   "Specify --append-categories or --merge-categories ".format(category['id'],
@@ -174,16 +174,15 @@ def main(args):
     )
     coco_list = []
     for file_arg in args.files:
-        if file_arg == '-':
-            file = sys.stdin
-        else:
-            file = file_arg
         try:
-            with open(file, 'r') as f:
-                curr_coco = json.load(f)
+            if file_arg == '-':
+                curr_coco = json.load(sys.stdin)
+            else:
+                with open(file_arg, 'r') as f:
+                    curr_coco = json.load(f)
 
             if all([curr_coco.get(x,None) is None for x in ['images','annotations','categories']]):
-                logging.error("Error file is not coco: {}".format(file))
+                logging.error("Error file is not coco: {}".format(file_arg))
                 sys.exit(-1)
 
             if curr_coco.get('images', None) is None:
