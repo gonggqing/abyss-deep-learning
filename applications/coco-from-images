@@ -4,11 +4,9 @@ __maintainer__ = 'Kent Hu'
 
 import argparse
 import json
-import os
 import sys
-from datetime import datetime
+from abyss_deep_learning.coco_tools import coco_from_images
 
-from PIL import Image
 
 _DESCRIPTION = """
 The utility takes in a text file of paths to images to generate a COCO JSON file from.
@@ -25,36 +23,13 @@ def main(args):
     
     image_paths = sys.stdin.read().strip().split('\n')
 
-    coco_json = {
-        'images'     : [],
-        'annotations': [],
-        'categories' : []
-    }
-
-    force = False
+    width = None
+    height = None
 
     if args.image_size is not None:
-        force = True
         width, height = args.image_size.split(',')
 
-    for i, image_path in enumerate(image_paths):
-        if not force:
-            try:
-                width, height = Image.open(image_path).size
-            except OSError:
-                print("coco-from-images: ERROR image read error '{}' - use --image_size to override".format(image_path),
-                      file=sys.stderr)
-                sys.exit(1)
-
-        coco_json['images'].append(
-             {
-                'id'       : i,
-                'file_name': os.path.basename(image_path),
-                'path'     : image_path,
-                'width'    : width,
-                'height'   : height,
-            }
-        )
+    coco_json = coco_from_images(image_paths, width, height)
 
     json.dump(coco_json, sys.stdout, indent=args.indent)
     sys.exit(0)
