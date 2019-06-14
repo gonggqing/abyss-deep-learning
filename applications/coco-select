@@ -200,6 +200,10 @@ def create_data_frame(data: dict) -> pd.DataFrame:
     return df
 
 
+def to_tuple(entry_: list):
+    return tuple(to_tuple(i) if isinstance(i, list) else i for i in entry_)
+
+
 def drop_duplicates_by_id(list_: list):
     id_set = set()
     result = list()
