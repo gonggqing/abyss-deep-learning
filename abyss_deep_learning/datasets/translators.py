@@ -65,7 +65,7 @@ class AbyssCaptionTranslator(AnnotationTranslator):
 ### Examples
 class CaptionMapTranslator(AnnotationTranslator):
     '''Translates the CloudFactory labels into a form that works with this script'''
-    def __init__(self, mapping):
+    def __init__(self, mapping, filter_by='caption'):
         """Map source -> target annotations.
             e.g.:
                 mapping={word: number for number, word in enumerate(list("abcdefg"))}
@@ -75,13 +75,14 @@ class CaptionMapTranslator(AnnotationTranslator):
             mapping (dict): A dictionary mapping source keys to target values.
         """
         self.map = mapping
+        self.filter_by = filter_by
 
     def filter(self, annotation):
-        return 'caption' in annotation
+        return self.filter_by in annotation
 
     def translate(self, annotation):
         # return [self.map[annotation['caption']]]
-        return [self.map[caption] for caption in annotation['caption'].split(',')]
+        return [self.map[caption] for caption in str(annotation[self.filter_by]).split(',')]
 
 
 class CategoryTranslator(AnnotationTranslator):

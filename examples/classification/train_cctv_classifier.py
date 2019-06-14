@@ -53,9 +53,9 @@ def main(args):
     log_dir = os.path.join(args.scratch_dir, 'logs')
 
     # do the caption translations and any preprocessing set-up
-    caption_map = json.load(open(args.caption_map, 'r'))  # Load the caption map - caption_map should live on place on servers
-    caption_translator = CaptionMapTranslator(mapping=caption_map)  # Initialise the translator
-    num_classes = len(set(caption_map.values()))  # Get num classes from caption map
+    caption_map = json.load(open(args.caption_map, 'r'))# Load the caption map - caption_map should live on place on servers
+    caption_translator = CaptionMapTranslator(mapping=caption_map, filter_by='category_id')# Initialise the translator
+    num_classes = len(set(caption_map.values()))  # Get num classes from number of unique values in caption map
     hot_translator = HotTranslator(num_classes)  # Hot translator encodes as a multi-hot vector
     translator = MultipleTranslators([caption_translator, hot_translator])  # Apply multiple translators
     image_shape = [int(x) for x in args.image_shape.split(',')]
