@@ -158,11 +158,11 @@ def main(args):
             tuple_category = to_tuple([list(item) for item in sorted(category.items())])
             if tuple_category in hashed_categories:
                 categories.append(category)
-    data['annotations'] = drop_duplicates(annotations)
-    data['images'] = original_images if args.keep_images else drop_duplicates(images)
+    data['annotations'] = drop_duplicates_by_id(annotations)
+    data['images'] = original_images if args.keep_images else drop_duplicates_by_id(images)
 
     if not args.keep_categories:
-        data['categories'] = drop_duplicates(categories)
+        data['categories'] = drop_duplicates_by_id(categories)
 
     for image in data['images']:
         for key, val in image.items():
@@ -200,12 +200,15 @@ def create_data_frame(data: dict) -> pd.DataFrame:
     return df
 
 
-def to_tuple(entry_: list):
-    return tuple(to_tuple(i) if isinstance(i, list) else i for i in entry_)
-
-
-def drop_duplicates(list_: list):
-    return [dict(item) for item in set(to_tuple([list(item) for item in sorted(entry.items())]) for entry in list_)]
+def drop_duplicates_by_id(list_: list):
+    id_set = set()
+    result = list()
+    for entry in list_:
+        id = entry['id']
+        if id not in id_set:
+            id_set.add(id)
+            result.append(entry)
+    return  result
 
 
 def record_to_dict(record: namedtuple, re_id: str) -> dict:
