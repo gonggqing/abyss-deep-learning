@@ -13,7 +13,7 @@ import tensorflow as tf
 from abyss_deep_learning.datasets.coco import ImageClassificationDataset
 from abyss_deep_learning.datasets.translators import  AbyssCaptionTranslator, CaptionMapTranslator, AnnotationTranslator
 from abyss_deep_learning.keras.classification import caption_map_gen, onehot_gen
-from abyss_deep_learning.keras.models import ImageClassifier
+from abyss_deep_learning.keras.models import ImageClassifier, loadImageClassifierByDict
 from abyss_deep_learning.keras.utils import lambda_gen, batching_gen
 
 from callbacks import SaveModelCallback, PrecisionRecallF1Callback, TrainValTensorBoard
@@ -39,6 +39,11 @@ def get_args():
     parser.add_argument("--epochs", type=int, default=2, help="Image shape")
     parser.add_argument("--lr", type=float, default=1e-4, help="Sets the learning rate of the optimizer")
     parser.add_argument("--save-model-interval", type=int, default=1, help="How often to save the model interval")
+    parser.add_argument("--load-params-json", type=str, help="Use the params.json file to initialise the model. Using this ignores the command line arguments.")
+    parser.add_argument("--backbone", type=str, default="xception", help="The backbone to use, options are \{xception\}")
+    parser.add_argument("--output-activation", type=str, default="softmax", help="The output activation to use. Options are \{softmax,sigmoid\}")
+    parser.add_argument("--pooling", type=str, default="avg", help="The pooling to use after the convolution layers. Options are \{avg,max\}")
+    parser.add_argument("--loss", type=str, default="categorical_crossentropy", help="The loss function to use. Options are \{categorical_crossentropy,binary_crossentropy\}")
     parser.add_argument("--resume-from-ckpt", type=str, help="Resume the model from the given .h5 checkpoint, as saved by the ImageClassifier.save function. This loads in all weights and parameters from the previous training.")
     parser.add_argument("--weights", type=str, default='imagenet', help="Path to the weights to load into this model. Re-initalises all the checkpoints etc. Default is 'imagenet' which loads the 'imagenet' trained weights")
     parser.add_argument("--gpu-fraction", type=float, default=0.8, help="Limit the amount of GPU usage tensorflow uses. Defaults to 0.8")
@@ -105,18 +110,20 @@ def main(args):
     # create classifier model
     if args.resume_from_ckpt:
         classifier = ImageClassifier.load(args.resume_from_ckpt)
+    elif args.load_params_json:
+        classifier = loadImageClassifierByDict(args.load_params_json)
     else:
         classifier = ImageClassifier(
-            backbone='xception',
-            output_activation='softmax',
-            pooling='avg',
+            backbone=args.backbone,
+            output_activation=args.output_activation,
+            pooling=args.pooling,
             classes=num_classes,
             input_shape=tuple(image_shape),
             init_weights=args.weights,
             init_epoch=0,
             init_lr=args.lr,
             trainable=True,
-            loss='categorical_crossentropy',
+            loss=args.loss,
             metrics=['accuracy']
         )
 
