@@ -6,7 +6,6 @@ import os
 import sys
 import time
 import gzip
-from datetime import datetime
 from numbers import Number
 from typing import Union
 
@@ -15,6 +14,7 @@ import skimage
 from PIL import Image
 
 from abyss_deep_learning.utils import imread, polygon_to_bbox, polygon_to_mask
+from abyss_deep_learning.coco_tools import coco_from_images, template_info, template_license
 
 __author__ = 'Kent Hu, and Jeff Mohammed'
 __maintainer__ = 'Kent Hu'
@@ -30,6 +30,8 @@ examples:
     Holes are connected by drawing a line between the first pixel in the polygon points to the closest background pixel
     e.g.: Use for mask JSON that contains paths to segmentation masks from the SemanticPredictions layer
     cat images.json | coco-from-segmentation mask.json -c from-mask -n 2 --connect-holes > segmentations.json
+    
+    cat images.txt | coco-from-segmentation mask.txt -c from-mask -n 2 --connect-holes > segmentations.json
 
     Generates a COCO file with segmentation annotations from pixels above and below certain values.
     e.g. Use for mask JSON that contains paths to segmentation masks from the ResizedBilinear layer
@@ -47,58 +49,83 @@ def main(args: argparse.Namespace):
                         level=args.verbose)
     logging.info('--verbose enabled')
 
-    if args.category_id == 'from-mask':
-        if args.num_classes is None:
-            logging.ERROR("--num-classes must be specified when passing 'from-mask' to --category-id")
-            sys.exit(1)
-        else:
-            thresholds = [i / args.num_classes for i in range(1, args.num_classes + 1)]
-
     # Empty file check
     buffer = sys.stdin.read().strip()
-    if buffer:
-        image_json = json.loads(buffer)
-    else:
+    with open(args.mask_file) as f:
+        mask_buffer = f.read().strip()
+
+    if not buffer:
         logging.CRITICAL("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
         sys.exit(1)
+    if not mask_buffer:
+        logging.CRITICAL("Expecting input from mask_file: received empty characters {}".format(repr(buffer)))
+        sys.exit(1)
 
-    # Empty file check
-    with open(args.mask_file) as f:
-        buffer = f.read().strip()
-        if buffer:
-            mask_json = json.loads(buffer)
+    if args.image_list:
+        width = None
+        height = None
+        if args.image_size is not None:
+            width, height = args.image_size.split(',')
+
+        image_list = buffer.splitlines()
+        mask_list = mask_buffer.splitlines()
+        image_json = coco_from_images(image_list, width, height)
+        # don't need to read width/height use values from image_json
+        mask_json = coco_from_images(mask_list, -1, -1)
+    else:
+        image_json = json.loads(buffer)
+        mask_json = json.loads(mask_buffer)
+
+    categories = None
+    if args.categories is not None:
+        try:
+            with open(args.categories) as f:
+                categories_buffer = f.read().strip()
+            category_json = json.loads(categories_buffer)
+        except Exception as ex:
+            logging.error('reading {} categories file'.format(args.categories))
+            sys.exit(-1)
+
+        categories = category_json.get('categories', None)
+        if categories is None or len(categories) == 0:
+            logging.error('{} did not contain categories'.format(args.categories))
+            sys.exit(-1)
+
+    if categories is None:
+        categories = image_json.get('categories', [])
+        if len(categories) == 0:
+            logging.warn('Invalid coco may be produced, categories should be provided in json stdin or via --categories')
+
+    num_classes = args.num_classes
+    if args.category_id == 'from-mask':
+        if num_classes is None:
+            if len(categories) == 0:
+                logging.ERROR("when passing 'from-mask' to --category-id:\n"
+                              "--num-classes must be specified or\n"
+                              "categories supplied via --categories or stdin json")
+                sys.exit(1)
+            else:
+                num_classes = max([cat['id'] for cat in categories])
+        if args.norm:
+            thresholds = [i / num_classes for i in range(1, num_classes + 1)]
         else:
-            logging.CRITICAL("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
-            sys.exit(1)
-
+            thresholds = [i for i in range(1, num_classes + 1)]
     coco_json = {
-        'info': image_json.get('info', {
-            'contributor': 'Abyss Solutions',
-            'total_time': '00h00m00s',
-            'year': str(datetime.now().year),
-            'date_created': str(datetime.now()),
-            'description': 'This is a dataset configured by Abyss Solutions.',
-            'version': '1.0',
-            'url': 'http://www.abysssolutions.com.au',
-        }),
+        'info': image_json.get('info', template_info()),
         'images': image_json.get('images', []),
         'annotations': [],
-        'categories': image_json.get('categories', []),
-        'licenses': image_json.get('licenses', [{
-            'id': 0,
-            'url': 'http://creativecommons.org/licenses/by-nc-sa/2.0/',
-            'name': 'Attribution-NonCommercial-ShareAlike License',
-        }])
+        'categories': categories,
+        'licenses': image_json.get('licenses', template_license())
     }
 
     padding = 1
-    id_2_image = {entry['id']: entry for entry in image_json['images']}
+    images_by_id = {entry['id']: entry for entry in image_json['images']}
     for mask_entry in mask_json['images']:
         tic = time.perf_counter()
         mask_id = mask_entry['id']
         logging.info('Evaluating entry {}'.format(mask_id))
 
-        original_entry = id_2_image.get(mask_id, None)
+        original_entry = images_by_id.get(mask_id, None)
         if original_entry is None:
             logging.warning('Skipping mask {} as original entry could not be found'.format(mask_id))
             continue
@@ -112,8 +139,9 @@ def main(args: argparse.Namespace):
         width = int(width)
         height = int(height)
 
-        padded_mask = load_input(mask_entry, args.input_format, args.num_classes, padding=padding, normalize=args.norm,
-                                 height=height, width=width)
+        padded_mask = load_input(mask_entry, args.input_format, width, height, num_classes,
+                                 padding=padding, normalize=args.norm)
+
         if padded_mask is None:
             logging.error("failed to load from file: '{}'; possibly, file type {} not supported".format(mask_entry['path'], get_file_ext(mask_entry['path'])))
             sys.exit(1)
@@ -261,14 +289,15 @@ def is_hole(contour: np.ndarray) -> bool:
     return True if prod_x_y > 0 else False
 
 
-def load_input(image_entry: dict, input_format: str, max_: Number = None, padding: int = 0, normalize: bool = False,
-               height: int = None, width: int = None) -> Union[np.ndarray, None]:
+def load_input(image_entry: dict, input_format: str, width: int, height: int, max_: Number = None, padding: int = 0,
+               normalize: bool = False) -> Union[np.ndarray, None]:
     """
 
     Args:
+        image_entry: Dictionary style image entry in COCO format
+        input_format: bin, gz, png, jpg
         width: width of input image
         height: height of input image
-        image_entry: Dictionary style image entry in COCO format
         padding: Pad image borders by however many pixels specified
         normalize: Normalize values to 0 - 1. If file extension is png, assumes maximum value is 255 and uses that to normalize
 
@@ -371,6 +400,11 @@ def get_args() -> argparse.Namespace:
                              "from-mask infers category based on how many unique values there are for the pixels in a segmentation mask. "
                              "The pixel values in the .bin mask files are assumed to be normalised. If they are not, specify --normalize",
                         required=True)
+    parser.add_argument('--categories', type=str, help="coco json containing categories.")
+    parser.add_argument('--image-list', action='store_true',
+                        help="Read stdin and mask_file as lists of images and masks, the sequences are assumed to match")
+    parser.add_argument('--image-size', help="<width>,<height> run without checking images, sets specified width,height",
+                        type=str)
     parser.add_argument('-n', '--num-classes', type=int,
                         help="Number of possible classes that can be detected from the network (excluding background). Used in conjunction with from-mask.")
     parser.add_argument('-l', '--low-thresh', '--lower-threshold', type=float, default=0.0,
