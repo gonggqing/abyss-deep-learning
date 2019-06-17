@@ -56,11 +56,11 @@ with os.fdopen( sys.stdout.fileno(), 'wb' ) as stdout:
             if stdin.readinto( i ) != 320 * 240 * 3 * 4: break
             if stdin.readinto( s ) != 2 * 4: break
             i = i.reshape( 320, 240, 3 )
-            c = s[1] * 2 - 1
+            c = 1 - s[1] * 2
+            #print( s[1], file = sys.stderr )
             # c = abs( s[1] - 0.5 ) * 4 - 1
             # c = abs( s[1] - 0.3 ) * 4 - 1
-            #print( s[0], file = sys.stderr )
-            d = int( s[1] * 80 ) + 80
+            d = 160 - int( s[1] * 80 )
             i[269:301,14:46] = [ -1, -1, -1 ]
             i[270:300,15:45] = [ c, c, 1 ]
             i[285,80:160] = [ -1, -1, -1 ]
