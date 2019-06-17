@@ -23,11 +23,22 @@ eof
 frozen_graph="/mnt/pond/processed/abyss-internal/cctv/classification/models/frozen-graph-demo/frozen_graph.pb"
 video="$1"
 thinning_rate=1 #thinning_rate=0.34
+keras_model="/mnt/pond/processed/abyss-internal/cctv/classification/models/FN/model_definition.json"
+keras_weights="/mnt/pond/processed/abyss-internal/cctv/classification/models/FN/model_weights.h5"
+
+function predict_()
+{
+    # tensor-cat --input input_1:0 --output logits/Softmax:0 --verbose --graph "$frozen_graph"
+    tensor-cat $@ --input input_1:0 --output class_logits/Softmax:0 --verbose --keras-model "$keras_model" --keras-weights "$keras_weights"
+}
+
+#cv-cat --file "$video" "resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header | predict_ > softmax.bin
+#exit
 
 if [[ "$video" == "-" ]]; then cv-cat "view;resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header
 else cv-cat --file "$video" "view;resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header; fi \
     | csv-thin $thinning_rate --deterministic --size $(( 320 * 240 * 3 * 4 )) \
-    | tensor-cat --input input_1:0 --output logits/Softmax:0 --graph "$frozen_graph" --keep-input --verbose \
+    | predict_ --keep-input \
     | python3 -c "
 import numpy as np
 import os
