@@ -211,7 +211,7 @@ class ImprovedTensorBoard(TensorBoard):
         super().on_epoch_end(epoch, logs)
 
 
-def procuce_embeddings_tsv(path, headers, labels):
+def produce_embeddings_tsv(path, headers, labels):
     """Produce the tab separated values required for visualizing the classes on the embeddings.
 
     Args:

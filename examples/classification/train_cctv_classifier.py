@@ -132,7 +132,9 @@ def main(args):
     ## callbacks
     callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=10),  # A callback to save the model
                  ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
-                                     write_grads=True, num_classes=num_classes, pr_curve=True, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if val_gen else None, val_steps=len(val_dataset), tfpn=True),
+                                     write_images=True, write_grads=True, num_classes=num_classes, pr_curve=True,
+                                     val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=32) if val_gen else None, val_steps=len(val_dataset),
+                                     tfpn=True),
                  ReduceLROnPlateau(monitor='val_loss', factor=0.2,
                                    patience=5, min_lr=1e-8),
                  # EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=6, verbose=1, mode='auto',
