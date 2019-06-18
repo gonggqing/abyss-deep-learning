@@ -156,8 +156,8 @@ def main(args):
                                      tfpn=True),
                  ReduceLROnPlateau(monitor='val_loss', factor=0.2,
                                    patience=5, min_lr=1e-8),
-                 # EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=6, verbose=1, mode='auto',
-                 #                               baseline=None, restore_best_weights=True),
+                 EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=10, verbose=1, mode='auto',
+                                                baseline=None, restore_best_weights=True),
                  TerminateOnNaN()
                  ]
 
@@ -175,7 +175,9 @@ def main(args):
                              verbose=1,
                              shuffle=True,
                              callbacks=callbacks,
-                             use_multiprocessing=True)
+                             use_multiprocessing=True,
+			     workers=args.workers)
+
 
 if __name__ == "__main__":
     main(get_args())
