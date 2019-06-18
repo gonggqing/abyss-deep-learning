@@ -57,7 +57,7 @@ def get_args():
     parser.add_argument("--batch-size", type=int, default=2, help="Image shape")
     parser.add_argument("--epochs", type=int, default=2, help="Image shape")
     parser.add_argument("--lr", type=float, default=1e-4, help="Sets the learning rate of the optimizer")
-    parser.add_argument("--save-model-interval", type=int, default=1, help="How often to save the model interval")
+    parser.add_argument("--save-model-interval", type=int, default=1, help="How often to save the model")
     parser.add_argument("--load-params-json", type=str, help="Use the params.json file to initialise the model. Using this ignores the command line arguments.")
     parser.add_argument("--backbone", type=str, default="xception", help="The backbone to use, options are \{xception\}")
     parser.add_argument("--output-activation", type=str, default="softmax", help="The output activation to use. Options are \{softmax,sigmoid\}")
@@ -153,16 +153,16 @@ def main(args):
     classifier.dump_args(os.path.join(args.scratch_dir, 'params.json'))
 
     ## callbacks
-    callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=10),  # A callback to save the model
-                 ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
-                                     write_grads=True, num_classes=num_classes, pr_curve=True, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if val_gen else None, val_steps=len(val_dataset), tfpn=True),
-                 ReduceLROnPlateau(monitor='val_loss', factor=0.2,
-                                   patience=5, min_lr=1e-8),
-                 # EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=6, verbose=1, mode='auto',
-                 #                               baseline=None, restore_best_weights=True),
-                 TerminateOnNaN()
-                 ]
-    callbacks = None
+    callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=args.save_model_interval),  # A callback to save the model
+                ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
+                                    write_grads=True, num_classes=num_classes, pr_curve=True, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if val_gen else None, val_steps=len(val_dataset) if val_gen else None, tfpn=True),
+                ReduceLROnPlateau(monitor='val_loss', factor=0.2,
+                                  patience=5, min_lr=1e-8),
+                EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=6, verbose=1, mode='auto',
+                                              baseline=None, restore_best_weights=True),
+                TerminateOnNaN()
+                ]
+    # callbacks = None
 
     train_steps = np.floor(len(train_dataset) / args.batch_size)
     val_steps = int(np.floor(len(val_dataset) / args.batch_size)) if val_dataset is not None else None

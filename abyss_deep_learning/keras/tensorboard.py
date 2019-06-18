@@ -173,10 +173,14 @@ class ImprovedTensorBoard(TensorBoard):
                 for batch, (val_x, val_y) in enumerate(self.val_generator):
                     if batch >= self.val_steps:
                         break
-                    preds = np.squeeze(self.model.predict(val_x), axis=0)  # Predict - relies on batch_size=1
-                    preds = preds.round().astype(int)
-                    y_preds.append(preds)
-                    y_true.append(np.squeeze(val_y, axis=0).round().astype(int))
+                    pred_batch = self.model.predict(val_x)
+                    for n in range(pred_batch.shape[0]):
+                        # Add the predictions to the prediction list
+                        preds = pred_batch[n,:]
+                        preds = preds.round().astype(int)
+                        y_preds.append(preds)
+                        # Add the true labels to the label list
+                        y_true.append(val_y[n,:].astype(int))
                 predictions = np.asarray(y_preds)
                 targets = np.asarray(y_true)
 
