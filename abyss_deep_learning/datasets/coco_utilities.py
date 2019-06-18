@@ -27,7 +27,12 @@ def template_info():
     }
 
 
-def coco_is_valid(file_name, coco, full = False):
+def coco_is_valid(file_name, coco, mode):
+
+    if mode == 'skip':
+        return True
+
+    full = mode == 'strict'
 
     is_valid = True
 

@@ -79,7 +79,7 @@ _IS_VALID_DESCRIPTION = """
 Run a series of validation checks on the input coco
 
 examples:
-    cat input.json | coco-calc is_valid
+    cat input.json | coco-calc is-valid
 
 """
 
@@ -169,7 +169,7 @@ def main(args: argparse.Namespace) -> int:
 def is_valid(args: argparse.Namespace):
     coco = json.load(sys.stdin)
     status = 0
-    if not coco_is_valid('stdin', coco, full=True):
+    if not coco_is_valid('stdin', coco, args.validation):
         status = -1
 
     return True, status
@@ -1028,12 +1028,20 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
     subparsers = parser.add_subparsers()
 
     parser_is_valid = subparsers.add_parser(
-        'is_valid',
+        'is-valid',
         description=_IS_VALID_DESCRIPTION,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=argparse.RawTextHelpFormatter,
         parents=parents + image_operations,
         help="crop images and annotations. Annotations can be partially cropped if --keep-partial is specified",
     )
+    parser_is_valid.add_argument('--validation',
+                        type=str,
+                        default='standard',
+                        choices={'standard', 'strict', 'skip'},
+                        help="Check if input coco is valid:\n"
+                             "standard: quick checks\n"
+                             "strict: more in-depth cross-reference checks(default)")
+
 
     parser_crop = subparsers.add_parser(
         'crop',
