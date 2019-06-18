@@ -13,6 +13,7 @@ import sys
 import time
 import typing
 from collections import namedtuple
+from abyss_deep_learning.datasets.coco_utilities import coco_is_valid
 
 import pandas as pd
 
@@ -80,12 +81,13 @@ def main(args):
             logging.error("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
             sys.exit(1)
 
+    if not coco_is_valid('stdin', data, args.validation):
+        sys.exit(1)
+
     if args.on == 'annotations' and len(data.get('annotations', [])) == 0:
         logging.warning("Got empty annotations, input passed through to stdout")
         json.dump(data, sys.stdout, indent=args.indent)
         sys.exit(0)
-
-    original_images = copy.deepcopy(data.get('images', [])) if args.keep_images else None  # quick and dirty, ugly
 
     for annotation in data.get('annotations', []):
         annotation['annotation_id'] = annotation.pop('id')
@@ -106,17 +108,10 @@ def main(args):
 
     logging.info("Joining annotations, categories and images")
 
-    if df_categories.empty and not df_annotations.empty:
-        logging.error("Annotations exist without category definition")
-        sys.exit(0)
-
     if not df_categories.empty and not df_annotations.empty:
-        df = pd.merge(left=df_annotations, right=df_categories, on='category_id')
-        df = pd.merge(left=df, right=df_images, on='image_id')
-        unlabelled_image_df = df_images[~df_images['image_id'].isin(df_annotations['image_id'])]
-        df = pd.concat([df, unlabelled_image_df], sort=True, ignore_index=True)
+        df = pd.merge(left=df_images, right=df_annotations, on='image_id', how='left')
+        df = pd.merge(left=df, right=df_categories, on='category_id', how='left')
     else:
-        unlabelled_image_df = df_images
         df = df_images
 
     Keys = namedtuple("Keys", ['ann_keys', 'img_keys', 'cat_keys'])
@@ -128,57 +123,40 @@ def main(args):
     elif args.on == 'annotations':
         df = eval_on(df, args, keys, 'annotation_id')
 
-    images = []
-    df_images = df[image_keys]
-    if not df_images.empty:
-        for record in df_images.itertuples():
-            images.append(record_to_dict(record, 'image_id'))
-
     annotations = []
-
-    df_annotations = df[annotation_keys]
-    unlabelled_ids = set(unlabelled_image_df['image_id'])
+    df_annotations = df[annotation_keys].drop_duplicates(['annotation_id'])
     if not df_annotations.empty:
         for record in df_annotations.itertuples():
-            annotation = record_to_dict(record, 'annotation_id')
-            if annotation['image_id'] in unlabelled_ids:
-                continue
-            # Remove nan fields
-            annotation = {key: val for key, val in annotation.items() if not isinstance(val, float) or (isinstance(val, float) and not math.isnan(val))}
-            annotations.append(annotation)
+            if not math.isnan(record.annotation_id):
+                annotation = record_to_dict(record, 'annotation_id')
+                # Remove nan fields: val == val is always true unless val is NaN
+                annotation = {key: val for key, val in annotation.items() if val == val}
+                annotations.append(annotation)
+    data['annotations'] = annotations
 
-    categories = []
-    df_categories = df[category_keys]
-    for category in data.get('categories', []):
-        category['id'] = category.pop('category_id')
-    hashed_categories = set(to_tuple([list(item) for item in sorted(entry.items())]) for entry in data.get('categories', []))
-    if not df_categories.empty:
-        for record in df_categories.itertuples():
-            category = record_to_dict(record, 'category_id')
-            tuple_category = to_tuple([list(item) for item in sorted(category.items())])
-            if tuple_category in hashed_categories:
-                categories.append(category)
-    data['annotations'] = drop_duplicates_by_id(annotations)
-    data['images'] = original_images if args.keep_images else drop_duplicates_by_id(images)
+    if not args.keep_images:
+        images = []
+        df_images = df[image_keys].drop_duplicates(['image_id'])
+        if not df_images.empty:
+            for record in df_images.itertuples():
+                if not math.isnan(record.image_id):
+                    image = record_to_dict(record, 'image_id')
+                    # Remove nan fields: val == val is always true unless val is NaN
+                    image = {key: val for key, val in image.items() if val == val}
+                    images.append(image)
+        data['images'] = images
 
     if not args.keep_categories:
-        data['categories'] = drop_duplicates_by_id(categories)
-
-    for image in data['images']:
-        for key, val in image.items():
-            # Convert id to integer and check that it is a valid argument to int()
-            if 'id' in key and isinstance(val, (str, typing.ByteString, array.array, numbers.Number)):
-                image[key] = int(val)
-
-    for annotation in data['annotations']:
-        for key, val in annotation.items():
-            if 'id' in key and isinstance(val, (str, typing.ByteString, array.array, numbers.Number)):
-                annotation[key] = int(val)
-
-    for category in data['categories']:
-        for key, val in category.items():
-            if 'id' in key and isinstance(val, (str, typing.ByteString, array.array, numbers.Number)):
-                category[key] = int(val)
+        categories = []
+        df_categories = df[category_keys].drop_duplicates(['category_id'])
+        if not df_categories.empty:
+            for record in df_categories.itertuples():
+                if not math.isnan(record.category_id):
+                    category = record_to_dict(record, 'category_id')
+                    # Remove nan fields: val == val is always true unless val is NaN
+                    category = {key: val for key, val in category.items() if val == val}
+                    categories.append(category)
+        data['categories'] = categories
 
     logging.info("Printing to stdout")
     json.dump(data, sys.stdout, indent=args.indent)
@@ -245,7 +223,7 @@ def eval_on(df: pd.DataFrame, args: argparse.Namespace, keys: namedtuple, on_id:
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=_DESCRIPTION,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter, )
+                                     formatter_class=argparse.RawTextHelpFormatter, )
     parser.add_argument('on',
                         type=str,
                         choices={'images', 'annotations'},
@@ -263,8 +241,19 @@ def get_args() -> argparse.Namespace:
                         help='Carry over all categories from original COCO JSON file.')
     parser.add_argument('--keep-images', action='store_true',
                         help='Carry over all images from original COCO JSON file.')
+    parser.add_argument('--validation',
+                        type=str,
+                        default='standard',
+                        choices={'standard', 'strict', 'skip'},
+                        help="Check if input coco is valid:\n"
+                             "standard: quick checks(default)\n"
+                             "strict: more in-depth cross-reference checks\n"
+                             "skip: if you know coco is valid and want quicker execution.")
+
     logging_group = parser.add_mutually_exclusive_group()
     logging_group.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, dest='loglevel', help="Verbose output to stderr.")
+
+
     logging_group.add_argument('-d', '--debug', action='store_const', const=logging.DEBUG, dest='loglevel', help="Debug output to stderr")
     return parser.parse_args()
 

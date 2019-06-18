@@ -4,6 +4,7 @@ import json
 import logging
 import sys
 from itertools import groupby
+from abyss_deep_learning.datasets.coco_utilities import coco_is_valid
 
 __author__ = 'Kent Hu, Jamie McColl, Toby Dunne'
 __maintainer__ = 'Kent Hu'
@@ -57,14 +58,21 @@ examples:
 
 
 def any_lambda(iterable, function):
-  return any(function(i) for i in iterable)
+    return any(function(i) for i in iterable)
 
 
 def max_or_zero(i):
     return max(i) if len(i) > 0 else 0
 
 
-def merge(args, dest_coco, source_coco):
+def merge_coco(args, coco_list):
+    coco_out = coco_list[0]
+    for i in range(1, len(coco_list)):
+        coco_out = merge_pair(args, coco_out, coco_list[i])
+    return coco_out
+
+
+def merge_pair(args, dest_coco, source_coco):
 
     dest_image_id_list = [e['id'] for e in dest_coco['images']]
     source_image_id_list = [e['id'] for e in source_coco['images']]
@@ -106,7 +114,7 @@ def merge(args, dest_coco, source_coco):
                                   "Specify --append-categories or --merge-categories ".format(category['id'],
                                                                                               category['name'],
                                                                                               existing['name']))
-                    exit(-1)
+                    exit(1)
             else:
                 # same category_id, same name - skip second copy
                 continue
@@ -116,10 +124,10 @@ def merge(args, dest_coco, source_coco):
 
     # merge images
     dest_images = dest_coco['images']
-    curr_img_map = {el['id']: el for el in dest_images}
+    dest_image_by_id = {el['id']: el for el in dest_images}
 
     for image in source_coco['images']:
-        existing = curr_img_map.get(image['id'], None)
+        existing = dest_image_by_id.get(image['id'], None)
         if existing is not None:
             if existing['path'] != image['path']:
                 # duplicate image id - same id, different path
@@ -173,7 +181,20 @@ def main(args):
         level=args.loglevel,
     )
     coco_list = []
-    for file_arg in args.files:
+
+    if args.file_list:
+        file_list = []
+        for file_arg in args.files:
+            if file_arg == '-':
+                buffer = sys.stdin.read().strip()
+            else:
+                with open(file_arg, 'r') as f:
+                    buffer = f.read().strip()
+            file_list.extend(buffer.splitlines())
+    else:
+        file_list = args.files
+
+    for file_arg in file_list:
         try:
             if file_arg == '-':
                 curr_coco = json.load(sys.stdin)
@@ -181,9 +202,8 @@ def main(args):
                 with open(file_arg, 'r') as f:
                     curr_coco = json.load(f)
 
-            if all([curr_coco.get(x,None) is None for x in ['images','annotations','categories']]):
-                logging.error("Error file is not coco: {}".format(file_arg))
-                sys.exit(-1)
+            if not coco_is_valid(file_arg, curr_coco, args.validation):
+                sys.exit(1)
 
             if curr_coco.get('images', None) is None:
                 curr_coco['images'] = []
@@ -194,18 +214,13 @@ def main(args):
 
             coco_list.append(curr_coco)
         except json.decoder.JSONDecodeError as ex:
-            logging.error("File is not valid JSON: {} {}".format(file, ex))
-            sys.exit(-1)
+            logging.error("File is not valid JSON: {} {}".format(file_arg, ex))
+            sys.exit(1)
         except Exception as ex:
-            logging.error("Error loading: {} {}".format(file, ex))
-            sys.exit(-1)
+            logging.error("Error loading: {} {}".format(file_arg, ex))
+            sys.exit(1)
 
-    if len(coco_list) == 1:
-        coco_out = coco_list[0]
-    else:
-        coco_out = coco_list[0]
-        for i in range(1, len(coco_list)):
-            coco_out = merge(args, coco_out, coco_list[i])
+    coco_out = merge_coco(args, coco_list)
 
     json.dump(coco_out, sys.stdout, indent=args.indent)
     return 0
@@ -217,6 +232,11 @@ def get_args():
         'files',
         nargs='*',
         help="JSON files to merge together into one json (use - to read one file from stdin)",
+    )
+    parser.add_argument(
+        '--file-list',
+        action='store_true',
+        help="specified files are are txt files with the JSON file names to merge (one file per line)",
     )
     parser.add_argument(
         '--append-categories',
@@ -246,6 +266,15 @@ def get_args():
         dest='indent',
         help="disable JSON pretty print",
     )
+    parser.add_argument('--validation',
+                        type=str,
+                        default='standard',
+                        choices={'standard', 'strict', 'skip'},
+                        help="Check if input coco is valid:\n"
+                             "standard: quick checks(default)\n"
+                             "strict: more in-depth cross-reference checks\n"
+                             "skip: if you know coco is valid and want quicker execution.")
+
     logging_group = parser.add_mutually_exclusive_group()
     logging_group.add_argument(
         '-v', '--verbose',
