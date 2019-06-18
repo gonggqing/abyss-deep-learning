@@ -220,6 +220,9 @@ def main(args):
             logging.error("Error loading: {} {}".format(file_arg, ex))
             sys.exit(1)
 
+    if len(coco_list) == 0:
+        logging.error("At least one input file is required")
+
     coco_out = merge_coco(args, coco_list)
 
     json.dump(coco_out, sys.stdout, indent=args.indent)
