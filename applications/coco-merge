@@ -222,6 +222,7 @@ def main(args):
 
     if len(coco_list) == 0:
         logging.error("At least one input file is required")
+        sys.exit(1)
 
     coco_out = merge_coco(args, coco_list)
 
