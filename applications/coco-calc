@@ -17,6 +17,7 @@ from pycocotools.coco import COCO
 
 from abyss_deep_learning.metrics import poly_intersection_area
 from abyss_deep_learning.utils import polygon_area, imwrite, imread, do_overlap, polygon_x, polygon_y, MyCOCO
+from abyss_deep_learning.datasets.coco_utilities import coco_is_valid
 
 __author__ = 'Kent Hu, Vsevolod Vlaskine'
 
@@ -72,6 +73,14 @@ examples:
     coco-calc coverage --second second.json --intersections intersections.csv # Generate coverage file for second JSON using intersections.csv file produced from coco-calc intersections
     
     coco-calc coverage --output-fields # Output CSV header fields
+"""
+
+_IS_VALID_DESCRIPTION = """
+Run a series of validation checks on the input coco
+
+examples:
+    cat input.json | coco-calc is_valid
+
 """
 
 _CROP_DESCRIPTION = """
@@ -149,10 +158,21 @@ def main(args: argparse.Namespace) -> int:
     else:
         if coco is None:
             logging.warning("No output coco, not necessarily an error")
+        elif coco is True:
+            pass
         else:
             json.dump(coco.dataset, sys.stdout, indent=args.indent)
         logging.shutdown()
         return status
+
+
+def is_valid(args: argparse.Namespace):
+    coco = json.load(sys.stdin)
+    status = 0
+    if not coco_is_valid('stdin', coco, full=True):
+        status = -1
+
+    return True, status
 
 
 def crop(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
@@ -1007,6 +1027,14 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
     )
     subparsers = parser.add_subparsers()
 
+    parser_is_valid = subparsers.add_parser(
+        'is_valid',
+        description=_IS_VALID_DESCRIPTION,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=parents + image_operations,
+        help="crop images and annotations. Annotations can be partially cropped if --keep-partial is specified",
+    )
+
     parser_crop = subparsers.add_parser(
         'crop',
         description=_CROP_DESCRIPTION,
@@ -1218,7 +1246,7 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         help="Key to match by. Default is %(default)s.",
     )
 
-
+    parser_is_valid.set_defaults(func=is_valid)
     parser_crop.set_defaults(func=crop)
     parser_coverage.set_defaults(func=coverage)
     parser_intersections.set_defaults(func=intersections)
