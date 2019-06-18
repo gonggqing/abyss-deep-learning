@@ -11,6 +11,8 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.validation import check_is_fitted
 import os
 import json
+from keras.utils.training_utils import multi_gpu_model
+
 
 from abyss_deep_learning.utils import cat_to_onehot, warn_on_call
 
@@ -103,7 +105,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
                  backbone='xception', output_activation='softmax',
                  input_shape=(299, 299, 3), pooling='avg', classes=2,
                  init_weights='imagenet', init_epoch=0, init_lr=1e-3,
-                 trainable=True, loss='categorical_crossentropy', metrics=None):
+                 trainable=True, loss='categorical_crossentropy', metrics=None, gpus=None):
         """Summary
 
         Args:
@@ -129,6 +131,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         self.init_lr = init_lr
         self.init_epoch = init_epoch
         self.metrics = metrics
+        self.gpus = gpus
 
     def dump_args(self, json_path):
         """
@@ -315,6 +318,8 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
                 if self.loss is None:
                     raise ValueError(
                         "ImageClassifier::fit(): Trying to compile a model without a loss function.")
+                if self.gpus and self.gpus >= 2:
+                    self.model_ = multi_gpu_model(self.model_, self.gpus)
                 self.model_.compile('nadam', loss=self.loss, metrics=self.metrics)
                 self.set_lr(self.init_lr)
             else:
