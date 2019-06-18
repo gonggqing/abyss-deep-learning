@@ -84,12 +84,12 @@ def main(args: argparse.Namespace):
             category_json = json.loads(categories_buffer)
         except Exception as ex:
             logging.error('reading {} categories file'.format(args.categories))
-            sys.exit(-1)
+            sys.exit(1)
 
         categories = category_json.get('categories', None)
         if categories is None or len(categories) == 0:
             logging.error('{} did not contain categories'.format(args.categories))
-            sys.exit(-1)
+            sys.exit(1)
 
     if categories is None:
         categories = image_json.get('categories', [])
