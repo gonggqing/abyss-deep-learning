@@ -24,6 +24,21 @@ from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard
 NN_DTYPE = np.float32
 
 
+def enforce_one_vs_all(image, labels):
+    """
+    A Function to be used with the lambda_gen in the pipeline. If a background label and another label is detected, it removes the background label
+    Args:
+        image: passedthrough
+        labels: a multihot vector
+
+    Returns:
+        image, labels
+
+    """
+    if np.sum(labels[1:]) >= 1.0:
+        labels[0] = 0
+    return image,labels
+
 def get_args():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter,
@@ -47,6 +62,9 @@ def get_args():
     parser.add_argument("--resume-from-ckpt", type=str, help="Resume the model from the given .h5 checkpoint, as saved by the ImageClassifier.save function. This loads in all weights and parameters from the previous training.")
     parser.add_argument("--weights", type=str, default='imagenet', help="Path to the weights to load into this model. Re-initalises all the checkpoints etc. Default is 'imagenet' which loads the 'imagenet' trained weights")
     parser.add_argument("--gpu-fraction", type=float, default=0.8, help="Limit the amount of GPU usage tensorflow uses. Defaults to 0.8")
+    parser.add_argument("--workers", type=int, default=8, help="Number of workers to use")
+    parser.add_argument("--gpus", type=int, default=1, help="The number of GPUs to use")
+
     args = parser.parse_args()
     return args
 
@@ -98,7 +116,7 @@ def main(args):
         Returns:
 
         """
-        return (batching_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes),
+        return (batching_gen(lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes),func=enforce_one_vs_all),
                              batch_size=batch_size))
 
     # limit the process GPU usage. Useful for
@@ -124,7 +142,8 @@ def main(args):
             init_lr=args.lr,
             trainable=True,
             loss=args.loss,
-            metrics=['accuracy']
+            metrics=['accuracy'],
+            gpus=args.gpus
         )
 
     classifier.dump_args(os.path.join(args.scratch_dir, 'params.json'))
@@ -141,6 +160,7 @@ def main(args):
                  #                               baseline=None, restore_best_weights=True),
                  TerminateOnNaN()
                  ]
+
 
     train_steps = np.floor(len(train_dataset) / args.batch_size)
     val_steps = np.floor(len(val_dataset) / args.batch_size) if val_dataset is not None else None
