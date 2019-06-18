@@ -3,15 +3,11 @@
 __author__ = 'Kent Hu, and Seva'
 __maintainer__ = 'Kent Hu'
 import argparse
-import array
-import copy
 import json
 import logging
 import math
-import numbers
 import sys
 import time
-import typing
 from collections import namedtuple
 from abyss_deep_learning.datasets.coco_utilities import coco_is_valid
 
@@ -89,18 +85,13 @@ def main(args):
         json.dump(data, sys.stdout, indent=args.indent)
         sys.exit(0)
 
-    for annotation in data.get('annotations', []):
-        annotation['annotation_id'] = annotation.pop('id')
-
-    for image in data.get('images', []):
-        image['image_id'] = image.pop('id')
-
-    for category in data.get('categories', []):
-        category['category_id'] = category.pop('id')
-
     df_annotations = create_data_frame(data.get('annotations', []))
     df_images = create_data_frame(data.get('images', []))
     df_categories = create_data_frame(data.get('categories', []))
+
+    df_annotations.rename(index=str, columns={'id':'annotation_id'}, inplace=True)
+    df_images.rename(index=str, columns={'id': 'image_id'}, inplace=True)
+    df_categories.rename(index=str, columns={'id': 'category_id'}, inplace=True)
 
     annotation_keys = df_annotations.keys()
     image_keys = df_images.keys()

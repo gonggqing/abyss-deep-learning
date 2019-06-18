@@ -38,7 +38,8 @@ Output merged coco json contents in stdout.
 
 examples:
     coco-merge labelled/abc/coco.json labelled/def/coco.json
-    
+
+    use '-' to read from stdin    
     cat labelled/abc/coco.json | coco-merge - labelled/def/coco.json
     
     --append-categories:
@@ -219,6 +220,10 @@ def main(args):
         except Exception as ex:
             logging.error("Error loading: {} {}".format(file_arg, ex))
             sys.exit(1)
+
+    if len(coco_list) == 0:
+        logging.error("At least one input file is required")
+        sys.exit(1)
 
     coco_out = merge_coco(args, coco_list)
 

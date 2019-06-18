@@ -22,7 +22,6 @@ setup(
     scripts=[
         "applications/argparse.bash",
         "applications/coco-calc",
-        "applications/coco-calc-masks",
         "applications/coco-check-data-pollution",
         "applications/coco-draw",
         "applications/coco-extract-masks",
@@ -46,7 +45,6 @@ setup(
         "applications/coco-view",
         "applications/coco-viewer",
         "applications/deeplabv3+",
-        "applications/image-dirs-to-coco",
         "applications/keras-graph",
         "applications/labelbox-to-coco",
         "applications/labelme-to-coco",
