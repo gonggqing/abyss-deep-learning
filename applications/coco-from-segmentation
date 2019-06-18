@@ -14,7 +14,7 @@ import skimage
 from PIL import Image
 
 from abyss_deep_learning.utils import imread, polygon_to_bbox, polygon_to_mask
-from abyss_deep_learning.coco_tools import coco_from_images, template_info, template_license
+from abyss_deep_learning.datasets.coco_utilities import coco_from_images, template_info, template_license
 
 __author__ = 'Kent Hu, and Jeff Mohammed'
 __maintainer__ = 'Kent Hu'

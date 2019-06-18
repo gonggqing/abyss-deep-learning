@@ -5,8 +5,7 @@ __maintainer__ = 'Kent Hu'
 import argparse
 import json
 import sys
-from abyss_deep_learning.coco_tools import coco_from_images
-
+from abyss_deep_learning.datasets.coco_utilities import coco_from_images
 
 _DESCRIPTION = """
 The utility takes in a text file of paths to images to generate a COCO JSON file from.
