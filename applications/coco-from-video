@@ -256,7 +256,7 @@ def main():
 
                 # New Coco Dataset
                 images.append({
-                    'id': int(im['id'] - img_id_offset) if id in im else None,
+                    'id': int(im['id'] - img_id_offset) if 'id' in im else None,
                     'height': int(video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
                     'width': int(video_capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
                     'original_uri': video_path + "?begin=" + str(frame_num) + "&end=" + str(frame_num),

@@ -146,15 +146,21 @@ def main(args):
             gpus=args.gpus
         )
 
-    classifier.dump_args(os.path.join(args.scratch_dir, 'params.json'))
+    classifier.dump_args(os.path.join(args.scratch_dir, model_dir, 'params.json'))
 
     ## callbacks
-    callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=10),  # A callback to save the model
+    train_steps = np.floor(len(train_dataset) / args.batch_size)
+    val_steps = np.floor(len(val_dataset) / args.batch_size) if val_dataset is not None else None
+    # train_steps = 10
+    # val_steps = 10
+    callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=1),  # A callback to save the model
                  ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
-                                     write_images=True, write_grads=True, num_classes=num_classes, pr_curve=True,
-                                     val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=32) if val_gen else None, val_steps=len(val_dataset),
-                                     tfpn=True),
-                 ReduceLROnPlateau(monitor='val_loss', factor=0.2,
+                                     write_images=False, write_grads=False, num_classes=num_classes, pr_curve=False,
+                                     val_generator=pipeline(val_gen, num_classes=num_classes,
+                                                            batch_size=args.batch_size * args.gpus) if val_gen else None,
+                                     val_steps=val_steps,
+                                     tfpn=False),
+                 ReduceLROnPlateau(monitor='val_loss', factor=0.3,
                                    patience=5, min_lr=1e-8),
                  EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=10, verbose=1, mode='auto',
                                                 baseline=None, restore_best_weights=True),
@@ -162,13 +168,14 @@ def main(args):
                  ]
 
 
-    train_steps = np.floor(len(train_dataset) / args.batch_size)
-    val_steps = np.floor(len(val_dataset) / args.batch_size) if val_dataset is not None else None
+
     class_weights = compute_class_weights(train_dataset)
     print("Using class weights: ", class_weights)
-    classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size),  # The generator wrapped in the pipline loads x,y
+    classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes,
+                                                batch_size=args.batch_size * args.gpus),
                              steps_per_epoch=train_steps,
-                             validation_data=pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size) if val_gen else None,
+                             validation_data=pipeline(val_gen, num_classes=num_classes,
+                                                      batch_size=args.batch_size * args.gpus) if val_gen else None,
                              validation_steps=val_steps,
                              epochs=args.epochs,
                              class_weight=class_weights,
@@ -176,7 +183,7 @@ def main(args):
                              shuffle=True,
                              callbacks=callbacks,
                              use_multiprocessing=True,
-			     workers=args.workers)
+                             workers=args.workers)
 
 
 if __name__ == "__main__":
