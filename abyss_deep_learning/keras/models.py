@@ -35,6 +35,8 @@ class ModelPersistence:
             topology.attrs['format'] = 'json'
             parameters = f.create_dataset("parameters", data=dumps(self.get_params()))
             parameters.attrs['format'] = 'json'
+        standard_keras_filepath = '.'.join(filepath.split('.')[:-1]) + ".standard-keras.h5"
+        self.model_.save(standard_keras_filepath)
 
     def load(self, filepath):
         raise NotImplementedError("ModelPersistence::load has not been overridden for this class.")
