@@ -31,10 +31,12 @@ class ModelPersistence:
 
         self.model_.save_weights(filepath)
         with h5py.File(filepath, 'a') as f:
-            topology = f.create_dataset("topology", data=self.model_.to_json())
-            topology.attrs['format'] = 'json'
-            parameters = f.create_dataset("parameters", data=dumps(self.get_params()))
-            parameters.attrs['format'] = 'json'
+             topology = f.create_dataset("topology", data=self.model_.to_json())
+             topology.attrs['format'] = 'json'
+             parameters = f.create_dataset("parameters", data=dumps(self.get_params()))
+             parameters.attrs['format'] = 'json'
+        #standard_keras_filepath = filepath
+        #self.model_.save(standard_keras_filepath)
 
     def load(self, filepath):
         raise NotImplementedError("ModelPersistence::load has not been overridden for this class.")
@@ -57,7 +59,12 @@ class ModelPersistence:
         model._maybe_create_model()
         model.model_.load_weights(filepath, by_name=True)
         f.close()
+
+        #from keras.models import load_model
+        #load_model(filepath)
+
         return model
+
 
 
 def loadImageClassifierByDict(json_path):
@@ -93,7 +100,6 @@ def loadImageClassifierByDict(json_path):
         loss=params['loss'],
         metrics=mets
     )
-
 
 class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
 

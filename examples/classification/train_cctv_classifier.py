@@ -151,8 +151,8 @@ def main(args):
     ## callbacks
     train_steps = np.floor(len(train_dataset) / args.batch_size)
     val_steps = np.floor(len(val_dataset) / args.batch_size) if val_dataset is not None else None
-    # train_steps = 10
-    # val_steps = 10
+    #train_steps = 10
+    #val_steps = 10
     callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=1),  # A callback to save the model
                  ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
                                      write_images=False, write_grads=False, num_classes=num_classes, pr_curve=False,
