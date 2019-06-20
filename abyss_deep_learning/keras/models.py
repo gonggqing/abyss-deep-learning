@@ -38,7 +38,7 @@ class ModelPersistence:
 
         # also explicitly save the model definition
         (dirname, filename) = os.path.split(filepath)
-        with open(os.join(dirname, "model-definition.json"), 'w') as f:
+        with open(os.path.join(dirname, "model-definition.json"), 'w') as f:
             f.write(self.model_.to_json())
 
     def load(self, filepath):
