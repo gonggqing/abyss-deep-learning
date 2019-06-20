@@ -139,12 +139,15 @@ class ImprovedTensorBoard(TensorBoard):
 
             _, precision = tf.metrics.precision(labels, predictions)
             _, recall = tf.metrics.recall(labels, predictions)
+            _, f1 = tf.scalar_mul(2, tf.divide(tf.multiply(precision, recall),
+                                               tf.add(precision, recall)))
             _, tp = tf.metrics.true_positives(labels, predictions)
             _, fn = tf.metrics.false_negatives(labels, predictions)
             _, fp = tf.metrics.false_positives(labels, predictions)
 
             self.precision_summary = scalar_summary.op(name='precision', data=precision)
             self.recall_summary = scalar_summary.op(name='recall', data=recall)
+            self.f1_summary = scalar_summary.op(name='f1', data=fn)
             self.fp_summary = scalar_summary.op(name='fp', data=fp)
             self.tp_summary = scalar_summary.op(name='tp', data=tp)
             self.fn_summary = scalar_summary.op(name='fn', data=fn)
@@ -184,7 +187,6 @@ class ImprovedTensorBoard(TensorBoard):
                 predictions = np.asarray(y_preds)
                 targets = np.asarray(y_true)
 
-
         if self.pr_curve and (self.validation_data or self.val_generator):
             tensors = self.model._feed_targets + self.model._feed_outputs
             feed_dict = dict(zip(tensors, [targets, predictions]))
@@ -202,12 +204,14 @@ class ImprovedTensorBoard(TensorBoard):
             feed_dict = dict(zip(tensors, [targets, predictions]))
             precision_result = self.sess.run(self.precision_summary, feed_dict=feed_dict)
             recall_result = self.sess.run(self.recall_summary, feed_dict=feed_dict)
+            f1_result = self.sess.run(self.f1_summary, feed_dict=feed_dict)
             fp_result = self.sess.run(self.fp_summary, feed_dict=feed_dict)
             tp_result = self.sess.run(self.tp_summary, feed_dict=feed_dict)
             fn_result = self.sess.run(self.fn_summary, feed_dict=feed_dict)
 
             self.writer.add_summary(precision_result, global_step=epoch)
             self.writer.add_summary(recall_result, global_step=epoch)
+            self.writer.add_summary(f1_result, global_step=epoch)
             self.writer.add_summary(fp_result, global_step=epoch)
             self.writer.add_summary(tp_result, global_step=epoch)
             self.writer.add_summary(fn_result, global_step=epoch)
