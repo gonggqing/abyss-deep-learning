@@ -50,8 +50,8 @@ def get_args():
     parser.add_argument("--scratch-dir", type=str, default="scratch/", help="Where to save models, logs, etc.")
     parser.add_argument("--caption-map", type=str, help="Path to the caption map")
     parser.add_argument("--image-shape", type=str, default="320,240,3", help="Image shape")
-    parser.add_argument("--batch-size", type=int, default=2, help="Image shape")
-    parser.add_argument("--epochs", type=int, default=2, help="Image shape")
+    parser.add_argument("--batch-size", type=int, default=2, help="Batch-size, per GPU.")
+    parser.add_argument("--epochs", type=int, default=2, help="The maximum number of epochs to train the network for.")
     parser.add_argument("--lr", type=float, default=1e-4, help="Sets the learning rate of the optimizer")
     parser.add_argument("--save-model-interval", type=int, default=1, help="How often to save the model interval")
     parser.add_argument("--load-params-json", type=str, help="Use the params.json file to initialise the model. Using this ignores the command line arguments.")
@@ -64,6 +64,8 @@ def get_args():
     parser.add_argument("--gpu-fraction", type=float, default=0.8, help="Limit the amount of GPU usage tensorflow uses. Defaults to 0.8")
     parser.add_argument("--workers", type=int, default=8, help="Number of workers to use")
     parser.add_argument("--gpus", type=int, default=1, help="The number of GPUs to use")
+    parser.add_argument("--early-stopping-patience", type=int, default=None, help="The patience in number of epochs for network loss to improved before early-stoppping of training.")
+
 
     args = parser.parse_args()
     return args
@@ -153,7 +155,8 @@ def main(args):
     val_steps = np.floor(len(val_dataset) / args.batch_size) if val_dataset is not None else None
     #train_steps = 10
     #val_steps = 10
-    callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=1),  # A callback to save the model
+
+    callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=1),  # A callback to save the model and its definition
                  ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
                                      write_images=False, write_grads=False, num_classes=num_classes, pr_curve=False,
                                      val_generator=pipeline(val_gen, num_classes=num_classes,
@@ -162,10 +165,11 @@ def main(args):
                                      tfpn=False),
                  ReduceLROnPlateau(monitor='val_loss', factor=0.3,
                                    patience=5, min_lr=1e-8),
-                 EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=10, verbose=1, mode='auto',
-                                                baseline=None, restore_best_weights=True),
                  TerminateOnNaN()
                  ]
+    if args.early_stopping_patience is not None:
+        callbacks.append(EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=args.early_stopping_patience,
+                                       verbose=1, mode='auto', baseline=None, restore_best_weights=True))
 
 
 
