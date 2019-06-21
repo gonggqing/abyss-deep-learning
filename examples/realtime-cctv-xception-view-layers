@@ -20,8 +20,35 @@ eof
 
 [[ -n "$1" ]] || usage
 
-frozen_graph="/mnt/pond/processed/abyss-internal/cctv/classification/models/frozen-graph-demo/frozen_graph.pb"
 video="$1"
+
+keras_model="/mnt/pond/processed/abyss-internal/cctv/classification/models/FN/model_definition.json"
+keras_weights="/mnt/pond/processed/abyss-internal/cctv/classification/models/FN/model_weights.h5"
+
+layer='conv2d_2/Conv2D:0' #layer='conv2d_2/convolution:0'
+rows=30
+cols=40
+channels=256
+untile=16,16
+resize=4
+
+normalize_each="normalize=all"
+normalize_all="normalize=all;"
+transpose=";transpose"
+if [[ "$video" == "-" ]]; then cv-cat "resize=320,240;convert-to=f,0.0078,-1" --output no-header
+else cv-cat --file "$video" "view;resize=320,240;convert-to=f,0.0078,-1" --output no-header; fi \
+    | tensor-cat --input input_1:0 --output "$layer" --keras-model $keras_model --keras-weights $keras_weights --verbose \
+    | math-array transpose --to-axes 2,0,1 --shape "$rows,$cols,$channels" \
+    | cv-cat --input "no-header;rows=$rows;cols=$cols;type=f" "${normalize_each}" \
+    | cv-cat --input "no-header;rows=$(( rows * channels ));cols=$cols;type=f" "untile=$untile;${normalize_all}resize=$resize;convert-to=ub,256;color-map=jet;view;null"
+
+
+
+exit
+
+
+
+frozen_graph="/mnt/pond/processed/abyss-internal/cctv/classification/models/frozen-graph-demo/frozen_graph.pb"
 
 # get operations
 # tensor-cat --graph /mnt/pond/processed/abyss-internal/cctv/classification/models/frozen-graph-demo/frozen_graph.pb --operations | less
@@ -51,12 +78,12 @@ resize=4
 #untile=32,16
 #resize=4
 
-normalize_each="normalize=all;"
+normalize_each="normalize=all"
 normalize_all="normalize=all;"
-
-if [[ "$video" == "-" ]]; then cv-cat "resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header
-else cv-cat --file "$video" "view;resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header; fi \
+transpose=";transpose"
+if [[ "$video" == "-" ]]; then cv-cat "resize=320,240${transpose};convert-to=f,0.0078,-1" --output no-header
+else cv-cat --file "$video" "view;resize=320,240${transpose};convert-to=f,0.0078,-1" --output no-header; fi \
     | tensor-cat --input input_1:0 --output "$layer" --graph "$frozen_graph" --verbose \
     | math-array transpose --to-axes 2,0,1 --shape "$rows,$cols,$channels" \
-    | cv-cat --input "no-header;rows=$rows;cols=$cols;type=f" "${normalize_each}transpose" \
+    | cv-cat --input "no-header;rows=$rows;cols=$cols;type=f" "${normalize_each}${transpose}" \
     | cv-cat --input "no-header;rows=$(( cols * channels ));cols=$rows;type=f" "untile=$untile;${normalize_all}resize=$resize;convert-to=ub,256;color-map=jet;view;null"

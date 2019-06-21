@@ -22,29 +22,40 @@ eof
 
 frozen_graph="/mnt/pond/processed/abyss-internal/cctv/classification/models/frozen-graph-demo/frozen_graph.pb"
 video="$1"
-thinning_rate=1 #thinning_rate=0.34
+#thinning_rate=0.34
 keras_model="/mnt/pond/processed/abyss-internal/cctv/classification/models/FN/model_definition.json"
 keras_weights="/mnt/pond/processed/abyss-internal/cctv/classification/models/FN/model_weights.h5"
+
+#keras_model="/mnt/rhino/mnt/highspeed/processed/ml/models/deployable/FN/model_definition.json"
+#keras_weights="/mnt/rhino/mnt/highspeed/processed/ml/models/deployable/FN/model_weights.h5"
+
+#keras_model="/mnt/rhino/mnt/pond/scratch/for-seva/model_7.h5"
+#keras_model="/mnt/rhino/mnt/pond/scratch/for-seva/model_2.h5"
+#keras_model="/mnt/pond/scratch/cctv-network-training/fault-detection/baseline-network-training/scratch/models/model-definition.json"
+#keras_weights="/mnt/pond/scratch/cctv-network-training/fault-detection/baseline-network-training/scratch/models/best_model.h5"
 
 function predict_()
 {
     # tensor-cat --input input_1:0 --output logits/Softmax:0 --verbose --graph "$frozen_graph"
+    #tensor-cat $@ --input input_1:0 --output class_logits/Softmax:0 --verbose --keras-model "$keras_model" --keras-weights "$keras_weights"
     tensor-cat $@ --input input_1:0 --output class_logits/Softmax:0 --verbose --keras-model "$keras_model" --keras-weights "$keras_weights"
 }
 
-#cv-cat --file "$video" "resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header | predict_ > softmax.bin
+frozen=0
+#if (( frozen )); then transpose="transpose;"; else transpose; fi
+#cv-cat --file "$video" "resize=320,240;${transpose}convert-to=f,0.0078,-1" --output no-header | predict_
 #exit
 
-if [[ "$video" == "-" ]]; then cv-cat "view;resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header
-else cv-cat --file "$video" "view;resize=320,240;transpose;convert-to=f,0.0078,-1" --output no-header; fi \
-    | csv-thin $thinning_rate --deterministic --size $(( 320 * 240 * 3 * 4 )) \
+if [[ "$video" == "-" ]]; then cv-cat "view;resize=320,240;${transpose}convert-to=f,0.0078,-1" --output no-header
+else cv-cat --file "$video" "view;resize=320,240;${transpose}convert-to=f,0.0078,-1" --output no-header; fi \
+    | if [[ -n "$thinning_rate" ]]; then csv-thin $thinning_rate --deterministic --size $(( 320 * 240 * 3 * 4 )); else cat; fi \
     | predict_ --keep-input \
     | python3 -c "
 import numpy as np
 import os
 import sys
 
-i = np.zeros( ( 320, 240, 3 ), dtype = np.float32 )
+a = np.zeros( ( 320, 240, 3 ) if $frozen == 1 else ( 240, 320, 3 ), dtype = np.float32 )
 s = np.zeros( ( 2 ), dtype = np.float32 )
 count = 0
 t = np.ones( ( 248, 8, 3 ), dtype = np.float32 ) * -1
@@ -53,14 +64,15 @@ frames = 4 * 60 * 25 # cycle through it every 4 minutes at 25 fps
 with os.fdopen( sys.stdout.fileno(), 'wb' ) as stdout:
     with os.fdopen( sys.stdin.fileno(), 'rb' ) as stdin:
         while True:
-            if stdin.readinto( i ) != 320 * 240 * 3 * 4: break
+            if stdin.readinto( a ) != 320 * 240 * 3 * 4: break
             if stdin.readinto( s ) != 2 * 4: break
-            i = i.reshape( 320, 240, 3 )
-            c = 1 - s[1] * 2
-            #print( s[1], file = sys.stderr )
-            # c = abs( s[1] - 0.5 ) * 4 - 1
-            # c = abs( s[1] - 0.3 ) * 4 - 1
-            d = 160 - int( s[1] * 80 )
+            i = a if $frozen == 1 else np.transpose( a, ( 1, 0, 2 ) ) # quick and dirty
+            score = s[$frozen]
+            c = 1 - score * 2
+            #print( score, file = sys.stderr )
+            # c = abs( score - 0.5 ) * 4 - 1
+            # c = abs( score - 0.3 ) * 4 - 1
+            d = 160 - int( score * 80 )
             i[269:301,14:46] = [ -1, -1, -1 ]
             i[270:300,15:45] = [ c, c, 1 ]
             i[285,80:160] = [ -1, -1, -1 ]
