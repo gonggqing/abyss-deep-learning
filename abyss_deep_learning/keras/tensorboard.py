@@ -147,7 +147,7 @@ class ImprovedTensorBoard(TensorBoard):
 
             self.precision_summary = scalar_summary.op(name='precision', data=precision)
             self.recall_summary = scalar_summary.op(name='recall', data=recall)
-            self.f1_summary = scalar_summary.op(name='f1', data=fn)
+            self.f1_summary = scalar_summary.op(name='f1', data=f1)
             self.fp_summary = scalar_summary.op(name='fp', data=fp)
             self.tp_summary = scalar_summary.op(name='tp', data=tp)
             self.fn_summary = scalar_summary.op(name='fn', data=fn)
@@ -202,12 +202,14 @@ class ImprovedTensorBoard(TensorBoard):
 
             tensors = self.model._feed_targets + self.model._feed_outputs
             feed_dict = dict(zip(tensors, [targets, predictions]))
-            precision_result = self.sess.run(self.precision_summary, feed_dict=feed_dict)
-            recall_result = self.sess.run(self.recall_summary, feed_dict=feed_dict)
-            f1_result = self.sess.run(self.f1_summary, feed_dict=feed_dict)
-            fp_result = self.sess.run(self.fp_summary, feed_dict=feed_dict)
-            tp_result = self.sess.run(self.tp_summary, feed_dict=feed_dict)
-            fn_result = self.sess.run(self.fn_summary, feed_dict=feed_dict)
+            precision_result, recall_result, f1_result, fp_result, tp_result, fn_result = \
+                self.sess.run([self.precision_summary, self.recall_summary, self.f1_summary, self.fp_summary,
+                               self.tp_summary, self.fn_summary], feed_dict=feed_dict)
+            # recall_result = self.sess.run(self.recall_summary, feed_dict=feed_dict)
+            # f1_result = self.sess.run(self.f1_summary, feed_dict=feed_dict)
+            # fp_result = self.sess.run(self.fp_summary, feed_dict=feed_dict)
+            # tp_result = self.sess.run(self.tp_summary, feed_dict=feed_dict)
+            # fn_result = self.sess.run(self.fn_summary, feed_dict=feed_dict)
 
             self.writer.add_summary(precision_result, global_step=epoch)
             self.writer.add_summary(recall_result, global_step=epoch)
