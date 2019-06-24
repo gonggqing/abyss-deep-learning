@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import keras.models
-import os
+import os, sys
 import argparse
 import json
 import cv2
@@ -108,19 +108,15 @@ def main(args):
     for batch, (inp, tgt) in enumerate(pipeline(dataset.generator(endless=True), num_classes=num_classes, batch_size=1)):
         if batch >= args.num_samples:
             break
-        pred = int(np.squeeze(classifier.predict(inp, batch_size=1),axis=0))
+        pred = int(np.squeeze(classifier.predict(inp, batch_size=1), axis=0))
         preds.append(pred)
         trues.append(np.argmax(np.squeeze(tgt, axis=0)))
 
-
-
-    print(preds)
-    print(trues)
+    # print('pred,trues')
+    # Print pred, true to stdout
+    np.savetxt(sys.stdout, np.array((preds, trues)).T, fmt='%.0f', delimiter=',')
 
     K.clear_session()
-
-
-
 
 
 if __name__ == "__main__":
