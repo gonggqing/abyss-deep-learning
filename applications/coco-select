@@ -122,6 +122,11 @@ def main(args):
                 annotation = record_to_dict(record, 'annotation_id')
                 # Remove nan fields: val == val is always true unless val is NaN
                 annotation = {key: val for key, val in annotation.items() if val == val}
+                # pandas may have converted id to float (if any NaN in column)
+                annotation['id'] = int(annotation['id'])
+                annotation['image_id'] = int(annotation['image_id'])
+                if 'category_id' in annotation:
+                    annotation['category_id'] = int(annotation['category_id'])
                 annotations.append(annotation)
     data['annotations'] = annotations
 
@@ -146,6 +151,8 @@ def main(args):
                     category = record_to_dict(record, 'category_id')
                     # Remove nan fields: val == val is always true unless val is NaN
                     category = {key: val for key, val in category.items() if val == val}
+                    # pandas may have converted id to float (if any NaN in column)
+                    category['id'] = int(category['id'])
                     categories.append(category)
         data['categories'] = categories
 
