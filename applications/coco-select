@@ -9,6 +9,7 @@ import math
 import sys
 import time
 from collections import namedtuple
+import numpy as np
 from abyss_deep_learning.datasets.coco_utilities import coco_is_valid
 
 import pandas as pd
@@ -101,6 +102,8 @@ def main(args):
 
     if not df_categories.empty and not df_annotations.empty:
         df = pd.merge(left=df_images, right=df_annotations, on='image_id', how='left')
+        if 'category_id' not in df.keys():
+            df = df.assign(category_id=np.nan)
         df = pd.merge(left=df, right=df_categories, on='category_id', how='left')
     else:
         df = df_images
