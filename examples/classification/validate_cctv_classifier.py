@@ -23,7 +23,7 @@ from callbacks import SaveModelCallback, PrecisionRecallF1Callback, TrainValTens
 from utils import to_multihot
 from translators import MultipleTranslators, HotTranslator
 from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard
-from utils import to_multihot, multihot_gen, compute_class_weights
+from utils import multihot_gen, compute_class_weights
 
 import keras.backend as K
 
@@ -56,6 +56,21 @@ def main(args):
 
     dataset = ImageClassificationDataset(args.coco_path, translator=caption_translator)
     num_classes = len(set(caption_map.values()))  # Get num classes from caption map
+
+    ####################################################################################
+    #################### Following code needed to manage new cudnn error ###############
+    ####################################################################################
+
+    import tensorflow as tf
+    from keras.backend.tensorflow_backend import set_session
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True  # dynamically grow the memory used on the GPU
+    config.log_device_placement = True  # to log device placement (on which device the operation ran)
+                                        # (nothing gets printed in Jupyter, only if you run it standalone)
+    sess = tf.Session(config=config)
+    set_session(sess)  # set this TensorFlow session as the default session for Keras
+
+    ####################################################################################
 
 
     classifier = ImageClassifier.load(os.path.join(args.logdir, 'models', 'model_%d.h5'%args.checkpoint))
