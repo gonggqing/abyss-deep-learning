@@ -53,7 +53,7 @@ def get_args():
     parser.add_argument("--val-coco-path", type=str, help="Path to the validation coco dataset")
     parser.add_argument("--scratch-dir", type=str, default="scratch/", help="Where to save models, logs, etc.")
     parser.add_argument("--category-map", type=str, help="Path to the category map")
-    parser.add_argument("--image-shape", type=str, default="320,240,3", help="Image shape")
+    parser.add_argument("--image-shape", type=str, default="240,320,3", help="Image shape")
     parser.add_argument("--batch-size", type=int, default=2, help="Image shape")
     parser.add_argument("--epochs", type=int, default=2, help="Image shape")
     parser.add_argument("--lr", type=float, default=1e-4, help="Sets the learning rate of the optimizer")

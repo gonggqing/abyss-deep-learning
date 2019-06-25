@@ -49,7 +49,7 @@ def get_args():
     parser.add_argument("--val-coco-path", type=str, help="Path to the validation coco dataset")
     parser.add_argument("--scratch-dir", type=str, default="scratch/", help="Where to save models, logs, etc.")
     parser.add_argument("--caption-map", type=str, help="Path to the caption map")
-    parser.add_argument("--image-shape", type=str, default="320,240,3", help="Image shape")
+    parser.add_argument("--image-shape", type=str, default="240,320,3", help="Image shape")
     parser.add_argument("--batch-size", type=int, default=2, help="Batch-size, per GPU.")
     parser.add_argument("--epochs", type=int, default=2, help="The maximum number of epochs to train the network for.")
     parser.add_argument("--lr", type=float, default=1e-4, help="Sets the learning rate of the optimizer")
@@ -71,6 +71,13 @@ def get_args():
     return args
 
 def main(args):
+    # limit the process GPU usage, if required
+    import tensorflow as tf
+    from keras.backend.tensorflow_backend import set_session
+    config = tf.ConfigProto()
+    config.gpu_options.per_process_gpu_memory_fraction = args.gpu_fraction
+    set_session(tf.Session(config=config))
+
     # Set up logging and scratch directories
     os.makedirs(args.scratch_dir, exist_ok=True)
     model_dir = os.path.join(args.scratch_dir, 'models')
@@ -85,6 +92,7 @@ def main(args):
     translator = MultipleTranslators([caption_translator, hot_translator])  # Apply multiple translators
     image_shape = [int(x) for x in args.image_shape.split(',')]
 
+    # load in the training and validation datasets
     train_dataset = ImageClassificationDataset(args.coco_path, translator=caption_translator, use_captions=True)
     train_gen = train_dataset.generator(endless=True, shuffle_ids=True)
     if args.val_coco_path:
@@ -121,12 +129,6 @@ def main(args):
         return (batching_gen(lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes),func=enforce_one_vs_all),
                              batch_size=batch_size))
 
-    # limit the process GPU usage. Useful for
-    import tensorflow as tf
-    from keras.backend.tensorflow_backend import set_session
-    config = tf.ConfigProto()
-    config.gpu_options.per_process_gpu_memory_fraction = args.gpu_fraction
-    set_session(tf.Session(config=config))
     # create classifier model
     if args.resume_from_ckpt:
         classifier = ImageClassifier.load(args.resume_from_ckpt)
@@ -144,25 +146,23 @@ def main(args):
             init_lr=args.lr,
             trainable=True,
             loss=args.loss,
-            metrics=['accuracy'],
+            metrics=['accuracy', 'mae'],
             gpus=args.gpus
         )
-
     classifier.dump_args(os.path.join(args.scratch_dir, model_dir, 'params.json'))
 
-    ## callbacks
+    ## callbacks to assist with training
     train_steps = np.floor(len(train_dataset) / args.batch_size)
     val_steps = np.floor(len(val_dataset) / args.batch_size) if val_dataset is not None else None
-    #train_steps = 10
-    #val_steps = 10
+    train_steps = 10
+    val_steps = 10
 
     callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=1),  # A callback to save the model and its definition
                  ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
                                      write_images=False, write_grads=False, num_classes=num_classes, pr_curve=False,
                                      val_generator=pipeline(val_gen, num_classes=num_classes,
                                                             batch_size=args.batch_size * args.gpus) if val_gen else None,
-                                     val_steps=val_steps,
-                                     tfpn=False),
+                                     val_steps=val_steps, tfpn=True),
                  ReduceLROnPlateau(monitor='val_loss', factor=0.3,
                                    patience=5, min_lr=1e-8),
                  TerminateOnNaN()
@@ -172,7 +172,7 @@ def main(args):
                                        verbose=1, mode='auto', baseline=None, restore_best_weights=True))
 
 
-
+    # get class weights and train
     class_weights = compute_class_weights(train_dataset)
     print("Using class weights: ", class_weights)
     classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes,
