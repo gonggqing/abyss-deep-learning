@@ -11,7 +11,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.validation import check_is_fitted
 import os
 import json
-from keras.utils.training_utils import multi_gpu_model
+from keras.utils import multi_gpu_model
 
 
 from abyss_deep_learning.utils import cat_to_onehot, warn_on_call
@@ -231,12 +231,14 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
             input_shape=self.input_shape,
             pooling=self.pooling)
 
+        import tensorflow as tf
         if self.backbone == 'xception':
-            model = Xception(
-                include_top=config['include_top'],
-                weights=config['weights'],
-                input_shape=config['input_shape'],
-                pooling=config['pooling'])
+          with tf.device('/cpu:0'):
+                model = Xception(
+                        include_top=config['include_top'],
+                        weights=config['weights'],
+                        input_shape=config['input_shape'],
+                        pooling=config['pooling'])
         else:
             raise ValueError(
                 "ImageClassifier::__init__(): Invalid backbone '{}'".format(self.backbone))
@@ -323,8 +325,8 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
                 if self.loss is None:
                     raise ValueError(
                         "ImageClassifier::fit(): Trying to compile a model without a loss function.")
-                if self.gpus and self.gpus >= 2:
-                    self.model_ = multi_gpu_model(self.model_, self.gpus)
+                if self.gpus and self.gpus > 1:
+                     self.model_ = multi_gpu_model(self.model_, self.gpus)
                 self.model_.compile('nadam', loss=self.loss, metrics=self.metrics)
                 self.set_lr(self.init_lr)
             else:
