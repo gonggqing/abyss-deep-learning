@@ -233,7 +233,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
 
         import tensorflow as tf
         if self.backbone == 'xception':
-          with tf.device('/cpu:0'):
+#          with tf.device('/cpu:0'):
                 model = Xception(
                         include_top=config['include_top'],
                         weights=config['weights'],

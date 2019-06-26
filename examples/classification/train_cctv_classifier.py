@@ -72,11 +72,11 @@ def get_args():
 
 def main(args):
     # limit the process GPU usage, if required
-    import tensorflow as tf
-    from keras.backend.tensorflow_backend import set_session
-    config = tf.ConfigProto()
-    config.gpu_options.per_process_gpu_memory_fraction = args.gpu_fraction
-    set_session(tf.Session(config=config))
+    #import tensorflow as tf
+    #from keras.backend.tensorflow_backend import set_session
+    #config = tf.ConfigProto()
+    #config.gpu_options.per_process_gpu_memory_fraction = args.gpu_fraction
+    #set_session(tf.Session(config=config))
 
     # Set up logging and scratch directories
     os.makedirs(args.scratch_dir, exist_ok=True)
@@ -128,6 +128,12 @@ def main(args):
         """
         return (batching_gen(lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes),func=enforce_one_vs_all),
                              batch_size=batch_size))
+ 
+    import tensorflow as tf
+    from keras.backend.tensorflow_backend import set_session
+    config = tf.ConfigProto()
+    config.gpu_options.per_process_gpu_memory_fraction = args.gpu_fraction
+    set_session(tf.Session(config=config))
 
     # create classifier model
     if args.resume_from_ckpt:
@@ -146,7 +152,7 @@ def main(args):
             init_lr=args.lr,
             trainable=True,
             loss=args.loss,
-            metrics=['accuracy', 'mae'],
+            metrics=['accuracy'],
             gpus=args.gpus
         )
     classifier.dump_args(os.path.join(args.scratch_dir, model_dir, 'params.json'))
@@ -154,10 +160,10 @@ def main(args):
     ## callbacks to assist with training
     train_steps = np.floor(len(train_dataset) / args.batch_size)
     val_steps = np.floor(len(val_dataset) / args.batch_size) if val_dataset is not None else None
-    train_steps = 10
-    val_steps = 10
+    #train_steps = 10
+    #val_steps = 10
 
-    callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=1),  # A callback to save the model and its definition
+    callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=5),  # A callback to save the model and its definition
                  ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
                                      write_images=False, write_grads=False, num_classes=num_classes, pr_curve=False,
                                      val_generator=pipeline(val_gen, num_classes=num_classes,
