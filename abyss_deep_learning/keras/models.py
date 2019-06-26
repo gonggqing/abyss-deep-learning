@@ -31,7 +31,7 @@ class ModelPersistence:
 
         self.model_.save_weights(filepath)
         with h5py.File(filepath, 'a') as f:
-            topology = f.create_dataset("topology", data=self.model_.to_json())
+            topology = f.create_dataset("topology", data=self.save_model_.to_json())
             topology.attrs['format'] = 'json'
             parameters = f.create_dataset("parameters", data=dumps(self.get_params()))
             parameters.attrs['format'] = 'json'
@@ -39,7 +39,7 @@ class ModelPersistence:
         # also explicitly save the model definition
         (dirname, filename) = os.path.split(filepath)
         with open(os.path.join(dirname, "model-definition.json"), 'w') as f:
-            f.write(self.model_.to_json())
+            f.write(self.save_model_.to_json())
 
     def load(self, filepath):
         raise NotImplementedError("ModelPersistence::load has not been overridden for this class.")
@@ -325,6 +325,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
                 if self.loss is None:
                     raise ValueError(
                         "ImageClassifier::fit(): Trying to compile a model without a loss function.")
+                self.save_model_= self.model_
                 if self.gpus and self.gpus > 1:
                      self.model_ = multi_gpu_model(self.model_, self.gpus)
                 self.model_.compile('nadam', loss=self.loss, metrics=self.metrics)
