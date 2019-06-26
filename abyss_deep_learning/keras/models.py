@@ -29,7 +29,7 @@ class ModelPersistence:
         from json import dumps
         import h5py
 
-        self.model_.save_weights(filepath)
+        self.save_model_.save_weights(filepath)
         with h5py.File(filepath, 'a') as f:
             topology = f.create_dataset("topology", data=self.save_model_.to_json())
             topology.attrs['format'] = 'json'
