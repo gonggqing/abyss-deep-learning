@@ -152,10 +152,10 @@ def main(args):
             init_lr=args.lr,
             trainable=True,
             loss=args.loss,
-            metrics=['accuracy'],
+            metrics=['accuracy','mae'],
             gpus=args.gpus
         )
-    classifier.dump_args(os.path.join(args.scratch_dir, model_dir, 'params.json'))
+    classifier.dump_args(os.path.join(model_dir, 'params.json'))
 
     ## callbacks to assist with training
     train_steps = np.floor(len(train_dataset) / args.batch_size)
