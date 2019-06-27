@@ -148,14 +148,20 @@ def main(args):
             trainable=True,
             loss=args.loss,
             metrics=['accuracy'],
-            gpus=args.gpus
+            gpus=args.gpus,
+            l12_reg=(None, 0.01)
         )
     classifier.dump_args(os.path.join(args.scratch_dir, 'params.json'))
+
+    train_steps = np.floor(len(train_dataset) / args.batch_size)
+    train_steps = 10
+    val_steps = int(np.floor(len(val_dataset) / args.batch_size)) if val_dataset is not None else None
+    val_steps = 10
 
     ## callbacks
     callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=args.save_model_interval),  # A callback to save the model
                 ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
-                                    write_grads=True, num_classes=num_classes, pr_curve=True, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if val_gen else None, val_steps=len(val_dataset) if val_gen else None, tfpn=True),
+                                    write_grads=True, num_classes=num_classes, pr_curve=True, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if val_gen else None, val_steps=val_steps, tfpn=True),
                 ReduceLROnPlateau(monitor='val_loss', factor=0.2,
                                   patience=5, min_lr=1e-8),
                 EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=6, verbose=1, mode='auto',
@@ -164,8 +170,7 @@ def main(args):
                 ]
     # callbacks = None
 
-    train_steps = np.floor(len(train_dataset) / args.batch_size)
-    val_steps = int(np.floor(len(val_dataset) / args.batch_size)) if val_dataset is not None else None
+
     class_weights = train_dataset.class_weights
     print("Using class weights: ", class_weights)
 

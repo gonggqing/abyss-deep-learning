@@ -12,7 +12,7 @@ from sklearn.utils.validation import check_is_fitted
 import os
 import json
 from keras.utils import multi_gpu_model
-
+import keras.regularizers
 
 from abyss_deep_learning.utils import cat_to_onehot, warn_on_call
 
@@ -110,7 +110,8 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
                  backbone='xception', output_activation='softmax',
                  input_shape=(299, 299, 3), pooling='avg', classes=2,
                  init_weights='imagenet', init_epoch=0, init_lr=1e-3,
-                 trainable=True, loss='categorical_crossentropy', metrics=None, gpus=None):
+                 trainable=True, loss='categorical_crossentropy', metrics=None, gpus=None,
+                 l12_reg=(None,None)):
         """Summary
 
         Args:
@@ -137,6 +138,9 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         self.init_epoch = init_epoch
         self.metrics = metrics
         self.gpus = gpus
+
+        # For adding regularisation
+        self.l12_reg = l12_reg
 
     def dump_args(self, json_path):
         """
@@ -176,6 +180,36 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
             params['metrics'] = None
 
         json.dump(params, open(json_path, 'w'), indent=4, sort_keys=True)
+
+
+    def add_regularisation(self, l1=None, l2=None):
+        """
+        Add regularisation to the Convolution layers
+        Args:
+            l1: (float) - the l1 penalty to apply
+            l2: (float) - the l2 penalty to apply
+
+        Returns:
+            None
+        """
+        # Iterate through the layers of the model
+        for layer in self.model_.layers:
+            # Only add it to the conv layers. This will include separable convs as well
+            if "conv" in layer.name:
+                # Add l1 and l2 regularisation
+                if l1 and l2:
+                    w_reg = keras.regularizers.l1_l2(l1=l1, l2=l2)
+                # Add l1 regularisation
+                elif l1 and not l2:
+                    w_reg = keras.regularizers.l1(l1)
+                # Add l2 regularisation
+                elif l2 and not l1:
+                    w_reg = keras.regularizers.l2(l2)
+                else:
+                    w_reg = None
+                # Set the regularisation
+                if w_reg:
+                    layer.W_regularizer = w_reg
 
 
     def set_weights(self, weights):
@@ -253,6 +287,8 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         self.set_trainable(self.trainable)
         if self.init_weights != 'imagenet':
             self.set_weights(self.init_weights)
+        if self.l12_reg:
+            self.add_regularisation(self.l12_reg[0], self.l12_reg[1])
 
     def set_lr(self, lr):
         """Sets the model learning rate.
