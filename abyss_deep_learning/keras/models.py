@@ -265,9 +265,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
             input_shape=self.input_shape,
             pooling=self.pooling)
 
-        import tensorflow as tf
         if self.backbone == 'xception':
-#          with tf.device('/cpu:0'):
                 model = Xception(
                         include_top=config['include_top'],
                         weights=config['weights'],

@@ -204,7 +204,6 @@ def main(args):
 
     train_steps = np.floor(len(train_dataset) / args.batch_size)
     val_steps = int(np.floor(len(val_dataset) / args.batch_size)) if val_dataset is not None else None
-
     # ------------------------------
     # Configure the validation data
     # ------------------------------
@@ -222,7 +221,7 @@ def main(args):
     # ------------------
     callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=args.save_model_interval),  # A callback to save the model
                 ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
-                                    write_grads=True, num_classes=num_classes, pr_curve=True, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps, tfpn=True),
+                                    write_grads=True, num_classes=num_classes, pr_curve=True, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
                 ReduceLROnPlateau(monitor='val_loss', factor=0.2,
                                   patience=5, min_lr=1e-8),
                 EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=15, verbose=1, mode='auto',
