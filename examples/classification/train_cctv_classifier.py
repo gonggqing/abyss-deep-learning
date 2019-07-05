@@ -54,7 +54,8 @@ def get_args():
     """)
     parser.add_argument("coco_path", type=str, help="Path to the coco dataset")
     parser.add_argument("--val-coco-path", type=str, help="Path to the validation coco dataset")
-    parser.add_argument("--cache-val", action="store_true", help="Whether to cache the validation dataset. Results in major speedup after initial data load.")
+    parser.add_argument("--cache-val", action="store_true",
+                        help="Whether to cache the validation dataset. Results in major speedup after initial data load.")
     parser.add_argument("--scratch-dir", type=str, help="The scratch directory for this experiment.")
     parser.add_argument("--category-map", type=str, help="Path to the category map")
     parser.add_argument("--image-shape", type=str, default="240,320,3", help="Image shape")
@@ -62,20 +63,32 @@ def get_args():
     parser.add_argument("--epochs", type=int, default=2, help="Image shape")
     parser.add_argument("--lr", type=float, default=1e-4, help="Sets the initial learning rate of the optimiser.")
     parser.add_argument("--save-model-interval", type=int, default=1, help="How often to save the model")
-    parser.add_argument("--load-params-json", type=str, help="Use the params.json file to initialise the model. Using this ignores the command line arguments.")
-    parser.add_argument("--backbone", type=str, default="xception", help="The backbone to use, options are \{xception\}")
-    parser.add_argument("--output-activation", type=str, default="softmax", help="The output activation to use. Options are \{softmax,sigmoid\}")
-    parser.add_argument("--pooling", type=str, default="avg", help="The pooling to use after the convolution layers. Options are \{avg,max\}")
-    parser.add_argument("--loss", type=str, default="categorical_crossentropy", help="The loss function to use. Options are \{categorical_crossentropy,binary_crossentropy\}")
-    parser.add_argument("--l12-regularisation", type=str, default="None,None", help="Whether to add l1 l2 regularisation to the convolutional layers of the model. Format (l1,l2), if absent leave as None. For example (None,0.01) to just add l2 regularisation ")
-    parser.add_argument("--resume-from-ckpt", type=str, help="Resume the model from the given .h5 checkpoint, as saved by the ImageClassifier.save function. This loads in all weights and parameters from the previous training.")
-    parser.add_argument("--weights", type=str, default='imagenet', help="Path to the weights to load into this model. Re-initalises all the checkpoints etc. Default is 'imagenet' which loads the 'imagenet' trained weights")
-    parser.add_argument("--gpu-fraction", type=float, default=0.8, help="Limit the amount of GPU usage tensorflow uses. Defaults to 0.8")
+    parser.add_argument("--load-params-json", type=str,
+                        help="Use the params.json file to initialise the model. Using this ignores the command line arguments.")
+    parser.add_argument("--backbone", type=str, default="xception",
+                        help="The backbone to use, options are \{xception\}")
+    parser.add_argument("--output-activation", type=str, default="softmax",
+                        help="The output activation to use. Options are \{softmax,sigmoid\}")
+    parser.add_argument("--pooling", type=str, default="avg",
+                        help="The pooling to use after the convolution layers. Options are \{avg,max\}")
+    parser.add_argument("--loss", type=str, default="categorical_crossentropy",
+                        help="The loss function to use. Options are \{categorical_crossentropy,binary_crossentropy\}")
+    parser.add_argument("--l12-regularisation", type=str, default="None,None",
+                        help="Whether to add l1 l2 regularisation to the convolutional layers of the model. Format (l1,l2), if absent leave as None. For example (None,0.01) to just add l2 regularisation ")
+    parser.add_argument("--resume-from-ckpt", type=str,
+                        help="Resume the model from the given .h5 checkpoint, as saved by the ImageClassifier.save function. This loads in all weights and parameters from the previous training.")
+    parser.add_argument("--weights", type=str, default='imagenet',
+                        help="Path to the weights to load into this model. Re-initalises all the checkpoints etc. Default is 'imagenet' which loads the 'imagenet' trained weights")
+    parser.add_argument("--gpu-fraction", type=float, default=0.8,
+                        help="Limit the amount of GPU usage tensorflow uses. Defaults to 0.8")
     parser.add_argument("--workers", type=int, default=1, help="Number of workers to use")
     parser.add_argument("--gpus", type=int, default=1, help="The number of GPUs to use")
     parser.add_argument("--trains-project", type=str, help="The project to use for the TRAINS server")
     parser.add_argument("--no-trains", action="store_false", help="Turn off experiment tracking with trains")
-    parser.add_argument("--early-stopping-patience", type=int, default=None, help="The patience in number of epochs for network loss to improved before early-stoppping of training.")
+    parser.add_argument("--early-stopping-patience", type=int, default=None,
+                        help="The patience in number of epochs for network loss to improved before early-stopping of training.")
+    parser.add_argument("--class-weights", type=str, default=None,
+                    help="Class weights as a list, (e.g., 1,10,12 for three weighted classes), or for optimal class-weights, set to 1.")
     args = parser.parse_args()
     return args
 
@@ -235,11 +248,13 @@ def main(args):
     # ----------------------------
     # Train
     # ----------------------------
+    if args.class_weights == 1:
+        args.class_weights = train_dataset.class_weights
+    elif args.class_weights:
+        args.class_weights = { i : args.class_weights[i] for i in range(0, len(args.class_weights) ) } # convert list to class_weight dict.
+    print("Using class weights: ", args.class_weights)
 
-    class_weights = train_dataset.class_weights
-    print("Using class weights: ", class_weights)
-
-    classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size),  # The generator wrapped in the pipline loads x,y
+    classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size),
                              steps_per_epoch=train_steps,
                              validation_data=val_data,
                              validation_steps=val_steps,
@@ -248,7 +263,8 @@ def main(args):
                              shuffle=True,
                              callbacks=callbacks,
                              use_multiprocessing=True,
-                             workers=args.workers)
+                             workers=args.workers,
+                             class_weight=args.class_weights)
 
 
 if __name__ == "__main__":
