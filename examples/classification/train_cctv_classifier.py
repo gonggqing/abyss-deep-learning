@@ -60,7 +60,7 @@ def get_args():
     parser.add_argument("--image-shape", type=str, default="240,320,3", help="Image shape")
     parser.add_argument("--batch-size", type=int, default=2, help="Image shape")
     parser.add_argument("--epochs", type=int, default=2, help="Image shape")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Sets the learning rate of the optimizer")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Sets the initial learning rate of the optimiser.")
     parser.add_argument("--save-model-interval", type=int, default=1, help="How often to save the model")
     parser.add_argument("--load-params-json", type=str, help="Use the params.json file to initialise the model. Using this ignores the command line arguments.")
     parser.add_argument("--backbone", type=str, default="xception", help="The backbone to use, options are \{xception\}")
@@ -75,6 +75,7 @@ def get_args():
     parser.add_argument("--gpus", type=int, default=1, help="The number of GPUs to use")
     parser.add_argument("--trains-project", type=str, help="The project to use for the TRAINS server")
     parser.add_argument("--no-trains", action="store_false", help="Turn off experiment tracking with trains")
+    parser.add_argument("--early-stopping-patience", type=int, default=None, help="The patience in number of epochs for network loss to improved before early-stoppping of training.")
     args = parser.parse_args()
     return args
 
@@ -224,11 +225,10 @@ def main(args):
                                     write_grads=True, num_classes=num_classes, pr_curve=True, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
                 ReduceLROnPlateau(monitor='val_loss', factor=0.2,
                                   patience=5, min_lr=1e-8),
-                EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=15, verbose=1, mode='auto',
-                                              baseline=None, restore_best_weights=True),
                 TerminateOnNaN()
                 ]
-
+    if args.early_stopping_patience:
+        callbacks.append(EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=args.early_stopping_patience, verbose=1, mode='auto', baseline=None, restore_best_weights=True))
     if task:
         callbacks.append(TrainsCallback(logger=task.get_logger()))
 
