@@ -7,6 +7,7 @@ from itertools import cycle
 from skimage.color import rgb2gray
 import keras.backend as K
 from abyss_deep_learning.utils import tile_gen, detile
+from keras.preprocessing.image import ImageDataGenerator
 
 ######### Model utilities #########
 
@@ -206,6 +207,9 @@ def batching_gen(gen, batch_size=1):
             if len(batches[0]) >= batch_size:
                 yield tuple(np.array(item) for item in batches)
                 batches = [[] for i in range(num_items)]
+            if len(batches[0]) == batch_size:
+                print(batches)
+                print(type(batches))
 
 def gen_dump_data(gen, num_images):
     data = [[], []]
@@ -263,3 +267,26 @@ def calc_class_weights(data, caption_type='single'):
     class_weights = np.max(class_weights) / class_weights
     class_weights = dict(zip(sorted(counts.keys()), class_weights.tolist()))
     return class_weights
+
+def image_augmentation_generator(gen, batch_size=1, horizontal_flip=False, vertical_flip=False):
+        '''
+        Generate batches of tensor image data with real-time data augmentation, using keras preprocessing.
+        see: https://keras.io/preprocessing/image/
+
+        Read an unbatched generator and batch it to the given size.
+        Args:
+            horizontal_flip: Boolean. Randomly flip inputs horizontally.
+            vertical_flip: Boolean. Randomly flip inputs vertically.
+        :return: Generate batches of tensor image data, with labels
+        '''
+        img_aug = ImageDataGenerator(featurewise_center=False, samplewise_center=False,
+                           featurewise_std_normalization=False,
+                           samplewise_std_normalization=False, zca_whitening=False,
+                           zca_epsilon=1e-06, rotation_range=0, width_shift_range=0.0,
+                           height_shift_range=0.0, brightness_range=None, shear_range=0.0,
+                           zoom_range=0.0, channel_shift_range=0.0, fill_mode='nearest',
+                           cval=0.0, horizontal_flip=horizontal_flip, vertical_flip=vertical_flip, rescale=None,
+                           preprocessing_function=None, data_format=None,
+                           validation_split=0.0, dtype=None)
+        for inputs, targets in gen:
+            yield img_aug.flow(inputs, targets, batch_size=batch_size)

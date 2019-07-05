@@ -8,6 +8,7 @@ from skimage.transform import resize
 import matplotlib.pyplot as plt
 import numpy as np
 from keras.applications.xception import preprocess_input
+from keras.preprocessing.image import ImageDataGenerator
 #import keras.callbacks
 from keras.callbacks import TensorBoard, ReduceLROnPlateau, EarlyStopping, Callback, TerminateOnNaN
 import tensorflow as tf
@@ -16,7 +17,7 @@ from abyss_deep_learning.datasets.coco import ImageClassificationDataset
 from abyss_deep_learning.datasets.translators import  AbyssCaptionTranslator, CaptionMapTranslator, AnnotationTranslator, CategoryTranslator
 from abyss_deep_learning.keras.classification import caption_map_gen, onehot_gen
 from abyss_deep_learning.keras.models import ImageClassifier, loadImageClassifierByDict
-from abyss_deep_learning.keras.utils import lambda_gen, batching_gen, gen_dump_data
+from abyss_deep_learning.keras.utils import lambda_gen, batching_gen, gen_dump_data, image_augmentation_generator
 
 from callbacks import SaveModelCallback, PrecisionRecallF1Callback, TrainValTensorBoard, TrainsCallback
 from utils import to_multihot, multihot_gen, compute_class_weights
@@ -166,7 +167,7 @@ def main(args):
         image = resize(image, image_shape, preserve_range=True)
         return preprocess_input(image.astype(NN_DTYPE)), caption
 
-    def pipeline(gen, num_classes, batch_size):
+    def pipeline(gen, num_classes, batch_size, do_image_aug=False):
         """
         A sequence of generators that perform operations on the data
         Args:
@@ -177,10 +178,20 @@ def main(args):
         Returns:
 
         """
-        return (batching_gen(lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes), func=enforce_one_vs_all),
-                             batch_size=batch_size))
+        if do_image_aug:
+            return (image_augmentation_generator(
+                lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes),
+                           func=enforce_one_vs_all),
+                batch_size=batch_size))
+        else:
+            return (batching_gen(
+                lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes),
+                            func=enforce_one_vs_all),
+                 batch_size=batch_size))
 
-    # limit the process GPU usage. Without this, can get CUDNN_STATUS_INTERNAL_ERROR
+
+
+       # limit the process GPU usage. Without this, can get CUDNN_STATUS_INTERNAL_ERROR
     import tensorflow as tf
     from keras.backend.tensorflow_backend import set_session
     config = tf.ConfigProto()
