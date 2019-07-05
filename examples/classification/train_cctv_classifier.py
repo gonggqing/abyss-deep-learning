@@ -165,9 +165,18 @@ def main(args):
 
         """
         image = resize(image, image_shape, preserve_range=True)
+
+        #temp: randomly flip image horizontal::
+        if np.random.rand() > 0.5 :
+            image = image[:, ::-1, :]
+        #temp: randomly flip image verticle:
+        if np.random.rand() > 0.7 :
+            image = image[::-1, :, :]
+
+
         return preprocess_input(image.astype(NN_DTYPE)), caption
 
-    def pipeline(gen, num_classes, batch_size, do_image_aug=False):
+    def pipeline(gen, num_classes, batch_size, do_data_aug=False):
         """
         A sequence of generators that perform operations on the data
         Args:
@@ -178,17 +187,15 @@ def main(args):
         Returns:
 
         """
-        if do_image_aug:
-            return (image_augmentation_generator(
-                lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes),
-                           func=enforce_one_vs_all),
-                batch_size=batch_size))
-        else:
-            return (batching_gen(
-                lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes),
-                            func=enforce_one_vs_all),
-                 batch_size=batch_size))
+        data_aug = ImageDataGenerator(horizontal_flip=False)
 
+        if do_data_aug:
+            return (data_aug.flow(
+                *lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes),  func=enforce_one_vs_all),
+                    batch_size=batch_size))
+        else:
+            return (batching_gen(lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes), func=enforce_one_vs_all),
+                             batch_size=batch_size))
 
 
        # limit the process GPU usage. Without this, can get CUDNN_STATUS_INTERNAL_ERROR
@@ -265,7 +272,7 @@ def main(args):
         args.class_weights = { i : args.class_weights[i] for i in range(0, len(args.class_weights) ) } # convert list to class_weight dict.
     print("Using class weights: ", args.class_weights)
 
-    classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size),
+    classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size, do_data_aug=False),
                              steps_per_epoch=train_steps,
                              validation_data=val_data,
                              validation_steps=val_steps,
