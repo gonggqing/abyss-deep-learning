@@ -270,7 +270,7 @@ def main(args):
         args.class_weights = train_dataset.class_weights
     elif args.class_weights:
         args.class_weights = args.class_weights.split(",")
-        args.class_weights = { i : args.class_weights[i] for i in range(0, len(args.class_weights) ) } # convert list to class_weight dict.
+        args.class_weights = { i : float(args.class_weights[i]) for i in range(0, len(args.class_weights) ) } # convert list to class_weight dict.
     print("Using class weights: ", args.class_weights)
 
     classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size, do_data_aug=False),
