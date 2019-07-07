@@ -269,6 +269,7 @@ def main(args):
     if args.class_weights == 1:
         args.class_weights = train_dataset.class_weights
     elif args.class_weights:
+        args.class_weights = args.class_weights.split(",")
         args.class_weights = { i : args.class_weights[i] for i in range(0, len(args.class_weights) ) } # convert list to class_weight dict.
     print("Using class weights: ", args.class_weights)
 
