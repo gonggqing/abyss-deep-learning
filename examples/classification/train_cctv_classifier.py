@@ -235,7 +235,6 @@ def main(args):
     # --------------------------------------
 
     train_steps = np.floor(len(train_dataset) / args.batch_size)
-    train_steps=10
     val_steps = int(np.floor(len(val_dataset) / args.batch_size)) if val_dataset is not None else None
     # ------------------------------
     # Configure the validation data
@@ -254,9 +253,9 @@ def main(args):
     # ------------------
     do_embeddings = True
     if do_embeddings:
-        embeddings_data = gen_dump_data(gen=pipeline(val_gen, num_classes=num_classes, batch_size=1), num_images=10) # dump some images for the embeddings
-        print(embeddings_data[1].squeeze())
-        produce_embeddings_tsv(os.path.join(args.scratch_dir,'embeddings_labels.tsv'), headers=['No-fault','Fault'],labels=embeddings_data[1].squeeze())
+        assert(not args.gpus > 1, 'Due to a bug, if calcualting embeddings, only 1 gpu can be used')
+        embeddings_data = gen_dump_data(gen=pipeline(val_gen, num_classes=num_classes, batch_size=1), num_images=1000)  #dump some images for the embeddings
+        produce_embeddings_tsv(os.path.join(log_dir, 'metadata.tsv'), headers=['No-fault','Fault'], labels=embeddings_data[1].squeeze())
 
     callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=args.save_model_interval),  # A callback to save the model
                 ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True, embeddings_freq=1, embeddings_metadata=os.path.join(args.scratch_dir,'metadata.tsv'), embeddings_data=embeddings_data[0].squeeze(), embeddings_layer_names=['global_average_pooling2d_1'], write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
