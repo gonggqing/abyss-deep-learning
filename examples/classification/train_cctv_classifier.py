@@ -17,12 +17,12 @@ from abyss_deep_learning.datasets.coco import ImageClassificationDataset
 from abyss_deep_learning.datasets.translators import  AbyssCaptionTranslator, CaptionMapTranslator, AnnotationTranslator, CategoryTranslator
 from abyss_deep_learning.keras.classification import caption_map_gen, onehot_gen
 from abyss_deep_learning.keras.models import ImageClassifier, loadImageClassifierByDict
-from abyss_deep_learning.keras.utils import lambda_gen, batching_gen, gen_dump_data, image_augmentation_generator
+from abyss_deep_learning.keras.utils import lambda_gen, batching_gen, gen_dump_data, head_gen 
 
 from callbacks import SaveModelCallback, PrecisionRecallF1Callback, TrainValTensorBoard, TrainsCallback
 from utils import to_multihot, multihot_gen, compute_class_weights
 from translators import MultipleTranslators, HotTranslator
-from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard
+from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard, produce_embeddings_tsv
 
 import trains
 from trains import Task
@@ -235,6 +235,7 @@ def main(args):
     # --------------------------------------
 
     train_steps = np.floor(len(train_dataset) / args.batch_size)
+    train_steps=10
     val_steps = int(np.floor(len(val_dataset) / args.batch_size)) if val_dataset is not None else None
     # ------------------------------
     # Configure the validation data
@@ -251,9 +252,16 @@ def main(args):
     # ------------------
     # Callbacks
     # ------------------
+    do_embeddings = True
+    if do_embeddings:
+        embeddings_data = gen_dump_data(gen=pipeline(val_gen, num_classes=num_classes, batch_size=1), num_images=10) # dump some images for the embeddings
+        print(embeddings_data[1].squeeze())
+        produce_embeddings_tsv(os.path.join(args.scratch_dir,'embeddings_labels.tsv'), headers=['No-fault','Fault'],labels=embeddings_data[1].squeeze())
+
     callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=args.save_model_interval),  # A callback to save the model
-                ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True,
-                                    write_grads=True, num_classes=num_classes, pr_curve=True, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
+                ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True, embeddings_freq=1, embeddings_metadata=os.path.join(args.scratch_dir,'metadata.tsv'), embeddings_data=embeddings_data[0].squeeze(), embeddings_layer_names=['global_average_pooling2d_1'], write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
+                #ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True, embeddings_freq=1, embeddings_metadata=os.path.join(args.scratch_dir,'metadata.tsv'), embeddings_data=embeddings_data[0], write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
+
                 ReduceLROnPlateau(monitor='val_loss', factor=0.2,
                                   patience=5, min_lr=1e-8),
                 TerminateOnNaN()
