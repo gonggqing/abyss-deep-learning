@@ -17,13 +17,13 @@ from abyss_deep_learning.datasets.coco import ImageClassificationDataset
 from abyss_deep_learning.datasets.translators import  AbyssCaptionTranslator, CaptionMapTranslator, AnnotationTranslator, CategoryTranslator
 from abyss_deep_learning.keras.classification import caption_map_gen, onehot_gen
 from abyss_deep_learning.keras.models import ImageClassifier, loadImageClassifierByDict
-from abyss_deep_learning.keras.utils import lambda_gen, batching_gen, gen_dump_data, head_gen 
+from abyss_deep_learning.keras.utils import lambda_gen, batching_gen, gen_dump_data, head_gen
 
 from callbacks import SaveModelCallback, PrecisionRecallF1Callback, TrainValTensorBoard, TrainsCallback
-from utils import to_multihot, multihot_gen, compute_class_weights
+from utils import to_multihot, multihot_gen, compute_class_weights, create_augmentation_configuration
 from translators import MultipleTranslators, HotTranslator
 from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard, produce_embeddings_tsv
-
+from abyss_deep_learning.keras.classification import augmentation_gen
 import trains
 from trains import Task
 
@@ -110,6 +110,7 @@ def main(args):
     model_dir = os.path.join(args.scratch_dir, 'models')
     os.makedirs(model_dir, exist_ok=True)
     log_dir = os.path.join(args.scratch_dir, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
 
 
     if not args.no_trains and not args.trains_project:
@@ -149,6 +150,23 @@ def main(args):
         val_gen = None
         val_dataset = None
 
+
+    # -----------------------------------
+    # Create Augmentation Configuration
+    # -----------------------------------
+    augmentation_cfg = create_augmentation_configuration(
+        some_of=None,  # Do all
+        flip_lr=True,
+        flip_ud=True,
+        gblur=None,
+        avgblur=None,
+        gnoise=(0,0.05*255),
+        scale=None,
+        rotate=None,
+        bright=(0.75,1.25),
+        colour_shift=(0.9,1.1)
+    )
+
     # -------------------------
     # Create data pipeline
     # -------------------------
@@ -165,15 +183,6 @@ def main(args):
 
         """
         image = resize(image, image_shape, preserve_range=True)
-
-        #temp: randomly flip image horizontal::
-        if np.random.rand() > 0.5 :
-            image = image[:, ::-1, :]
-        #temp: randomly flip image verticle:
-        if np.random.rand() > 0.7 :
-            image = image[::-1, :, :]
-
-
         return preprocess_input(image.astype(NN_DTYPE)), caption
 
     def pipeline(gen, num_classes, batch_size, do_data_aug=False):
@@ -187,15 +196,15 @@ def main(args):
         Returns:
 
         """
-        data_aug = ImageDataGenerator(horizontal_flip=False)
 
-        if do_data_aug:
-            return (data_aug.flow(
-                *lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes),  func=enforce_one_vs_all),
+        return (batching_gen(
+                    augmentation_gen(
+                        lambda_gen(
+                            multihot_gen(
+                                lambda_gen(gen, func=preprocess), num_classes=num_classes),
+                            func=enforce_one_vs_all),
+                        aug_config=augmentation_cfg, enable=do_data_aug),
                     batch_size=batch_size))
-        else:
-            return (batching_gen(lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes), func=enforce_one_vs_all),
-                             batch_size=batch_size))
 
 
        # limit the process GPU usage. Without this, can get CUDNN_STATUS_INTERNAL_ERROR
@@ -220,7 +229,7 @@ def main(args):
             classes=num_classes,
             input_shape=tuple(image_shape),
             init_weights=args.weights,
-            init_epoch=9,
+            init_epoch=0,
             init_lr=args.lr,
             trainable=True,
             loss=args.loss,
