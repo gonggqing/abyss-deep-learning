@@ -159,7 +159,7 @@ def main(args):
         aug_config = ast.literal_eval(args.augmentation_configuration)
     else:
         aug_config = {
-            "some_of":None,  # Do all
+            "some_of":None,  # Do all (None=do all, 1=do one augmentation)
             "flip_lr":True,  # Flip 50% of the time
             "flip_ud":True,  # Flip 50% of the time
             "gblur":None,  # No Gaussian Blur
@@ -167,8 +167,8 @@ def main(args):
             "gnoise":(0,0.05*255),  # Add a bit of Gaussian noise
             "scale":None,  # Don't scale
             "rotate":None,  # Don't rotate
-            "bright":(0.75,1.25),  # Darken/Brighten
-            "colour_shift":(0.9,1.1)  # Colour shift
+            "bright":(0.75,1.25),  # Darken/Brighten (as ratio)
+            "colour_shift":(0.9,1.1)  # Colour shift (as ratio)
         }
     augmentation_cfg = create_augmentation_configuration(**aug_config)
 

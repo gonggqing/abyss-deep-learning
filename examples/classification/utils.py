@@ -47,7 +47,7 @@ def compute_class_weights(dataset):
     return dataset.stats['class_weights'].update((x,y/min_val) for x,y in dataset.stats['class_weights'].items())
 
 
-def create_augmentation_configuration(some_of=2, flip_lr=True, flip_ud=True, gblur=None, avgblur=None, gnoise=None, scale=None, rotate=None, bright=None, colour_shift=None):
+def create_augmentation_configuration(some_of=None, flip_lr=True, flip_ud=True, gblur=None, avgblur=None, gnoise=None, scale=None, rotate=None, bright=None, colour_shift=None):
         """
         More info at https://imgaug.readthedocs.io/en/latest/source/augmenters.html
         Args:
