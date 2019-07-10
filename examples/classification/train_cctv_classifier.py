@@ -255,7 +255,7 @@ def main(args):
     # ------------------------------
 
     # Set the validation pipeline - shouldn't have image augmentation
-    val_pipeline = pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size) if val_gen else None
+    val_pipeline = pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size, do_data_aug=False) if val_gen else None
     # If the
     if args.cache_val and val_gen:
         val_data = gen_dump_data(gen=val_pipeline, num_images=len(val_dataset))
@@ -294,7 +294,7 @@ def main(args):
         args.class_weights = { i : float(args.class_weights[i]) for i in range(0, len(args.class_weights) ) } # convert list to class_weight dict.
     print("Using class weights: ", args.class_weights)
 
-    classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size, do_data_aug=False),
+    classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size, do_data_aug=True),
                              steps_per_epoch=train_steps,
                              validation_data=val_data,
                              validation_steps=val_steps,
