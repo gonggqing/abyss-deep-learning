@@ -63,6 +63,7 @@ def get_args():
     parser.add_argument("--batch-size", type=int, default=2, help="Image shape")
     parser.add_argument("--epochs", type=int, default=2, help="Image shape")
     parser.add_argument("--lr", type=float, default=1e-4, help="Sets the initial learning rate of the optimiser.")
+    parser.add_argument("--augmentation-configuration", type=str, help="The augmentation configuration as args to examples/classification/utils/create_augmentation_configuration  . E.g. {\"some_of\": None, \"bright\": (0.75,1.1)} to use brightness augmentation")
     parser.add_argument("--save-model-interval", type=int, default=1, help="How often to save the model")
     parser.add_argument("--load-params-json", type=str,
                         help="Use the params.json file to initialise the model. Using this ignores the command line arguments.")
@@ -154,18 +155,22 @@ def main(args):
     # -----------------------------------
     # Create Augmentation Configuration
     # -----------------------------------
-    augmentation_cfg = create_augmentation_configuration(
-        some_of=None,  # Do all
-        flip_lr=True,
-        flip_ud=True,
-        gblur=None,
-        avgblur=None,
-        gnoise=(0,0.05*255),
-        scale=None,
-        rotate=None,
-        bright=(0.75,1.25),
-        colour_shift=(0.9,1.1)
-    )
+    if args.augmentation_configuration:
+        aug_config = ast.literal_eval(args.augmentation_configuration)
+    else:
+        aug_config = {
+            "some_of":None,  # Do all
+            "flip_lr":True,  # Flip 50% of the time
+            "flip_ud":True,  # Flip 50% of the time
+            "gblur":None,  # No Gaussian Blur
+            "avgblur":None,  # No Average Blur
+            "gnoise":(0,0.05*255),  # Add a bit of Gaussian noise
+            "scale":None,  # Don't scale
+            "rotate":None,  # Don't rotate
+            "bright":(0.75,1.25),  # Darken/Brighten
+            "colour_shift":(0.9,1.1)  # Colour shift
+        }
+    augmentation_cfg = create_augmentation_configuration(**aug_config)
 
     # -------------------------
     # Create data pipeline
