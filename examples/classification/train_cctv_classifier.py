@@ -224,6 +224,7 @@ def main(args):
     # -------------------------
     if args.resume_from_ckpt:
         classifier = ImageClassifier.load(args.resume_from_ckpt)
+        classifier.set_lr(args.lr) # update learning rate
     elif args.load_params_json:
         classifier = loadImageClassifierByDict(args.load_params_json)
     else:
@@ -265,7 +266,7 @@ def main(args):
     # ------------------
     # Callbacks
     # ------------------
-    do_embeddings = True
+    do_embeddings = True 
     if do_embeddings:
         assert(not args.gpus > 1, 'Due to a bug, if calcualting embeddings, only 1 gpu can be used')
         embeddings_data = gen_dump_data(gen=pipeline(val_gen, num_classes=149, batch_size=1), num_images=3000)  #dump some images for the embeddingsi
@@ -274,9 +275,9 @@ def main(args):
 
     callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=args.save_model_interval),  # A callback to save the model
                 ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True, embeddings_freq=3, embeddings_metadata=os.path.join(args.scratch_dir,'metadata.tsv'), embeddings_data=embeddings_data[0].squeeze(), embeddings_layer_names=['global_average_pooling2d_1'], write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
-                #ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True, embeddings_freq=1, embeddings_metadata=os.path.join(args.scratch_dir,'metadata.tsv'), embeddings_data=embeddings_data[0], write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
-                #ReduceLROnPlateau(monitor='val_loss', factor=0.2,
-                #                  patience=5, min_lr=1e-8),
+                #ImprovedTensorBoard(log_dir=log_dir, histogram_freq=3, batch_size=args.batch_size, write_graph=True, write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
+                ReduceLROnPlateau(monitor='val_loss', factor=0.5,
+                                  patience=10, min_lr=1e-8),
                 TerminateOnNaN()
                 ]
     if args.early_stopping_patience:
