@@ -13,7 +13,7 @@ import numpy as np
 import skimage
 from PIL import Image
 
-from abyss_deep_learning.utils import imread, polygon_to_bbox, polygon_to_mask
+from abyss_deep_learning.utils import imread, polygon_to_bbox, polygon_to_mask, polygon_to_mini_mask
 from abyss_deep_learning.datasets.coco_utilities import coco_from_images, template_info, template_license
 
 __author__ = 'Kent Hu, and Jeff Mohammed'
@@ -49,17 +49,9 @@ def main(args: argparse.Namespace):
                         level=args.verbose)
     logging.info('--verbose enabled')
 
-    # Empty file check
-    buffer = sys.stdin.read().strip()
-    with open(args.mask_file) as f:
-        mask_buffer = f.read().strip()
+    if args.tolerance is not None:
+        from simplification.cutil import simplify_coords
 
-    if not buffer:
-        logging.CRITICAL("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
-        sys.exit(1)
-    if not mask_buffer:
-        logging.CRITICAL("Expecting input from mask_file: received empty characters {}".format(repr(buffer)))
-        sys.exit(1)
 
     if args.image_list:
         width = None
@@ -67,14 +59,29 @@ def main(args: argparse.Namespace):
         if args.image_size is not None:
             width, height = args.image_size.split(',')
 
-        image_list = buffer.splitlines()
-        mask_list = mask_buffer.splitlines()
+        image_list = list()
+        for line in sys.stdin:
+            image_list.append(line.strip())
+        if len(image_list ) == 0:
+            logging.critical("Expecting input from stdin: received empty characters")
+            sys.exit(1)
+
+        mask_list = list()
+        with open(args.mask_file) as f:
+            for line in f:
+                mask_list.append(line.strip())
+
+        if len(image_list) != len(mask_list):
+            logging.critical("Expecting input from mask list to match input image list")
+            sys.exit(1)
+
         image_json = coco_from_images(image_list, width, height)
         # don't need to read width/height use values from image_json
         mask_json = coco_from_images(mask_list, -1, -1)
     else:
-        image_json = json.loads(buffer)
-        mask_json = json.loads(mask_buffer)
+        image_json = json.loads(sys.stdin)
+        with open(args.mask_file) as f:
+            mask_json = json.loads(f)
 
     categories = None
     if args.categories is not None:
@@ -199,6 +206,7 @@ def main(args: argparse.Namespace):
             category_contours.append(found_contours)
             category_ids.append(int(args.category_id))
         original_mask = padded_mask[padding:-padding, padding:-padding]
+
         if args.save_per_image:
             coco_json['images'] = []
             original_entry.update({'id': 0})
@@ -210,14 +218,30 @@ def main(args: argparse.Namespace):
             logging.info("{} contours in category {}".format(len(contours), category_id))
             contours = np.subtract(contours, 1)
             for contour in contours:
-                contour = skimage.measure.approximate_polygon(contour, args.tolerance)
+                if args.tolerance is not None:
+                    # slow
+                    # contour = skimage.measure.approximate_polygon(contour, args.tolerance)
+                    contour = simplify_coords(contour, args.tolerance)
                 contour[contour < 0] = 0
+
+                if len(contour) == 0:
+                    logging.critical('error')
+                    sys.exit(1)
+
                 polygon = np.flip(contour, axis=1).ravel().tolist()
-                grid = polygon_to_mask(polygon)
-                rr, cc = [i.astype(dtype=np.uint16) for i in skimage.draw.polygon(contour[:, 0], contour[:, 1], shape=shape)]
-                r, c = [i.astype(dtype=np.uint16) for i in skimage.draw.polygon_perimeter(contour[:, 0], contour[:, 1], shape=shape)]
+                grid = polygon_to_mini_mask(polygon)
                 area = np.count_nonzero(grid)
-                score = 0 if is_hole(contour) else original_mask[np.hstack([rr, r]), np.hstack([cc, c])].sum() / area
+
+                if is_hole(contour):
+                    score = 0
+                else:
+                    if args.category_id == 'from-mask':
+                        score = area
+                    else:
+                        rr, cc = [i.astype(dtype=np.uint16) for i in skimage.draw.polygon(contour[:, 0], contour[:, 1], shape=shape)]
+                        r, c = [i.astype(dtype=np.uint16) for i in skimage.draw.polygon_perimeter(contour[:, 0], contour[:, 1], shape=shape)]
+                        score = original_mask[np.hstack([rr, r]), np.hstack([cc, c])].sum() / area
+
                 coco_json['annotations'].append({
                     "id": len(coco_json['annotations']),
                     "image_id": original_entry['id'],
@@ -411,7 +435,7 @@ def get_args() -> argparse.Namespace:
                         help="The lower score to threshold the image by, default: %(default)s")
     parser.add_argument('-u', '--up-thresh', '--upper-threshold', type=float, default=1.0,
                         help="The upper score to threshold the image by, default: %(default)s")
-    parser.add_argument('-t', '--tolerance', '--polygon-tolerance', type=float, default=0.0,
+    parser.add_argument('-t', '--tolerance', '--polygon-tolerance', type=float, default=None,
                         help="Threshold tolerance for polygon precision (see skimage.metrics.approximate_polygon(), default: %(default)s")
     parser.add_argument('--connect-holes', action='store_true',
                         help="Connect holes in a segmentation so that they are drawn as background in annotation tool.")

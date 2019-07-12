@@ -17,13 +17,13 @@ from abyss_deep_learning.datasets.coco import ImageClassificationDataset
 from abyss_deep_learning.datasets.translators import  AbyssCaptionTranslator, CaptionMapTranslator, AnnotationTranslator, CategoryTranslator
 from abyss_deep_learning.keras.classification import caption_map_gen, onehot_gen
 from abyss_deep_learning.keras.models import ImageClassifier, loadImageClassifierByDict
-from abyss_deep_learning.keras.utils import lambda_gen, batching_gen, gen_dump_data, head_gen 
+from abyss_deep_learning.keras.utils import lambda_gen, batching_gen, gen_dump_data, head_gen
 
 from callbacks import SaveModelCallback, PrecisionRecallF1Callback, TrainValTensorBoard, TrainsCallback
-from utils import to_multihot, multihot_gen, compute_class_weights
+from utils import to_multihot, multihot_gen, compute_class_weights, create_augmentation_configuration
 from translators import MultipleTranslators, HotTranslator
 from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard, produce_embeddings_tsv
-
+from abyss_deep_learning.keras.classification import augmentation_gen
 import trains
 from trains import Task
 
@@ -63,6 +63,7 @@ def get_args():
     parser.add_argument("--batch-size", type=int, default=2, help="Image shape")
     parser.add_argument("--epochs", type=int, default=2, help="Image shape")
     parser.add_argument("--lr", type=float, default=1e-4, help="Sets the initial learning rate of the optimiser.")
+    parser.add_argument("--augmentation-configuration", type=str, help="The augmentation configuration as args to examples/classification/utils/create_augmentation_configuration  . E.g. {\"some_of\": None, \"bright\": (0.75,1.1)} to use brightness augmentation")
     parser.add_argument("--save-model-interval", type=int, default=1, help="How often to save the model")
     parser.add_argument("--load-params-json", type=str,
                         help="Use the params.json file to initialise the model. Using this ignores the command line arguments.")
@@ -110,6 +111,7 @@ def main(args):
     model_dir = os.path.join(args.scratch_dir, 'models')
     os.makedirs(model_dir, exist_ok=True)
     log_dir = os.path.join(args.scratch_dir, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
 
 
     if not args.no_trains and not args.trains_project:
@@ -149,6 +151,27 @@ def main(args):
         val_gen = None
         val_dataset = None
 
+
+    # -----------------------------------
+    # Create Augmentation Configuration
+    # -----------------------------------
+    if args.augmentation_configuration:
+        aug_config = ast.literal_eval(args.augmentation_configuration)
+    else:
+        aug_config = {
+            "some_of":None,  # Do all (None=do all, 1=do one augmentation)
+            "flip_lr":True,  # Flip 50% of the time
+            "flip_ud":True,  # Flip 50% of the time
+            "gblur":None,  # No Gaussian Blur
+            "avgblur":None,  # No Average Blur
+            "gnoise":(0,0.05*255),  # Add a bit of Gaussian noise
+            "scale":None,  # Don't scale
+            "rotate":None,  # Don't rotate
+            "bright":(0.75,1.25),  # Darken/Brighten (as ratio)
+            "colour_shift":(0.9,1.1)  # Colour shift (as ratio)
+        }
+    augmentation_cfg = create_augmentation_configuration(**aug_config)
+
     # -------------------------
     # Create data pipeline
     # -------------------------
@@ -165,15 +188,6 @@ def main(args):
 
         """
         image = resize(image, image_shape, preserve_range=True)
-
-        #temp: randomly flip image horizontal::
-        if np.random.rand() > 0.5 :
-            image = image[:, ::-1, :]
-        #temp: randomly flip image verticle:
-        if np.random.rand() > 0.7 :
-            image = image[::-1, :, :]
-
-
         return preprocess_input(image.astype(NN_DTYPE)), caption
 
     def pipeline(gen, num_classes, batch_size, do_data_aug=False):
@@ -187,15 +201,15 @@ def main(args):
         Returns:
 
         """
-        data_aug = ImageDataGenerator(horizontal_flip=False)
 
-        if do_data_aug:
-            return (data_aug.flow(
-                *lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes),  func=enforce_one_vs_all),
+        return (batching_gen(
+                    augmentation_gen(
+                        lambda_gen(
+                            multihot_gen(
+                                lambda_gen(gen, func=preprocess), num_classes=num_classes),
+                            func=enforce_one_vs_all),
+                        aug_config=augmentation_cfg, enable=do_data_aug),
                     batch_size=batch_size))
-        else:
-            return (batching_gen(lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes), func=enforce_one_vs_all),
-                             batch_size=batch_size))
 
 
        # limit the process GPU usage. Without this, can get CUDNN_STATUS_INTERNAL_ERROR
@@ -210,6 +224,7 @@ def main(args):
     # -------------------------
     if args.resume_from_ckpt:
         classifier = ImageClassifier.load(args.resume_from_ckpt)
+        classifier.set_lr(args.lr) # update learning rate
     elif args.load_params_json:
         classifier = loadImageClassifierByDict(args.load_params_json)
     else:
@@ -235,14 +250,13 @@ def main(args):
     # --------------------------------------
 
     train_steps = np.floor(len(train_dataset) / args.batch_size)
-    train_steps=10
     val_steps = int(np.floor(len(val_dataset) / args.batch_size)) if val_dataset is not None else None
     # ------------------------------
     # Configure the validation data
     # ------------------------------
 
     # Set the validation pipeline - shouldn't have image augmentation
-    val_pipeline = pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size) if val_gen else None
+    val_pipeline = pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size, do_data_aug=False) if val_gen else None
     # If the
     if args.cache_val and val_gen:
         val_data = gen_dump_data(gen=val_pipeline, num_images=len(val_dataset))
@@ -252,18 +266,18 @@ def main(args):
     # ------------------
     # Callbacks
     # ------------------
-    do_embeddings = True
+    do_embeddings = True 
     if do_embeddings:
-        embeddings_data = gen_dump_data(gen=pipeline(val_gen, num_classes=num_classes, batch_size=1), num_images=10) # dump some images for the embeddings
+        assert(not args.gpus > 1, 'Due to a bug, if calcualting embeddings, only 1 gpu can be used')
+        embeddings_data = gen_dump_data(gen=pipeline(val_gen, num_classes=149, batch_size=1), num_images=3000)  #dump some images for the embeddingsi
         print(embeddings_data[1].squeeze())
-        produce_embeddings_tsv(os.path.join(args.scratch_dir,'embeddings_labels.tsv'), headers=['No-fault','Fault'],labels=embeddings_data[1].squeeze())
+        produce_embeddings_tsv(os.path.join(log_dir, 'metadata.tsv'), headers=[str(i) for i in np.arange(0,149)], labels=embeddings_data[1].squeeze())
 
     callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=args.save_model_interval),  # A callback to save the model
-                ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True, embeddings_freq=1, embeddings_metadata=os.path.join(args.scratch_dir,'metadata.tsv'), embeddings_data=embeddings_data[0].squeeze(), embeddings_layer_names=['global_average_pooling2d_1'], write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
-                #ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True, embeddings_freq=1, embeddings_metadata=os.path.join(args.scratch_dir,'metadata.tsv'), embeddings_data=embeddings_data[0], write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
-
-                ReduceLROnPlateau(monitor='val_loss', factor=0.2,
-                                  patience=5, min_lr=1e-8),
+                ImprovedTensorBoard(log_dir=log_dir, batch_size=args.batch_size, write_graph=True, embeddings_freq=5, embeddings_metadata=os.path.join(args.scratch_dir,'metadata.tsv'), embeddings_data=embeddings_data[0].squeeze(), embeddings_layer_names=['global_average_pooling2d_1'], num_classes=num_classes, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
+                #ImprovedTensorBoard(log_dir=log_dir, histogram_freq=3, batch_size=args.batch_size, write_graph=True, write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
+                ReduceLROnPlateau(monitor='val_loss', factor=0.5,
+                                  patience=10, min_lr=1e-8),
                 TerminateOnNaN()
                 ]
     if args.early_stopping_patience:
@@ -281,7 +295,7 @@ def main(args):
         args.class_weights = { i : float(args.class_weights[i]) for i in range(0, len(args.class_weights) ) } # convert list to class_weight dict.
     print("Using class weights: ", args.class_weights)
 
-    classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size, do_data_aug=False),
+    classifier.fit_generator(generator=pipeline(train_gen, num_classes=num_classes, batch_size=args.batch_size, do_data_aug=True),
                              steps_per_epoch=train_steps,
                              validation_data=val_data,
                              validation_steps=val_steps,
