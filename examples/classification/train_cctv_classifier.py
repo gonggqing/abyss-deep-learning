@@ -167,8 +167,8 @@ def main(args):
             "gblur":None,  # No Gaussian Blur
             "avgblur":None,  # No Average Blur
             "gnoise":(0,0.05*255),  # Add a bit of Gaussian noise
-            "scale":None,  # Don't scale
-            "rotate":None,  # Don't rotate
+            "scale":(0.8, 1.2),  # Don't scale
+            "rotate":(-22.5, 22.5),  # Don't rotate
             "bright":(0.75,1.25),  # Darken/Brighten (as ratio)
             "colour_shift":(0.9,1.1)  # Colour shift (as ratio)
         }
