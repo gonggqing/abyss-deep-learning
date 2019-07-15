@@ -363,7 +363,10 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
                 self.save_model_= self.model_
                 if self.gpus and self.gpus > 1:
                      self.model_ = multi_gpu_model(self.model_, self.gpus)
-                self.model_.compile(self.optimiser, loss=self.loss, metrics=self.metrics)
+                from keras import optimizers
+                print("WARNING: SGD is HARDCODED IN KERAS/MODELS.PY. THIS NEEDS TO BE PROPERLY IMPLETMENTED!!!!!!")
+                self.model_.compile(optimizers.SGD(lr=0.0001, momentum=0.9), loss=self.loss, metrics=self.metrics)
+
                 self.set_lr(self.init_lr)
             else:
                 warnings.warn(
