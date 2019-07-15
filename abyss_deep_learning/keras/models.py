@@ -107,7 +107,6 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
     """
 
     def __init__(self,
-<<<<<<< HEAD
                  backbone='xception',
                  output_activation='softmax',
                  input_shape=(299, 299, 3),
@@ -122,13 +121,6 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
                  metrics=None,
                  gpus=None,
                  l12_reg=(None,None)):
-=======
-                 backbone='xception', output_activation='softmax',
-                 input_shape=(299, 299, 3), pooling='avg', classes=2,
-                 init_weights='imagenet', init_epoch=0, init_lr=1e-3,
-                 trainable=True, loss='categorical_crossentropy', metrics=None, gpus=None,
-                 l12_reg=(None,None), optimiser='nadam'):
->>>>>>> 4e790cc05bd0120ea7f4ef004b9821a7216d16a6
         """Summary
 
         Args:
@@ -141,7 +133,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
             init_epoch (int, optional): The starting epoch for training.
             init_lr (float, optional): The initial learning rate.
             trainable (bool, dict, list, optional): Whether to set layers to trainable. Bool to set the entire network to trainable/not. Dict mapping each layer to its trainable state. List of bools mapping the layer sequence to the trainable state.
-            optimizer (str, optional): The optimizer to use. Can either be a string and one of {'adam', 'nadam', 'sgd'}.
+            optimizer (str, optional): The optimizer to use. Can either be a string and one of {'adam', 'nadam', 'sgd'}, or a keras optimizer.
             loss (str, optional): The loss function to use. Can also pass in custom losses as function handles.
             metrics (list, optional): The list of metrics to use.
             gpus (int, optional): The number of GPUs to use.
@@ -159,11 +151,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         self.init_epoch = init_epoch
         self.metrics = metrics
         self.gpus = gpus
-<<<<<<< HEAD
         self.optimizer = optimizer
-=======
-        self.optimiser = optimiser
->>>>>>> 4e790cc05bd0120ea7f4ef004b9821a7216d16a6
 
         # For adding regularisation
         self.l12_reg = l12_reg
@@ -388,10 +376,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
                 self.save_model_= self.model_
                 if self.gpus and self.gpus > 1:
                      self.model_ = multi_gpu_model(self.model_, self.gpus)
-                from keras import optimizers
-                print("WARNING: SGD is HARDCODED IN KERAS/MODELS.PY. THIS NEEDS TO BE PROPERLY IMPLETMENTED!!!!!!")
-                self.model_.compile(optimizers.SGD(lr=0.0001, momentum=0.9), loss=self.loss, metrics=self.metrics)
-
+                self.model_.compile(self.optimizer, loss=self.loss, metrics=self.metrics)
                 self.set_lr(self.init_lr)
             else:
                 warnings.warn(
