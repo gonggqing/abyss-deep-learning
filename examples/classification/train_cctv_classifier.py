@@ -84,7 +84,7 @@ def get_args():
     parser.add_argument("--gpu-fraction", type=float, default=0.8,
                         help="Limit the amount of GPU usage tensorflow uses. Defaults to 0.8")
     parser.add_argument("--workers", type=int, default=1, help="Number of workers to use")
-    parser.add_argument("--gpus", type=int, default=1, help="The number of GPUs to use")
+    parser.add_argument("--gpus", type=int, default=1, help="The number of GPUs to use. To select a specific GPU use CUDA_VISIBLE_DEVICES environment variable, e.g. CUDA_VISIBLE_DEVICES=0 python3 train_cctv_classifier.py ...")
     parser.add_argument("--trains-project", type=str, help="The project to use for the TRAINS server")
     parser.add_argument("--no-trains", action="store_false", help="Turn off experiment tracking with trains")
     parser.add_argument("--early-stopping-patience", type=int, default=None,

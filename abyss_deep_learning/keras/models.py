@@ -107,24 +107,37 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
     """
 
     def __init__(self,
-                 backbone='xception', output_activation='softmax',
-                 input_shape=(299, 299, 3), pooling='avg', classes=2,
-                 init_weights='imagenet', init_epoch=0, init_lr=1e-3,
-                 trainable=True, loss='categorical_crossentropy', metrics=None, gpus=None,
+                 backbone='xception',
+                 output_activation='softmax',
+                 input_shape=(299, 299, 3),
+                 pooling='avg',
+                 classes=2,
+                 init_weights='imagenet',
+                 init_epoch=0,
+                 init_lr=1e-3,
+                 trainable=True,
+                 optimizer='adam',
+                 loss='categorical_crossentropy',
+                 metrics=None,
+                 gpus=None,
                  l12_reg=(None,None)):
         """Summary
 
         Args:
-            backbone (string): One of {'xception'}. More to come as needed.
-            output_activation (str, optional): Description
-            input_shape (tuple, optional): Description
-            pooling (str, optional): Description
-            classes (int, optional): Description
-            init_weights (str, optional): Description
-            init_epoch (int, optional): Description
-            init_lr (float, optional): Description
-            trainable (bool, optional): Description
-            loss (str, optional): Description
+            backbone (string): One of {'xception'}.
+            output_activation (str, optional): The activation to use on the final layer.
+            input_shape (tuple, optional): The input image shape in (Width,Height,Channels)
+            pooling (str, optional): The pooling to use. One of {'avg','max'}
+            classes (int, optional): The number of classes
+            init_weights (str, optional): The weights used to initialise the network. Options are {'imagenet','/path/to/weights.h5'}
+            init_epoch (int, optional): The starting epoch for training.
+            init_lr (float, optional): The initial learning rate.
+            trainable (bool, dict, list, optional): Whether to set layers to trainable. Bool to set the entire network to trainable/not. Dict mapping each layer to its trainable state. List of bools mapping the layer sequence to the trainable state.
+            optimizer (str, optional): The optimizer to use. Can either be a string and one of {'adam', 'nadam', 'sgd'}.
+            loss (str, optional): The loss function to use. Can also pass in custom losses as function handles.
+            metrics (list, optional): The list of metrics to use.
+            gpus (int, optional): The number of GPUs to use.
+            l12_reg (list, optional): The L1 and L2 regularisation to use. Defaults to None.
         """
         self.backbone = backbone
         self.loss = loss
@@ -138,6 +151,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         self.init_epoch = init_epoch
         self.metrics = metrics
         self.gpus = gpus
+        self.optimizer = optimizer
 
         # For adding regularisation
         self.l12_reg = l12_reg
