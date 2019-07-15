@@ -279,7 +279,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         # Add the classification head
         model = Model(
             model.inputs,
-            Dense(self.classes, activation=self.output_activation, name='class_logits')(model.outputs[0]))
+            Dense(self.classes, activation=self.output_activation, name='logits')(model.outputs[0]))
 
         self.model_ = model
         self.classes_ = np.arange(self.classes) # Sklearn API recomendation
