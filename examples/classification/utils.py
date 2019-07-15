@@ -77,9 +77,9 @@ def create_augmentation_configuration(some_of=None, flip_lr=True, flip_ud=True, 
         if gnoise:
             sometimes_list.append(iaa.AdditiveGaussianNoise(scale=gnoise))
         if scale:
-            sometimes_list.append(iaa.Affine(scale=scale))
+            sometimes_list.append(iaa.Affine(scale=scale, mode='constant', cval=0, order=0))
         if rotate:
-            sometimes_list.append(iaa.Affine(rotate=rotate))
+            sometimes_list.append(iaa.Affine(rotate=rotate, mode='constant', cval=0, order=0))
         if bright:
             sometimes_list.append(iaa.Multiply(bright))
         if colour_shift:

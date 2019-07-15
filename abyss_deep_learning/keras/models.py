@@ -107,6 +107,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
     """
 
     def __init__(self,
+<<<<<<< HEAD
                  backbone='xception',
                  output_activation='softmax',
                  input_shape=(299, 299, 3),
@@ -121,6 +122,13 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
                  metrics=None,
                  gpus=None,
                  l12_reg=(None,None)):
+=======
+                 backbone='xception', output_activation='softmax',
+                 input_shape=(299, 299, 3), pooling='avg', classes=2,
+                 init_weights='imagenet', init_epoch=0, init_lr=1e-3,
+                 trainable=True, loss='categorical_crossentropy', metrics=None, gpus=None,
+                 l12_reg=(None,None), optimiser='nadam'):
+>>>>>>> 4e790cc05bd0120ea7f4ef004b9821a7216d16a6
         """Summary
 
         Args:
@@ -151,7 +159,11 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         self.init_epoch = init_epoch
         self.metrics = metrics
         self.gpus = gpus
+<<<<<<< HEAD
         self.optimizer = optimizer
+=======
+        self.optimiser = optimiser
+>>>>>>> 4e790cc05bd0120ea7f4ef004b9821a7216d16a6
 
         # For adding regularisation
         self.l12_reg = l12_reg
@@ -292,7 +304,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         # Add the classification head
         model = Model(
             model.inputs,
-            Dense(self.classes, activation=self.output_activation, name='class_logits')(model.outputs[0]))
+            Dense(self.classes, activation=self.output_activation, name='logits')(model.outputs[0]))
 
         self.model_ = model
         self.classes_ = np.arange(self.classes) # Sklearn API recomendation
@@ -302,7 +314,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         if self.l12_reg:
             self.add_regularisation(self.l12_reg[0], self.l12_reg[1])
 
-    def set_lr(self, lr):
+    def  set_lr(self, lr):
         """Sets the model learning rate.
 
         Args:
@@ -376,7 +388,10 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
                 self.save_model_= self.model_
                 if self.gpus and self.gpus > 1:
                      self.model_ = multi_gpu_model(self.model_, self.gpus)
-                self.model_.compile('nadam', loss=self.loss, metrics=self.metrics)
+                from keras import optimizers
+                print("WARNING: SGD is HARDCODED IN KERAS/MODELS.PY. THIS NEEDS TO BE PROPERLY IMPLETMENTED!!!!!!")
+                self.model_.compile(optimizers.SGD(lr=0.0001, momentum=0.9), loss=self.loss, metrics=self.metrics)
+
                 self.set_lr(self.init_lr)
             else:
                 warnings.warn(

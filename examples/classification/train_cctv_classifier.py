@@ -91,6 +91,8 @@ def get_args():
                         help="The patience in number of epochs for network loss to improved before early-stopping of training.")
     parser.add_argument("--class-weights", type=str, default=None,
                     help="Class weights as a list, (e.g., 1,10,12 for three weighted classes), or for optimal class-weights, set to 1.")
+    parser.add_argument("--optimiser", type=str, default='nadam',
+                        help="Keras optimiser to use during network training. Options are \{SGD, RMSprop, adagrad, adadelta, adam, adamax, nadam\}")
     args = parser.parse_args()
     return args
 
@@ -165,8 +167,8 @@ def main(args):
             "gblur":None,  # No Gaussian Blur
             "avgblur":None,  # No Average Blur
             "gnoise":(0,0.05*255),  # Add a bit of Gaussian noise
-            "scale":None,  # Don't scale
-            "rotate":None,  # Don't rotate
+            "scale":(0.8, 1.2),  # Don't scale
+            "rotate":(-22.5, 22.5),  # Don't rotate
             "bright":(0.75,1.25),  # Darken/Brighten (as ratio)
             "colour_shift":(0.9,1.1)  # Colour shift (as ratio)
         }
@@ -224,9 +226,11 @@ def main(args):
     # -------------------------
     if args.resume_from_ckpt:
         classifier = ImageClassifier.load(args.resume_from_ckpt)
+        classifier.set_lr(args.lr) # update learning rate
     elif args.load_params_json:
         classifier = loadImageClassifierByDict(args.load_params_json)
     else:
+        from keras import optimizers
         classifier = ImageClassifier(
             backbone=args.backbone,
             output_activation=args.output_activation,
@@ -240,7 +244,8 @@ def main(args):
             loss=args.loss,
             metrics=['accuracy'],
             gpus=args.gpus,
-            l12_reg=l12_reg
+            l12_reg=l12_reg,
+            optimiser=args.optimiser
         )
     classifier.dump_args(os.path.join(args.scratch_dir, 'params.json'))
 
@@ -250,6 +255,8 @@ def main(args):
 
     train_steps = np.floor(len(train_dataset) / args.batch_size)
     val_steps = int(np.floor(len(val_dataset) / args.batch_size)) if val_dataset is not None else None
+    train_steps=250
+    val_steps=250
     # ------------------------------
     # Configure the validation data
     # ------------------------------
@@ -265,18 +272,18 @@ def main(args):
     # ------------------
     # Callbacks
     # ------------------
-    do_embeddings = True
+    do_embeddings = True 
     if do_embeddings:
         assert(not args.gpus > 1, 'Due to a bug, if calcualting embeddings, only 1 gpu can be used')
-        embeddings_data = gen_dump_data(gen=pipeline(val_gen, num_classes=149, batch_size=1), num_images=3000)  #dump some images for the embeddingsi
+        embeddings_data = gen_dump_data(gen=pipeline(val_gen, num_classes=149, batch_size=1), num_images=1000)  #dump some images for the embeddingsi
         print(embeddings_data[1].squeeze())
         produce_embeddings_tsv(os.path.join(log_dir, 'metadata.tsv'), headers=[str(i) for i in np.arange(0,149)], labels=embeddings_data[1].squeeze())
 
     callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=args.save_model_interval),  # A callback to save the model
-                ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True, embeddings_freq=3, embeddings_metadata=os.path.join(args.scratch_dir,'metadata.tsv'), embeddings_data=embeddings_data[0].squeeze(), embeddings_layer_names=['global_average_pooling2d_1'], write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
-                #ImprovedTensorBoard(log_dir=log_dir, histogram_freq=0, batch_size=args.batch_size, write_graph=True, embeddings_freq=1, embeddings_metadata=os.path.join(args.scratch_dir,'metadata.tsv'), embeddings_data=embeddings_data[0], write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
-                #ReduceLROnPlateau(monitor='val_loss', factor=0.2,
-                #                  patience=5, min_lr=1e-8),
+                ImprovedTensorBoard(log_dir=log_dir, batch_size=args.batch_size, write_graph=True, embeddings_freq=60, embeddings_metadata=os.path.join(args.scratch_dir,'metadata.tsv'), embeddings_data=embeddings_data[0].squeeze(), embeddings_layer_names=['global_average_pooling2d_1'], num_classes=num_classes, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
+                #ImprovedTensorBoard(log_dir=log_dir, histogram_freq=3, batch_size=args.batch_size, write_graph=True, write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
+                ReduceLROnPlateau(monitor='val_loss', factor=0.5,
+                                  patience=10, min_lr=1e-8),
                 TerminateOnNaN()
                 ]
     if args.early_stopping_patience:
