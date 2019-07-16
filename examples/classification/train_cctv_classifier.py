@@ -99,8 +99,8 @@ def get_args():
     parser.add_argument("--embeddings", action="store_true", help="Whether to do the embeddings")
     parser.add_argument("--embeddings-freq", type=int, default=1, help="How often to calculate the embeddings")
     parser.add_argument("--histogram-freq", type=int, default=1, help="The frequency at which to calculate histograms. Set to 0 to turn off. Will be set to 0 if not using --cache-val.")
-    parser.add_argument("--pr-curves", type=bool, default=True, help="Whether to calculate pr curves. Will be set to false if not using --cache-val.")
-    parser.add_argument("--tfpn", type=bool, default=True, help="Whether to calculate TFPN. Will be set to false if not using --cache-val.")
+    parser.add_argument("--pr-curves", action="store_true", help="Whether to calculate pr curves. Will be set to false if not using --cache-val.")
+    parser.add_argument("--tfpn", action="store_true", help="Whether to calculate TFPN. Will be set to false if not using --cache-val.")
     args = parser.parse_args()
     return args
 
