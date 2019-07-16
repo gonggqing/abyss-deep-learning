@@ -13,6 +13,7 @@ import os
 import json
 from keras.utils import multi_gpu_model
 import keras.regularizers
+import keras.optimizers
 
 from abyss_deep_learning.utils import cat_to_onehot, warn_on_call
 
@@ -117,6 +118,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
                  init_lr=1e-3,
                  trainable=True,
                  optimizer='adam',
+                 optimizer_args={},
                  loss='categorical_crossentropy',
                  metrics=None,
                  gpus=None,
@@ -133,7 +135,8 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
             init_epoch (int, optional): The starting epoch for training.
             init_lr (float, optional): The initial learning rate.
             trainable (bool, dict, list, optional): Whether to set layers to trainable. Bool to set the entire network to trainable/not. Dict mapping each layer to its trainable state. List of bools mapping the layer sequence to the trainable state.
-            optimizer (str, optional): The optimizer to use. Can either be a string and one of {'adam', 'nadam', 'sgd'}, or a keras optimizer.
+            optimizer (str, optional): The optimizer to use. Can either be a string and one of {'adam', 'nadam', 'sgd', 'adagrad, 'adadelta', 'adamax'}.
+            optimizer_args (dict, optional): The optimizer arguments to use.
             loss (str, optional): The loss function to use. Can also pass in custom losses as function handles.
             metrics (list, optional): The list of metrics to use.
             gpus (int, optional): The number of GPUs to use.
@@ -152,6 +155,7 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         self.metrics = metrics
         self.gpus = gpus
         self.optimizer = optimizer
+        self.optimizer_args = optimizer_args
 
         # For adding regularisation
         self.l12_reg = l12_reg
@@ -313,6 +317,27 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         self.lr = lr
         K.set_value(self.model_.optimizer.lr, lr)
 
+    def create_optimizer(self, optimizer, optimizer_args):
+        if 'lr' not in optimizer_args:
+            optimizer_args['lr'] = self.init_lr
+        if optimizer == 'adam':
+            opt = keras.optimizers.Adam(**optimizer_args)
+        elif optimizer == 'nadam':
+            opt = keras.optimizers.Nadam(**optimizer_args)
+        elif optimizer == 'sgd':
+            opt = keras.optimizers.SGD(**optimizer_args)
+        elif optimizer == 'rmsprop':
+            opt = keras.optimizers.RMSprop(**optimizer_args)
+        elif optimizer == 'adagrad':
+            opt = keras.optimizers.Adagrad(**optimizer_args)
+        elif optimizer == 'adadelta':
+            opt = keras.optimizers.Adadelta(**optimizer_args)
+        elif optimizer == 'adamax':
+            opt = keras.optimizers.Adamax(**optimizer_args)
+        else:
+            raise ValueError("Optimizer selection not valid")
+        return opt
+
     def set_trainable(self, trainable):
         """Freezes or unfreezes certain parts of the model.
 
@@ -375,8 +400,9 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
                         "ImageClassifier::fit(): Trying to compile a model without a loss function.")
                 self.save_model_= self.model_
                 if self.gpus and self.gpus > 1:
-                     self.model_ = multi_gpu_model(self.model_, self.gpus)
-                self.model_.compile(self.optimizer, loss=self.loss, metrics=self.metrics)
+                    self.model_ = multi_gpu_model(self.model_, self.gpus)
+                opt = self.create_optimizer(self.optimizer, self.optimizer_args)
+                self.model_.compile(opt, loss=self.loss, metrics=self.metrics)
                 self.set_lr(self.init_lr)
             else:
                 warnings.warn(

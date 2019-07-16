@@ -12,6 +12,7 @@ from keras.preprocessing.image import ImageDataGenerator
 #import keras.callbacks
 from keras.callbacks import TensorBoard, ReduceLROnPlateau, EarlyStopping, Callback, TerminateOnNaN
 import tensorflow as tf
+import keras.optimizers
 
 from abyss_deep_learning.datasets.coco import ImageClassificationDataset
 from abyss_deep_learning.datasets.translators import  AbyssCaptionTranslator, CaptionMapTranslator, AnnotationTranslator, CategoryTranslator
@@ -75,6 +76,8 @@ def get_args():
                         help="The pooling to use after the convolution layers. Options are \{avg,max\}")
     parser.add_argument("--loss", type=str, default="categorical_crossentropy",
                         help="The loss function to use. Options are \{categorical_crossentropy,binary_crossentropy\}")
+    parser.add_argument('--optimizer', type=str, default="adam", help="The optimizer to use. Options are {adam,nadam,sgd,rmsprop,adagrad,adadelta,adamax}")
+    parser.add_argument('--optimizer-args', type=str, default="{}", help="The arguments to configure the optimizer. LR is added from --lr argument. For example to add  momentum to SGD, optimizer_args could be {'momentum': 0.9}")
     parser.add_argument("--l12-regularisation", type=str, default="None,None",
                         help="Whether to add l1 l2 regularisation to the convolutional layers of the model. Format (l1,l2), if absent leave as None. For example (None,0.01) to just add l2 regularisation ")
     parser.add_argument("--resume-from-ckpt", type=str,
@@ -222,6 +225,13 @@ def main(args):
     set_session(tf.Session(config=config))
 
     # -------------------------
+    # Initialise Optimizer
+    # -------------------------
+    optimizer_args = ast.literal_eval(args.optimizer_args)
+    optimizer_args['lr'] = args.lr  # The init_lr argument to ImageClassifier is what actually sets the optimizer learning rate
+
+
+    # -------------------------
     # Create Classifier Model
     # -------------------------
     if args.resume_from_ckpt:
@@ -230,7 +240,6 @@ def main(args):
     elif args.load_params_json:
         classifier = loadImageClassifierByDict(args.load_params_json)
     else:
-        from keras import optimizers
         classifier = ImageClassifier(
             backbone=args.backbone,
             output_activation=args.output_activation,
@@ -241,11 +250,12 @@ def main(args):
             init_epoch=0,
             init_lr=args.lr,
             trainable=True,
+            optimizer=args.optimizer,
+            optimizer_args=optimizer_args,
             loss=args.loss,
             metrics=['accuracy'],
             gpus=args.gpus,
-            l12_reg=l12_reg,
-            optimiser=args.optimiser
+            l12_reg=l12_reg
         )
     classifier.dump_args(os.path.join(args.scratch_dir, 'params.json'))
 
