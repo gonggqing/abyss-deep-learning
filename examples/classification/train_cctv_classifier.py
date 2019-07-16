@@ -265,17 +265,19 @@ def main(args):
 
     train_steps = np.floor(len(train_dataset) / args.batch_size)
     val_steps = int(np.floor(len(val_dataset) / args.batch_size)) if val_dataset is not None else None
-    train_steps=250
-    val_steps=250
+    # val_steps = 100
+    # train_steps = 100
     # ------------------------------
     # Configure the validation data
     # ------------------------------
-
     # Set the validation pipeline - shouldn't have image augmentation
     val_pipeline = pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size, do_data_aug=False) if val_gen else None
     # If the
     if args.cache_val and val_gen:
-        val_data = gen_dump_data(gen=val_pipeline, num_images=len(val_dataset))
+        print("CACHING VAL")
+        def cache_pipeline(gen, num_classes):
+            return (lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes), func=enforce_one_vs_all))
+        val_data = gen_dump_data(gen=cache_pipeline(val_gen, num_classes), num_images=val_steps, verbose=True)
     else:
         val_data = val_pipeline
 

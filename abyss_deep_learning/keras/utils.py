@@ -211,13 +211,15 @@ def batching_gen(gen, batch_size=1):
                 print(batches)
                 print(type(batches))
 
-def gen_dump_data(gen, num_images):
+def gen_dump_data(gen, num_images, verbose=False):
     data = [[], []]
     for i, (image, caption) in enumerate(gen):
         if i >= num_images:
             break
         data[0].append(image)
         data[1].append(caption)
+        if verbose:
+            print("Caching %d/%d" %(i+1, num_images))
     data = (
         np.concatenate([i[np.newaxis, ...] for i in data[0]], axis=0),
         np.concatenate([np.asarray(i)[np.newaxis, ...] for i in data[1]], axis=0)
