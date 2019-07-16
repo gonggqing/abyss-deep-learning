@@ -64,6 +64,8 @@ def get_args():
     parser.add_argument("--batch-size", type=int, default=2, help="Image shape")
     parser.add_argument("--epochs", type=int, default=2, help="Image shape")
     parser.add_argument("--lr", type=float, default=1e-4, help="Sets the initial learning rate of the optimiser.")
+    parser.add_argument("--training-steps", type=int, help="The number of training steps. If not specified, defaults to length of the dataset")
+    parser.add_argument("--validation-steps", type=int, help="The number of validation steps. If not specified, defaults to length of the dataset")
     parser.add_argument("--augmentation-configuration", type=str, help="The augmentation configuration as args to examples/classification/utils/create_augmentation_configuration  . E.g. {\"some_of\": None, \"bright\": (0.75,1.1)} to use brightness augmentation")
     parser.add_argument("--save-model-interval", type=int, default=1, help="How often to save the model")
     parser.add_argument("--load-params-json", type=str,
@@ -147,7 +149,7 @@ def main(args):
 
     # ------------------------------
     # Read + initalise category map
-    # ------------------------------s
+    # ------------------------------
     raw_cat_map = json.load(open(args.category_map, 'r'))  # Load the caption map - caption_map should live on place on servers
     cat_map = {}
     for k,v in raw_cat_map.items():
@@ -278,11 +280,15 @@ def main(args):
     # --------------------------------------
     # Calculate number of steps (batches)
     # --------------------------------------
+    if args.training_steps:
+        train_steps = args.train_steps
+    else:
+        train_steps = np.floor(len(train_dataset) / args.batch_size)
+    if args.validation_steps:
+        val_steps = args.validation_steps
+    else:
+        val_steps = int(np.floor(len(val_dataset) / args.batch_size)) if val_dataset is not None else None
 
-    train_steps = np.floor(len(train_dataset) / args.batch_size)
-    val_steps = int(np.floor(len(val_dataset) / args.batch_size)) if val_dataset is not None else None
-    # val_steps = 100
-    # train_steps = 100
     # ------------------------------
     # Configure the validation data
     # ------------------------------
