@@ -94,11 +94,14 @@ def get_args():
                         help="The patience in number of epochs for network loss to improved before early-stopping of training.")
     parser.add_argument("--class-weights", type=str, default=None,
                     help="Class weights as a list, (e.g., 1,10,12 for three weighted classes), or for optimal class-weights, set to 1.")
+<<<<<<< HEAD
     parser.add_argument("--embeddings", action="store_true", help="Whether to do the embeddings")
     parser.add_argument("--embeddings-freq", type=int, default=1, help="How often to calculate the embeddings")
     parser.add_argument("--histogram-freq", type=int, default=1, help="The frequency at which to calculate histograms. Set to 0 to turn off. Will be set to 0 if not using --cache-val.")
     parser.add_argument("--pr-curves", type=bool, default=True, help="Whether to calculate pr curves. Will be set to false if not using --cache-val.")
     parser.add_argument("--tfpn", type=bool, default=True, help="Whether to calculate TFPN. Will be set to false if not using --cache-val.")
+=======
+>>>>>>> 8840699ca4cafe0a336d49ee99afc03d50b02d29
     args = parser.parse_args()
     return args
 
