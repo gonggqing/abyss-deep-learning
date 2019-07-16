@@ -281,7 +281,7 @@ def main(args):
     # Calculate number of steps (batches)
     # --------------------------------------
     if args.training_steps:
-        train_steps = args.train_steps
+        train_steps = args.training_steps
     else:
         train_steps = np.floor(len(train_dataset) / args.batch_size)
     if args.validation_steps:
