@@ -7,38 +7,11 @@ Examples in this directory are to do with training image classification networks
 
 This guide covers the following topics:
 
-    Data Loading: How to load in datasets in order to train the models.
-    Model Initialisation: How to initialise models.
-    Training: How to train the models.
-    Data Organisation
-    Additional Information: Extras that can help the training procedure.
-
-### Table of Contents
-
-    Table of Contents
-    Data Loading
-        Translating Annotations
-            Image Level Annotations in COCO datasets
-            Category/Caption Maps
-             Category/Caption Maps to alter annotations
-            Annotation Translators
-        Initialising the dataset
-        Loading Data from the Generators
-            Lambda Generators
-            Batching Generators
-            Multihot Generators
-    Model Initialisation
-    Training
-    Data Organisation
-        Scratch Directory
-        Naming of Experiments
-        Structure of Experiment Directory
-    Additional Information
-        Callbacks
-            ImprovedTensorBoard
-            Saving Models
-            Initialising the Optimizer
-            Image Augmentation
+- Data Loading: How to load in datasets in order to train the models.
+- Model Initialisation: How to initialise models.
+- Training: How to train the models.
+- Data Organisation
+- Additional Information: Extras that can help the training procedure.
 
 ### Data Loading
 
@@ -48,8 +21,8 @@ Image Level Annotations in COCO datasets
 
 For image classification datasets, image-level annotations are stored as:
 
-    Annotations with a category ID. Having multiple annotations associated with any single image indicates a multiclass dataset. COCO does not provide a use-case for whole image labels, so Abyss labels are stored as a bounding-box or polygon, with zero area (i.e., a (0,0,0,0) bounding box).
-    (deprecated) Annotations as a caption. In this case, the label of each annotation is stored as comma separated text in a caption annotation.
+- Annotations with a category ID. Having multiple annotations associated with any single image indicates a multiclass dataset. COCO does not provide a use-case for whole image labels, so Abyss labels are stored as a bounding-box or polygon, with zero area (i.e., a (0,0,0,0) bounding box).
+- (deprecated) Annotations as a caption. In this case, the label of each annotation is stored as comma separated text in a caption annotation.
 
 #### Category/Caption Maps
 
@@ -170,6 +143,8 @@ To create organize the data into batches, perform augmentation and translate lab
 The train dataset loads the data, but this needs to be operated on in order to make it usable by the models. These operations can include data augmentation, resizing, batching, conversion to multihot.
 
 The pipeline commonly used is:
+
+```python
 def pipeline(gen, num_classes, batch_size):
     """
     A sequence of generators that perform operations on the data
@@ -180,7 +155,8 @@ def pipeline(gen, num_classes, batch_size):
    Returns:
    """
    return (batching_gen(lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes), func=enforce_one_vs_all), batch_size=batch_size))
- 
+```
+
 To initialise the pipeline
 ```python
 generator = pipeline(train_dataset.generator(), num_classes=num_classes, batch_size=batch_size)
@@ -285,13 +261,15 @@ For example, for the Abyss Extract project, when training a fault-detection mode
 #### Naming of Experiments
 
 Experiment names should be ordered and informative. When creating a new experiment, the following naming convention should be used:
+```bash
 $ENUMERATION.$DATASET_INFO.$EXPERIMENT_INFO1.$EXPERIMENT_INFO2
+```
 
 Where:
 
-    ENUMERATION: The experiment number for this experiment type. In the directory, the folder names should start with 001,002,003 etc.
-    DATASET_INFO: The dataset used to train this model. For example 'pjm-swc'.
-    EXPERIMENT_INFO_N: Any other information about the experiment in shorthand. For example, lr5e-4, which would signify a particular learning rate
+- ENUMERATION: The experiment number for this experiment type. In the directory, the folder names should start with 001,002,003 etc.
+- DATASET_INFO: The dataset used to train this model. For example 'pjm-swc'.
+- EXPERIMENT_INFO_N: Any other information about the experiment in shorthand. For example, lr5e-4, which would signify a particular learning rate
 
 Structure of Experiment Directory
 
@@ -353,16 +331,18 @@ A custom save model callback is currently used, which uses the ImageClassifier.s
 The optimizer can be initialised from the command line using the --optimizer and --optimizer-args arguments. All the Keras Optimizers are supported. The --optimizer-args is used to further customise the optimizer, such as setting momentum, decay etc. The optimizer-args are a dictionary that has to match the arguments of the optimizer. You don't need to add the learning rate argument as that is added from the --lr argument.
 
 For example to initialise the SGD optimizer with momentum of 0.9:
+```bash
 python3 train_cctv_classifier.py \
     coco.json \
     --optimizer sgd \
     --optimizer-args {'momentum': 0.9}
 
+```
 
 #### Image Augmentation
 
 The imgaug library is a versatile library that is used for image augmentation. The data can be augmented by using an image augmentation generator and giving it an augmentation configuration. A utility function to create an augmentation configuration is given here. It can be customised from the command line by using a dictionary of arguments. For example:
-```python
+```bash
 python3 train_cctv_classifier.py \
     coco.json \
     --augmentation-configuration {"some_of":None, "flip_lr":True, "flip_ud":True, "gblur":None, "avgblur":None,"gnoise":(0,0.05*255),"scale":(0.8, 1.2), "rotate":(-22.5, 22.5), "bright":(0.75,1.25),"colour_shift":(0.9,1.1)}
