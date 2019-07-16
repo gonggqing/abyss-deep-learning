@@ -94,8 +94,6 @@ def get_args():
                         help="The patience in number of epochs for network loss to improved before early-stopping of training.")
     parser.add_argument("--class-weights", type=str, default=None,
                     help="Class weights as a list, (e.g., 1,10,12 for three weighted classes), or for optimal class-weights, set to 1.")
-    parser.add_argument("--optimiser", type=str, default='nadam',
-                        help="Keras optimiser to use during network training. Options are \{SGD, RMSprop, adagrad, adadelta, adam, adamax, nadam\}")
     args = parser.parse_args()
     return args
 
