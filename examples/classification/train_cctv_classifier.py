@@ -77,7 +77,7 @@ def get_args():
     parser.add_argument("--loss", type=str, default="categorical_crossentropy",
                         help="The loss function to use. Options are \{categorical_crossentropy,binary_crossentropy\}")
     parser.add_argument('--optimizer', type=str, default="adam", help="The optimizer to use. Options are {adam,nadam,sgd,rmsprop,adagrad,adadelta,adamax}")
-    parser.add_argument('--optimizer-args', type=str, default="{}", help="The arguments to configure the optimizer. LR is added from --lr argument. For example to add  momentum to SGD, optimizer_args could be {'momentum': 0.9}")
+    parser.add_argument('--optimizer-args', type=str, default="{}", help="The arguments to configure the optimizer. LR is added from --lr argument. For example to add  momentum to SGD, optimizer_args could be \"{'momentum':0.9}\"")
     parser.add_argument("--l12-regularisation", type=str, default="None,None",
                         help="Whether to add l1 l2 regularisation to the convolutional layers of the model. Format (l1,l2), if absent leave as None. For example (None,0.01) to just add l2 regularisation ")
     parser.add_argument("--resume-from-ckpt", type=str,
@@ -94,8 +94,11 @@ def get_args():
                         help="The patience in number of epochs for network loss to improved before early-stopping of training.")
     parser.add_argument("--class-weights", type=str, default=None,
                     help="Class weights as a list, (e.g., 1,10,12 for three weighted classes), or for optimal class-weights, set to 1.")
-    parser.add_argument("--optimiser", type=str, default='nadam',
-                        help="Keras optimiser to use during network training. Options are \{SGD, RMSprop, adagrad, adadelta, adam, adamax, nadam\}")
+    parser.add_argument("--embeddings", action="store_true", help="Whether to do the embeddings")
+    parser.add_argument("--embeddings-freq", type=int, default=1, help="How often to calculate the embeddings")
+    parser.add_argument("--histogram-freq", type=int, default=1, help="The frequency at which to calculate histograms. Set to 0 to turn off. Will be set to 0 if not using --cache-val.")
+    parser.add_argument("--pr-curves", type=bool, default=True, help="Whether to calculate pr curves. Will be set to false if not using --cache-val.")
+    parser.add_argument("--tfpn", type=bool, default=True, help="Whether to calculate TFPN. Will be set to false if not using --cache-val.")
     args = parser.parse_args()
     return args
 
@@ -117,6 +120,16 @@ def main(args):
     os.makedirs(model_dir, exist_ok=True)
     log_dir = os.path.join(args.scratch_dir, 'logs')
     os.makedirs(log_dir, exist_ok=True)
+
+
+    # ---------------------------------------
+    # Check datasets exist
+    # ---------------------------------------
+    if not os.path.isfile(args.coco_path):
+        raise ValueError("Training dataset %s does not exist" %args.coco_path)
+    if args.val_coco_path and not os.path.isfile(args.val_coco_path):
+        raise ValueError("Validation dataset %s does not exist" % args.val_coco_path)
+
 
 
     if not args.no_trains and not args.trains_project:
@@ -216,6 +229,9 @@ def main(args):
                         aug_config=augmentation_cfg, enable=do_data_aug),
                     batch_size=batch_size))
 
+    def cache_pipeline(gen, num_classes):
+        return (lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes),
+                           func=enforce_one_vs_all))
 
        # limit the process GPU usage. Without this, can get CUDNN_STATUS_INTERNAL_ERROR
     import tensorflow as tf
@@ -275,24 +291,39 @@ def main(args):
     # If the
     if args.cache_val and val_gen:
         print("CACHING VAL")
-        def cache_pipeline(gen, num_classes):
-            return (lambda_gen(multihot_gen(lambda_gen(gen, func=preprocess), num_classes=num_classes), func=enforce_one_vs_all))
         val_data = gen_dump_data(gen=cache_pipeline(val_gen, num_classes), num_images=val_steps, verbose=True)
+        tfpn = args.tfpn
+        histogram_freq = args.histogram_freq
+        pr_curves = args.pr_curves
     else:
         val_data = val_pipeline
+        if args.tfpn:
+            warnings.warn("TFPN doesn't work properly unless val is cached. Used --cache-val to cache val. Setting to False")
+        if args.histogram_freq > 0:
+            warnings.warn("Histograms don't work unless val is cached. Used --cache-val to cache val. Setting to 0")
+        if args.pr_curves:
+            warnings.warn("PR Curves don't work properly unless val is cached. Used --cache-val to cache val. Setting to False")
+        tfpn = False
+        histogram_freq = 0s
+        pr_curves = False
+
 
     # ------------------
     # Callbacks
     # ------------------
-    do_embeddings = True 
-    if do_embeddings:
-        assert(not args.gpus > 1, 'Due to a bug, if calcualting embeddings, only 1 gpu can be used')
-        embeddings_data = gen_dump_data(gen=pipeline(val_gen, num_classes=149, batch_size=1), num_images=1000)  #dump some images for the embeddingsi
-        print(embeddings_data[1].squeeze())
-        produce_embeddings_tsv(os.path.join(log_dir, 'metadata.tsv'), headers=[str(i) for i in np.arange(0,149)], labels=embeddings_data[1].squeeze())
+
+    if args.embeddings:
+        print("CACHING EMBEDDING")
+        assert(not (args.gpus > 1), 'Due to a bug, if calcualting embeddings, only 1 gpu can be used')
+        embeddings_data = gen_dump_data(gen=cache_pipeline(val_gen, num_classes), num_images=val_steps, verbose=True)
+        produce_embeddings_tsv(os.path.join(log_dir, 'metadata.tsv'), headers=[str(i) for i in range(num_classes)], labels=embeddings_data[1])
+        embeddings_freq = args.embeddings_freq
+    else:
+        embeddings_data = [None, None]
+        embeddings_freq = 0
 
     callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=args.save_model_interval),  # A callback to save the model
-                ImprovedTensorBoard(log_dir=log_dir, batch_size=args.batch_size, write_graph=True, embeddings_freq=60, embeddings_metadata=os.path.join(args.scratch_dir,'metadata.tsv'), embeddings_data=embeddings_data[0].squeeze(), embeddings_layer_names=['global_average_pooling2d_1'], num_classes=num_classes, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
+                ImprovedTensorBoard(log_dir=log_dir, batch_size=args.batch_size, write_graph=True, embeddings_freq=embeddings_freq, embeddings_metadata=os.path.join(log_dir,'metadata.tsv'), embeddings_data=embeddings_data[0], embeddings_layer_names=['global_average_pooling2d_1'], num_classes=num_classes, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size) if (val_gen and not args.cache_val) else None, val_steps=val_steps, tfpn=tfpn, pr_curve=pr_curves, histogram_freq=histogram_freq),
                 #ImprovedTensorBoard(log_dir=log_dir, histogram_freq=3, batch_size=args.batch_size, write_graph=True, write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
                 ReduceLROnPlateau(monitor='val_loss', factor=0.5,
                                   patience=10, min_lr=1e-8),
@@ -306,7 +337,7 @@ def main(args):
     # ----------------------------
     # Train
     # ----------------------------
-    if args.class_weights == 1:
+    if args.class_weights == 1 or args.class_weights == "1":
         args.class_weights = train_dataset.class_weights
     elif args.class_weights:
         args.class_weights = args.class_weights.split(",")
