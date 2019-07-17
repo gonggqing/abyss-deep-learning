@@ -52,7 +52,7 @@ def get_args():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter,
         description="""
-    This script is designed to get eric going with CCTV training.
+    This script trains CCTV classification networks.
     """)
     parser.add_argument("coco_path", type=str, help="Path to the coco dataset")
     parser.add_argument("--val-coco-path", type=str, help="Path to the validation coco dataset")
@@ -106,6 +106,15 @@ def get_args():
 
 
 def main(args):
+    # -------------------
+    # Checks, for anything really bad that happens due to bugs
+    # -------------------
+    assert(args.tfpn is False, "ERROR: Currently, using TFPN makes networks not train. It is most likely due to do "
+                               "weights not updating, or some such. This needs fixing, eventually.")
+    assert (args.gpus == 1, "ERROR: Currently, using multiple GPUs will crash training when it comes time to compute the "
+                            "embeddings etc. This needs to be fixed.")
+
+
     # -------------------
     # Check Parameters
     # -------------------
