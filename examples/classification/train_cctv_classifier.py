@@ -2,20 +2,18 @@ import os
 import argparse
 import json
 import warnings
-import cv2
 import ast
 from skimage.transform import resize
 import matplotlib.pyplot as plt
 import numpy as np
 from keras.applications.xception import preprocess_input
 from keras.preprocessing.image import ImageDataGenerator
-#import keras.callbacks
 from keras.callbacks import TensorBoard, ReduceLROnPlateau, EarlyStopping, Callback, TerminateOnNaN
 import tensorflow as tf
 import keras.optimizers
 
 from abyss_deep_learning.datasets.coco import ImageClassificationDataset
-from abyss_deep_learning.datasets.translators import  AbyssCaptionTranslator, CaptionMapTranslator, AnnotationTranslator, CategoryTranslator
+from abyss_deep_learning.datasets.translators import CategoryTranslator
 from abyss_deep_learning.keras.classification import caption_map_gen, onehot_gen
 from abyss_deep_learning.keras.models import ImageClassifier, loadImageClassifierByDict
 from abyss_deep_learning.keras.utils import lambda_gen, batching_gen, gen_dump_data, head_gen
@@ -219,7 +217,7 @@ def main(args):
         image = resize(image, image_shape, preserve_range=True)
         return preprocess_input(image.astype(NN_DTYPE)), caption
 
-    def pipeline(gen, num_classes, batch_size, do_data_aug=False):
+    def pipeline(gen, num_classes, batch_size, do_data_aug=False, ):
         """
         A sequence of generators that perform operations on the data
         Args:
@@ -329,9 +327,12 @@ def main(args):
 
     if args.embeddings:
         print("CACHING EMBEDDING")
-        assert(not (args.gpus > 1), 'Due to a bug, if calcualting embeddings, only 1 gpu can be used')
-        embeddings_data = gen_dump_data(gen=cache_pipeline(val_gen, num_classes), num_images=val_steps, verbose=True)
-        produce_embeddings_tsv(os.path.join(log_dir, 'metadata.tsv'), headers=[str(i) for i in range(num_classes)], labels=embeddings_data[1])
+        assert args.gpus == 1, 'Due to a bug, if calculating embeddings, only 1 gpu can be used'
+        embeddings_data = gen_dump_data(gen=cache_pipeline(val_gen, num_classes),
+                                        num_images=int(np.floor(len(val_dataset) / args.batch_size)), verbose=True)
+        produce_embeddings_tsv(os.path.join(log_dir, 'metadata.tsv'),
+                               headers= [ str(i) for i in range(num_classes) ],
+                               labels= embeddings_data[1] )
         embeddings_freq = args.embeddings_freq
     else:
         embeddings_data = [None, None]
