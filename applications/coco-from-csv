@@ -33,7 +33,7 @@ examples
         cat images.csv | coco-from-csv -f path --categories <( echo '[ { "id": 1, "name": "medium" }, { "id": 2, "name": "high" } ]' )
         cat images.csv | coco-from-csv -f path --categories <( echo '{ "categories": [ { "id": 1, "name": "medium" }, { "id": 2, "name": "high" } ] }' )
 """
-
+EMPTY = 0
 
 def main(args):
     logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
@@ -45,7 +45,14 @@ def main(args):
     csv_ = StringIO(buffer)
 
     try:
-        df = pd.read_csv(csv_, names=args.fields.split(','), header=None) if args.fields else pd.read_csv(csv_)
+        def get_empty_name():
+            global EMPTY
+            name = '__empty__' + str(EMPTY) + '__'
+            EMPTY += 1
+            return name
+        fields = args.fields.split(',')
+        fields = [get_empty_name() if x == '' else x for x in fields]
+        df = pd.read_csv(csv_, names=fields, header=None) if args.fields else pd.read_csv(csv_)
     except pd.errors.ParserError as e:
         logging.error(e, "Mismatch in expected and received fields in csv")
         sys.exit(1)
