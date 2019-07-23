@@ -4,9 +4,9 @@ import keras.backend as K
 import keras.callbacks
 import os
 import tensorflow as tf
-from keras.callbacks import TensorBoard, ReduceLROnPlateau, EarlyStopping, Callback, TerminateOnNaN
+from keras.callbacks import TensorBoard, ReduceLROnPlateau, EarlyStopping, Callback, TerminateOnNaN, LearningRateScheduler
 import copy
-
+import math
 
 from sklearn.metrics import precision_score, recall_score, f1_score
 """
@@ -196,3 +196,58 @@ class TrainsCallback(keras.callbacks.Callback):
         for k,v in logs.items():
             self.logger.report_scalar(k, "series A", iteration=epoch, value=v)
         self.epoch_count += 1
+
+
+def create_lr_schedule_callback(lr_schedule, lr, lr_schedule_params=None):
+    """
+    Creates the lr schedule callback, given a lr_schedule type and the parameters.
+
+    Args:
+        lr_schedule: (str) The type of learning rate schedule to use. Options are {step,exp,plateau,cyclic}
+        lr: (float) The base learning rate
+        lr_schedule_params: (dict) The parameters to initialise the models.
+    Returns:
+        (keras.callbacks.Callback) A callback that alters the learning rate.
+
+    """
+    if lr_schedule == "step":
+        if lr_schedule_params is None:
+            lr_schedule_params = {
+                'drop': 0.1,
+                'steps': 10
+            }
+        def step_decay(epoch):
+            initial_lrate = lr
+            drop = lr_schedule_params['drop']
+            epochs_drop = lr_schedule_params['steps']
+            lrate = initial_lrate * math.pow(drop, math.floor((1 + epoch) / epochs_drop))
+            return lrate
+        lr_schedule_callback = LearningRateScheduler(schedule=step_decay, verbose=True)
+
+    elif lr_schedule == "exp":  # This is per epoch, not batch!
+        if lr_schedule_params is None:
+            lr_schedule_params = {
+                'rate': 0.95
+            }
+        def exp_decay(epoch, curr_lr):
+            new_lr = curr_lr * lr_schedule_params['rate']
+            return new_lr
+        lr_schedule_callback = LearningRateScheduler(schedule=exp_decay, verbose=True) # This is per epoch, not batch!
+
+    elif lr_schedule == "cyclic":
+        from keras_contrib.callbacks.cyclical_learning_rate import CyclicLR
+        if lr_schedule_params is None:
+            lr_schedule_params = {
+                'base_lr': lr,
+                'max_lr': lr*6
+            }
+        else:
+            lr_schedule_params['base_lr'] = lr
+        lr_schedule_callback = CyclicLR(**lr_schedule_params)
+    elif lr_schedule == "plateau":
+        if lr_schedule_params is None:
+            lr_schedule_params = {}
+        lr_schedule_callback = ReduceLROnPlateau(**lr_schedule_params)
+    else:
+        raise NotImplementedError("LR Schedule type %s not implemented")
+    return lr_schedule_callback

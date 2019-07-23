@@ -8,9 +8,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from keras.applications.xception import preprocess_input
 from keras.preprocessing.image import ImageDataGenerator
-from keras.callbacks import TensorBoard, ReduceLROnPlateau, EarlyStopping, Callback, TerminateOnNaN
+from keras.callbacks import TensorBoard, ReduceLROnPlateau, EarlyStopping, Callback, TerminateOnNaN, LearningRateScheduler
 import tensorflow as tf
 import keras.optimizers
+import math
 
 from abyss_deep_learning.datasets.coco import ImageClassificationDataset
 from abyss_deep_learning.datasets.translators import CategoryTranslator
@@ -18,7 +19,7 @@ from abyss_deep_learning.keras.classification import caption_map_gen, onehot_gen
 from abyss_deep_learning.keras.models import ImageClassifier, loadImageClassifierByDict
 from abyss_deep_learning.keras.utils import lambda_gen, batching_gen, gen_dump_data, head_gen
 
-from callbacks import SaveModelCallback, PrecisionRecallF1Callback, TrainValTensorBoard, TrainsCallback
+from callbacks import SaveModelCallback, PrecisionRecallF1Callback, TrainValTensorBoard, TrainsCallback, create_lr_schedule_callback
 from utils import to_multihot, multihot_gen, compute_class_weights, create_augmentation_configuration
 from translators import MultipleTranslators, HotTranslator
 from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard, produce_embeddings_tsv
@@ -99,6 +100,8 @@ def get_args():
     parser.add_argument("--histogram-freq", type=int, default=1, help="The frequency at which to calculate histograms. Set to 0 to turn off. Will be set to 0 if not using --cache-val.")
     parser.add_argument("--pr-curves", action="store_true", help="Whether to calculate pr curves. Will be set to false if not using --cache-val.")
     parser.add_argument("--tfpn", action="store_true", help="Whether to calculate TFPN. Will be set to false if not using --cache-val.")
+    parser.add_argument("--lr-schedule", type=str, help="The LR schedule to use, options are {step,exp,cyclic}. If left blank, no LR scheduling will be used. For example --lr-schedule cyclic")
+    parser.add_argument("--lr-schedule-params", type=str, help="The parameters initialising the learning rate schedule. This is a dictionary that is used to initialise the LearningRateScheduler you are using. If left blank, default parameters will be used. For example for '--lr-schedule cyclic' do {'max_lr':0.006,'step_size':2000.}")
     args = parser.parse_args()
     return args
 
@@ -349,6 +352,12 @@ def main(args):
         callbacks.append(EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=args.early_stopping_patience, verbose=1, mode='auto', baseline=None, restore_best_weights=True))
     if task:
         callbacks.append(TrainsCallback(logger=task.get_logger()))
+
+    if args.lr_schedule:
+        lr_schedule_params = ast.literal_eval(args.lr_schedule_params) if args.lr_schedule_params else None  # Load the lr schedule params
+        lr_schedule_callback = create_lr_schedule_callback(args.lr_schedule, args.lr, lr_schedule_params)
+        if lr_schedule_callback:
+            callbacks.append(lr_schedule_callback)
 
     # ----------------------------
     # Train

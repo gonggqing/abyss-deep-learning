@@ -97,6 +97,8 @@ def loadImageClassifierByDict(json_path):
         init_lr=params['init_lr'],
         trainable=params['trainable'],
         loss=params['loss'],
+        optimizer=params['optimizer'],
+        optimizer_args=params['optimizer_args'],
         metrics=mets
     )
 
@@ -186,6 +188,8 @@ class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
         params['init_weights'] = self.init_weights
         params['init_epoch'] = self.init_epoch
         params['init_lr'] = self.init_lr
+        params['optimizer'] = self.optimizer
+        params['optimizer_args'] = self.optimizer_args
         if isinstance(self.metrics, str):
             params['metrics'] = self.metrics
         elif isinstance(self.metrics, list):
