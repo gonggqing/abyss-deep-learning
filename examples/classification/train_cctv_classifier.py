@@ -90,6 +90,7 @@ def get_args():
     parser.add_argument("--workers", type=int, default=1, help="Number of workers to use")
     parser.add_argument("--gpus", type=int, default=1, help="The number of GPUs to use. To select a specific GPU use CUDA_VISIBLE_DEVICES environment variable, e.g. CUDA_VISIBLE_DEVICES=0 python3 train_cctv_classifier.py ...")
     parser.add_argument("--trains-project", type=str, help="The project to use for the TRAINS server")
+    parser.add_argument("--trains-experiment", type=str, help="The experiment name to use for the TRAINS experiment tracking. If left blank, defaults to basename of scratch directory")
     parser.add_argument("--no-trains", action="store_false", help="Turn off experiment tracking with trains")
     parser.add_argument("--early-stopping-patience", type=int, default=None,
                         help="The patience in number of epochs for network loss to improved before early-stopping of training.")
@@ -150,7 +151,10 @@ def main(args):
         warnings.warn("Experiment tracking is turned off!")
         task = None
     else:
-        experiment_name = os.path.basename(args.scratch_dir)  # TODO evaluate this
+        if args.trains_experiment:
+            experiment_name = args.trains_experiment
+        else:
+            experiment_name = os.path.basename(args.scratch_dir)
         task = Task.init(args.trains_project, experiment_name)
         with open(os.path.join(args.scratch_dir, 'task_id.txt'), 'w') as task_id_file:
             task_id_file.write(task.id)
