@@ -18,6 +18,8 @@ from pycocotools.coco import COCO
 
 DESCRIPTION = \
     """
+YO
+
 Convert COCO json file and output csv formatted COCO data to stdout.
 
 Can perform join operations between different coco sections based on arguments given to positional argument section and 
@@ -124,17 +126,13 @@ def main(args: argparse.Namespace = None):
         else:
             say("nesting up to {num} levels is not supported".format(num=len(field)), verbose=args.verbose)
 
+    fixed_headers = get_header(section)
+
     if args.output_fields:
         if fields:
             print(",".join(fields))
         else:
-            section_ = coco.dataset[args.section]
-            if isinstance(section_, dict):
-                section_ = map(lambda x: str(x), section_)
-                print(",".join(section_))
-            elif isinstance(section_, list):
-                section_ = map(lambda x: str(x), section_[0])
-                print(",".join(section_))
+            print(','.join(fixed_headers))
         sys.exit(0)
 
     # Find bbox index in list
@@ -166,7 +164,7 @@ def main(args: argparse.Namespace = None):
     if isinstance(section, dict):
         # Print headers
         if args.header:
-            headers = section.keys()
+            headers = fixed_headers
             if fields:
                 headers = [header for header in fields if header in section]
                 non_headers = list(set(fields) - set(headers))
@@ -196,7 +194,8 @@ def main(args: argparse.Namespace = None):
                 # No valid field can be found to index into the dictionary
                 die('cannot find keys {fields} in dict {section}'.format(fields=valid_fields, section=args.section))
         else:
-            csv_writer.writerow(section.values())
+            values = [section[field] if field in section else '' for field in fixed_headers]
+            csv_writer.writerow(values)
 
     # Unpack images, annotations, categories, or licenses section
     elif isinstance(section, list):
@@ -215,7 +214,7 @@ def main(args: argparse.Namespace = None):
                         .format(fields=non_headers, section=args.section), verbose=True)
                 headers = fields.copy()
             else:
-                headers = section[0].keys()
+                headers = fixed_headers
 
             # Substitute bbox for either x,y,width,height or x1,y1,x2,y2
             if bbox_index is not None:
@@ -252,10 +251,30 @@ def main(args: argparse.Namespace = None):
                     say('cannot find keys {fields} in dict {section}'
                         .format(fields=non_fields, section=args.section), verbose=args.verbose)
             else:
-                csv_writer.writerow(entry.values())
+                values = [entry[field] if field in entry else '' for field in fixed_headers]
+                csv_writer.writerow(values)
 
     sys.exit()
 
+def get_header(section_):
+    priority_dict = {
+        "id": 0,
+        "annotation_id": 10,
+        "category_id": 20,
+        "image_id": 30,
+        "score": 40,
+        "bbox": 50,
+        "area": 60,
+        "segmentation": 70,
+        "path": 80,
+        "width": 90,
+        "height": 91,
+        "name": 100
+    }
+    if isinstance(section_, dict):
+        return list(map(lambda x: str(x), section_))
+    elif isinstance(section_, list):
+        return sorted(set(flatten([map(lambda x: str(x), section_[i]) for i in range(len(section_))])), key=lambda y: priority_dict[y] if y in priority_dict else sys.maxsize)
 
 def say(*args, verbose=False, **kwargs):
     if verbose:

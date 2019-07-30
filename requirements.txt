@@ -11,4 +11,5 @@ keras
 cython
 pycocotools
 keras_retinanet
-tensorflow-gpu==1.12.0
+tensorflow-gpu==1.13.1
+imgaug
