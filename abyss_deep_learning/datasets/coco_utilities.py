@@ -27,7 +27,7 @@ def template_info():
     }
 
 
-def coco_is_valid(file_name, coco, mode):
+def coco_is_valid(file_name, coco, mode, check_ims=False):
 
     if mode == 'skip':
         return True
@@ -110,6 +110,11 @@ def coco_is_valid(file_name, coco, mode):
                         logging.error("VALIDATION: annotation id:{} refers to missing category id {}".format(ann['id'], ann['category_id']))
                         is_valid = False
                         break
+        if check_ims:
+            for img in coco['images']:
+                if not os.path.exists(img['path']):
+                    logging.error(f"VALIDATION: image {img['path']} could not be found")
+                    is_valid = False
 
     except Exception as ex:
         logging.error("Exception while validating {}".format(ex))
