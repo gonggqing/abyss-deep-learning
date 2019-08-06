@@ -8,7 +8,6 @@ import copy
 from contextlib import redirect_stdout
 
 import pandas as pd
-from pycocotools.coco import COCO
 
 # TODO
 # - remove
@@ -38,11 +37,14 @@ examples
 
 
 def main(args: argparse.Namespace = None):
-    coco = load_coco(sys.stdin.read())
-    section = coco.dataset[args.section]
+
+    coco_dataset = json.loads(sys.stdin.read())
+
+    #coco = load_coco(sys.stdin.read())
+    section = coco_dataset[args.section]
     csv_writer = csv.writer(sys.stdout)
 
-    dataset = copy.deepcopy(coco.dataset)
+    dataset = copy.deepcopy(coco_dataset)
     # Create common keys between different sections in coco dataset so that pd.merge has a key to merge on
     for i in dataset.get('annotations', []):
         try:
@@ -157,7 +159,7 @@ def main(args: argparse.Namespace = None):
         except TypeError:
             key_index = None
 
-        min_value = min(coco.getCatIds())
+        min_value = min([x['id'] for x in coco_dataset['categories']])
         offset = args.index_from - min_value
 
     # Unpack info section
@@ -360,14 +362,6 @@ class Verbose:
         line = line.strip()
         if line:
             say(line)
-
-
-def load_coco(json_buffer: str) -> COCO:
-    with redirect_stdout(Verbose):
-        coco = COCO()
-        coco.dataset = json.loads(json_buffer)
-        coco.createIndex()
-    return coco
 
 
 if __name__ == '__main__':
