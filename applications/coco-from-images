@@ -19,8 +19,9 @@ examples
 
 
 def main(args):
-    
-    image_paths = sys.stdin.read().strip().split('\n')
+    image_paths = list()
+    for line in sys.stdin:
+        image_paths.append(line.strip())
 
     width = None
     height = None
