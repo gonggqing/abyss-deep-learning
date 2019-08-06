@@ -169,7 +169,7 @@ def main(args: argparse.Namespace) -> int:
 def is_valid(args: argparse.Namespace):
     coco = json.load(sys.stdin)
     status = 0
-    if not coco_is_valid('stdin', coco, args.validation):
+    if not coco_is_valid('stdin', coco, args.validation, check_ims=args.images_check_exists):
         status = -1
 
     return True, status
@@ -1041,6 +1041,8 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
                         help="Check if input coco is valid:\n"
                              "standard: quick checks\n"
                              "strict: more in-depth cross-reference checks(default)")
+
+    parser_is_valid.add_argument('--images-check-exist', action='store_true', help="check that images exist. May need to cd to relative dir")
 
 
     parser_crop = subparsers.add_parser(
