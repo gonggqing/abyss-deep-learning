@@ -39,7 +39,7 @@ Output merged coco json contents in stdout.
 examples:
     coco-merge labelled/abc/coco.json labelled/def/coco.json
 
-    use '-' to read from stdin    
+    use '-' to read from stdin
     cat labelled/abc/coco.json | coco-merge - labelled/def/coco.json
     
     --append-categories:
