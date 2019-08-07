@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
 import argparse
 import collections
+import copy
 import csv
 import json
+import signal
 import sys
-import copy
 from contextlib import redirect_stdout
 
 import pandas as pd
 from pycocotools.coco import COCO
 
-# TODO
-# - remove
-#   - coco-to-csv.deprecated
-#   - coco-to-yolo3
-#   - coco-to-retina-to-csv
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
 DESCRIPTION = \
     """
@@ -256,6 +253,7 @@ def main(args: argparse.Namespace = None):
 
     sys.exit()
 
+
 def get_header(section_):
     priority_dict = {
         "id": 0,
@@ -274,7 +272,9 @@ def get_header(section_):
     if isinstance(section_, dict):
         return list(map(lambda x: str(x), section_))
     elif isinstance(section_, list):
-        return sorted(set(flatten([map(lambda x: str(x), section_[i]) for i in range(len(section_))])), key=lambda y: priority_dict[y] if y in priority_dict else sys.maxsize)
+        return sorted(set(flatten([map(lambda x: str(x), section_[i]) for i in range(len(section_))])),
+                      key=lambda y: priority_dict[y] if y in priority_dict else sys.maxsize)
+
 
 def say(*args, verbose=False, **kwargs):
     if verbose:
@@ -298,8 +298,9 @@ def get_args() -> argparse.Namespace:
                                                          "json file and export to a csv format. Performs a join "
                                                          "between two different sections if a '/' character is given "
                                                          "separating section and field")
-    parser.add_argument('-w', '--what', choices=['retinanet','yolo3'], help="Format the csv output to be compatible with one "
-                                                                    "of the supported options")
+    parser.add_argument('-w', '--what', choices=['retinanet', 'yolo3'],
+                        help="Format the csv output to be compatible with one "
+                             "of the supported options")
     parser.add_argument('-p', '--bbox-position', type=str, default='relative', choices=['absolute', 'relative'],
                         help="Output values of bbox as either x1,y1,x2,y2 or x,y,width,height; default: %(default)s")
     parser.add_argument('-i', '--index-from', type=int, help="Change category indexing values to start "
@@ -319,14 +320,14 @@ def get_args() -> argparse.Namespace:
             #       please don't hack this code, ask the authors what is a better way
             #       for a quick workaround you always can run coco-to-csv with explicit --fields, something like:
             #       coco-to-csv --fields 'images/coco_url,bbox,categories/name'
-            args.fields = 'images/path,bbox,categories/name' #args.fields = 'images/file_name,bbox,categories/name'
+            args.fields = 'images/path,bbox,categories/name'  # args.fields = 'images/file_name,bbox,categories/name'
             args.bbox_position = 'absolute'
         elif args.section == 'categories':
             args.fields = 'name,id'
             args.index_from = 0
     if args.what == 'yolo3':
         die("yolo3: todo")
-        
+
     try:
         args.fields = list(map(lambda x: x.split('/'), args.fields.split(',')))
     except AttributeError:

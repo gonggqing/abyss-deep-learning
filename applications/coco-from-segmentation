@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 import argparse
+import gzip
 import json
 import logging
 import os
+import signal
 import sys
 import time
-import gzip
 from numbers import Number
 from typing import Union
 
@@ -13,8 +14,8 @@ import numpy as np
 import skimage
 from PIL import Image
 
-from abyss_deep_learning.utils import imread, polygon_to_bbox, polygon_to_mask
 from abyss_deep_learning.datasets.coco_utilities import coco_from_images, template_info, template_license
+from abyss_deep_learning.utils import imread, polygon_to_bbox, polygon_to_mask
 
 __author__ = 'Kent Hu, and Jeff Mohammed'
 __maintainer__ = 'Kent Hu'
@@ -41,6 +42,7 @@ Use --normalize if passing unnormalized .bin file
 """
 
 np.set_printoptions(threshold=np.inf)
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # default sigpipe to terminate program instead of raising exception
 
 
 def main(args: argparse.Namespace):
@@ -94,7 +96,8 @@ def main(args: argparse.Namespace):
     if categories is None:
         categories = image_json.get('categories', [])
         if len(categories) == 0:
-            logging.warn('Invalid coco may be produced, categories should be provided in json stdin or via --categories')
+            logging.warn(
+                'Invalid coco may be produced, categories should be provided in json stdin or via --categories')
 
     num_classes = args.num_classes
     if args.category_id == 'from-mask':
@@ -143,7 +146,10 @@ def main(args: argparse.Namespace):
                                  padding=padding, normalize=args.norm)
 
         if padded_mask is None:
-            logging.error("failed to load from file: '{}'; possibly, file type {} not supported".format(mask_entry['path'], get_file_ext(mask_entry['path'])))
+            logging.error(
+                "failed to load from file: '{}'; possibly, file type {} not supported".format(mask_entry['path'],
+                                                                                              get_file_ext(
+                                                                                                  mask_entry['path'])))
             sys.exit(1)
 
         category_ids = []
@@ -214,8 +220,10 @@ def main(args: argparse.Namespace):
                 contour[contour < 0] = 0
                 polygon = np.flip(contour, axis=1).ravel().tolist()
                 grid = polygon_to_mask(polygon)
-                rr, cc = [i.astype(dtype=np.uint16) for i in skimage.draw.polygon(contour[:, 0], contour[:, 1], shape=shape)]
-                r, c = [i.astype(dtype=np.uint16) for i in skimage.draw.polygon_perimeter(contour[:, 0], contour[:, 1], shape=shape)]
+                rr, cc = [i.astype(dtype=np.uint16) for i in
+                          skimage.draw.polygon(contour[:, 0], contour[:, 1], shape=shape)]
+                r, c = [i.astype(dtype=np.uint16) for i in
+                        skimage.draw.polygon_perimeter(contour[:, 0], contour[:, 1], shape=shape)]
                 area = np.count_nonzero(grid)
                 score = 0 if is_hole(contour) else original_mask[np.hstack([rr, r]), np.hstack([cc, c])].sum() / area
                 coco_json['annotations'].append({
@@ -312,20 +320,27 @@ def load_input(image_entry: dict, input_format: str, width: int, height: int, ma
         try:
             width, height = Image.open(image_entry['path']).size
         except OSError:
-            logging.error("height or width no specified in input coco and cannot be deduced from image file '{}'".format(image_entry['path']))
-            sys.exit( 1 )
+            logging.error(
+                "height or width no specified in input coco and cannot be deduced from image file '{}'".format(
+                    image_entry['path']))
+            sys.exit(1)
     img = np.zeros((height + padding * 2, width + padding * 2), dtype=np.float16)
     ext = get_file_ext(image_entry['path'])
     if ext in {'bin', 'gz'}:
-        with open( image_entry['path'], 'rb' ) as f:
+        with open(image_entry['path'], 'rb') as f:
             buffer = f.read()
-            if ext == 'gz': buffer = gzip.decompress( buffer )
-            img_buf = np.frombuffer( buffer, dtype = input_format )
+            if ext == 'gz': buffer = gzip.decompress(buffer)
+            img_buf = np.frombuffer(buffer, dtype=input_format)
         try:
             img_buf = np.reshape(img_buf, (height, width))
         except TypeError:
-            logging.error( "failed to reshape buffer of {} items to height: {} width: {} input from file '{}'".format( len( img_buf ), height, width, image_entry['path'] ) )
-            sys.exit( 1 )
+            logging.error(
+                "failed to reshape buffer of {} items to height: {} width: {} input from file '{}'".format(len(img_buf),
+                                                                                                           height,
+                                                                                                           width,
+                                                                                                           image_entry[
+                                                                                                               'path']))
+            sys.exit(1)
         if normalize:
             min_ = np.min(img_buf)
             if max_ is None: max_ = np.max(img_buf)
@@ -334,8 +349,8 @@ def load_input(image_entry: dict, input_format: str, width: int, height: int, ma
         img_buf = imread(image_entry['path'], dtype=np.float16)
         img_buf /= 255
     else:
-        logging.error( "unsupported file type: '{}'".format( image_entry['path'] ) )
-        sys.exit( 1 )
+        logging.error("unsupported file type: '{}'".format(image_entry['path']))
+        sys.exit(1)
     img[padding: padding + height, padding: padding + width] = img_buf[:, :]
     return img
 
@@ -403,7 +418,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--categories', type=str, help="coco json containing categories.")
     parser.add_argument('--image-list', action='store_true',
                         help="Read stdin and mask_file as lists of images and masks, the sequences are assumed to match")
-    parser.add_argument('--image-size', help="<width>,<height> run without checking images, sets specified width,height",
+    parser.add_argument('--image-size',
+                        help="<width>,<height> run without checking images, sets specified width,height",
                         type=str)
     parser.add_argument('-n', '--num-classes', type=int,
                         help="Number of possible classes that can be detected from the network (excluding background). Used in conjunction with from-mask.")

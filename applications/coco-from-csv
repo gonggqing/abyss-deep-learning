@@ -1,39 +1,40 @@
 #!/usr/bin/env python3
-import logging
-
-__author__ = 'Kent Hu'
-__maintainer__ = 'Kent Hu'
 import argparse
 import csv
 import json
+import logging
 import os
+import signal
 import sys
-from datetime import datetime
 from io import StringIO
 
 import pandas as pd
 from PIL import Image
 
+__author__ = 'Kent Hu'
+__maintainer__ = 'Kent Hu'
 DESCRIPTION = \
-"""
-Generate COCO JSON file from CSV file.
-
-Required CSV file fields are:
-video frame classification: path,begin_frame,end_frame,caption
-bounding boxes: path,x1,y1,x2,y2,score,category_id
-
-examples
-    bounding boxes
-        cat retina-predictions.csv | coco-from-csv --fields path,,x1,y1,x2,y2,score,category_id --map class-mapping.csv > retina-predictions.json
-        cat input.csv | coco-from-csv --fields path,,x,y,w,h,score,category_id --map class-mapping.csv > output.json
-        
-    categories
-        cat images.csv | coco-from-csv -f path --categories some-coco.json
-        cat images.csv | coco-from-csv -f path --categories <( echo medium,1; echo high,2 )
-        cat images.csv | coco-from-csv -f path --categories <( echo '[ { "id": 1, "name": "medium" }, { "id": 2, "name": "high" } ]' )
-        cat images.csv | coco-from-csv -f path --categories <( echo '{ "categories": [ { "id": 1, "name": "medium" }, { "id": 2, "name": "high" } ] }' )
-"""
+    """
+    Generate COCO JSON file from CSV file.
+    
+    Required CSV file fields are:
+    video frame classification: path,begin_frame,end_frame,caption
+    bounding boxes: path,x1,y1,x2,y2,score,category_id
+    
+    examples
+        bounding boxes
+            cat retina-predictions.csv | coco-from-csv --fields path,,x1,y1,x2,y2,score,category_id --map class-mapping.csv > retina-predictions.json
+            cat input.csv | coco-from-csv --fields path,,x,y,w,h,score,category_id --map class-mapping.csv > output.json
+            
+        categories
+            cat images.csv | coco-from-csv -f path --categories some-coco.json
+            cat images.csv | coco-from-csv -f path --categories <( echo medium,1; echo high,2 )
+            cat images.csv | coco-from-csv -f path --categories <( echo '[ { "id": 1, "name": "medium" }, { "id": 2, "name": "high" } ]' )
+            cat images.csv | coco-from-csv -f path --categories <( echo '{ "categories": [ { "id": 1, "name": "medium" }, { "id": 2, "name": "high" } ] }' )
+    """
 EMPTY = 0
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # default sigpipe to terminate program instead of raising exception
+
 
 def main(args):
     logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
@@ -41,7 +42,8 @@ def main(args):
                         level=args.verbose)
     logging.info("--verbose enabled")
     buffer = sys.stdin.read().strip()
-    if not buffer: logging.error("expected input from stdin: received empty characters {}".format(repr(buffer))); sys.exit(1)
+    if not buffer: logging.error(
+        "expected input from stdin: received empty characters {}".format(repr(buffer))); sys.exit(1)
     csv_ = StringIO(buffer)
 
     try:
@@ -50,6 +52,7 @@ def main(args):
             name = '__empty__' + str(EMPTY) + '__'
             EMPTY += 1
             return name
+
         fields = args.fields.split(',')
         fields = [get_empty_name() if x == '' else x for x in fields]
         df = pd.read_csv(csv_, names=fields, header=None) if args.fields else pd.read_csv(csv_)
@@ -71,49 +74,59 @@ def main(args):
     elif all(field in df for field in ['path']):
         coco_json = make_images(df, args)
     else:
-        logging.error("Could not find required fields\n (path) or\n (path,x1,y1,x2,y2,category_id') or\n ('path','begin_frame','end_frame','caption')")
+        logging.error(
+            "Could not find required fields\n (path) or\n (path,x1,y1,x2,y2,category_id') or\n ('path','begin_frame','end_frame','caption')")
         sys.exit(1)
 
     json.dump(coco_json, sys.stdout, indent=args.indent)
     sys.exit(0)
 
-def make_image( row, width, height, id ): # todo! reuse in generate_from_bounding_boxes()
+
+def make_image(row, width, height, id):  # todo! reuse in generate_from_bounding_boxes()
     image_path = row['path']
     image_file_name = os.path.basename(image_path)
     image = {
-                'id'           : row['image_id'] if 'image_id' in row else id,
-                'file_name'    : image_file_name,
-                'path'         : image_path,
-            }
+        'id': row['image_id'] if 'image_id' in row else id,
+        'file_name': image_file_name,
+        'path': image_path,
+    }
     if width is None:
         try:
             width, height = Image.open(image_path).size
         except IOError:
-            if args.force: logging.warning("could not get image size from [{}]; no image width/height will be in coco".format(image_path))
-            else: logging.error("could not get image size from [{}]; use --force to override".format(image_path)); sys.exit( 1 )
+            if args.force:
+                logging.warning(
+                    "could not get image size from [{}]; no image width/height will be in coco".format(image_path))
+            else:
+                logging.error(
+                    "could not get image size from [{}]; use --force to override".format(image_path));
+                sys.exit(1)
             width = height = None
     if width:
         image['width'] = width
         image['height'] = height
     return image
-        
+
+
 def make_images(df, args):
     logging.info("Generating from bounding images")
     coco_json = {
-        'categories' : get_categories_from_fd(args.map),
+        'categories': get_categories_from_fd(args.map),
         'annotations': [],
-        'images'     : [],
+        'images': [],
     }
     width, height = args.image_size.split(',')
-    for idx, row in df.iterrows(): coco_json['images'].append( make_image( row, int(width), int(height), len(coco_json['images']) ) )
+    for idx, row in df.iterrows(): coco_json['images'].append(
+        make_image(row, int(width), int(height), len(coco_json['images'])))
     return coco_json
+
 
 def generate_from_bounding_boxes(df, args):  # def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
     logging.info("Generating from bounding boxes")
     coco_json = {
-        'images'     : [],
+        'images': [],
         'annotations': [],
-        'categories' : get_categories_from_fd(args.map)
+        'categories': get_categories_from_fd(args.map)
     }
 
     seen_imgs = set()
@@ -140,15 +153,19 @@ def generate_from_bounding_boxes(df, args):  # def generate_from_bounding_boxes(
                     width, height = args.image_size.split(',')
                 else:
                     width = height = None
-                    if args.force: logging.warning("width and height values will be omitted from image [{}]".format(img_path))
-                    else: logging.error("width and height are not given for image [{}]; use --force to override".format(img_path)); sys.exit( 1 )
+                    if args.force:
+                        logging.warning("width and height values will be omitted from image [{}]".format(img_path))
+                    else:
+                        logging.error("width and height are not given for image [{}]; use --force to override".format(
+                            img_path));
+                        sys.exit(1)
 
             img = {
-                'id'           : img_id,
-                'file_name'    : img_file_name,
-                'license'      : 0,
+                'id': img_id,
+                'file_name': img_file_name,
+                'license': 0,
                 'date_captured': '',
-                'path'         : img_path,
+                'path': img_path,
             }
             if width and height:
                 img['width'] = int(width)
@@ -162,14 +179,14 @@ def generate_from_bounding_boxes(df, args):  # def generate_from_bounding_boxes(
         height = row['y2'] - y
         bbox = [int(x), int(y), int(width), int(height)]
         coco_json['annotations'].append({
-            'id'          : len(coco_json['annotations']),
-            'image_id'    : img_file_name_2_img_id[img_file_name],
-            'category_id' : category_id,
+            'id': len(coco_json['annotations']),
+            'image_id': img_file_name_2_img_id[img_file_name],
+            'category_id': category_id,
             'segmentation': [bbox_to_segmentation([x, y, width, height])],
-            'area'        : int(width * height),
-            'bbox'        : bbox,
-            'iscrowd'     : 0,
-            'score'       : row.get('score', 1),
+            'area': int(width * height),
+            'bbox': bbox,
+            'iscrowd': 0,
+            'score': row.get('score', 1),
         })
     return coco_json
 
@@ -193,8 +210,9 @@ def get_categories_from_fd(mapping):
             reader = csv.reader(buf)
             for row in buf:
                 s = row.split(',')
-                if len( s ) < 2: logging.error( "--categories: expected at least <name>,<id>, got: '{}'".format( row ) ); sys.exit(1)
-                category, id, supercategory = s if len( s ) > 2 else s + ['']
+                if len(s) < 2: logging.error(
+                    "--categories: expected at least <name>,<id>, got: '{}'".format(row)); sys.exit(1)
+                category, id, supercategory = s if len(s) > 2 else s + ['']
                 categories.append({
                     'id': int(id),
                     'name': category,
@@ -212,16 +230,16 @@ def generate_from_video_frames(df: pd.DataFrame, args) -> dict:
     logging.info("Generating from video frames")
     coco_json = {
         'file_name': '',
-        'segments' : [],
+        'segments': [],
     }
     for idx, row in df.iterrows():
         if 'file_name' in row:
             coco_json['file_name'] = row['file_name']
         coco_json['segments'].append({
-            'id'         : idx,
+            'id': idx,
             'begin_frame': row['begin_frame'],
-            'end_frame'  : row['end_frame'],
-            'caption'    : row['caption'],
+            'end_frame': row['end_frame'],
+            'caption': row['caption'],
         })
     return coco_json
 
@@ -230,7 +248,8 @@ def get_args():
     parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--fields', '-f', type=str, help="Comma separated field names for CSV file")
     parser.add_argument('--force', action='store_true', help="ignore warnings")
-    parser.add_argument('--indent', type=int, help="json indent, if none, output minimised json default: %(default)s", default=4)
+    parser.add_argument('--indent', type=int, help="json indent, if none, output minimised json default: %(default)s",
+                        default=4)
     parser.add_argument('--map', '--categories',
                         type=str,
                         help="Path to original COCO json or category mapping csv file of category and category ids; csv as <name>,<id>[,<supercategory>]")

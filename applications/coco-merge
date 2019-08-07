@@ -2,8 +2,10 @@
 import argparse
 import json
 import logging
+import signal
 import sys
 from itertools import groupby
+
 from abyss_deep_learning.datasets.coco_utilities import coco_is_valid
 
 __author__ = 'Kent Hu, Jamie McColl, Toby Dunne'
@@ -56,6 +58,7 @@ examples:
             The resulting JSON will have category ids 0, 1, 2, 3, 4, 5, 6, 106, with 0 to 5 matching the categories
             found in b.json.
 """
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # default sigpipe to terminate program instead of raising exception
 
 
 def any_lambda(iterable, function):
@@ -74,7 +77,6 @@ def merge_coco(args, coco_list):
 
 
 def merge_pair(args, dest_coco, source_coco):
-
     dest_image_id_list = [e['id'] for e in dest_coco['images']]
     source_image_id_list = [e['id'] for e in source_coco['images']]
 
@@ -163,9 +165,11 @@ def merge_pair(args, dest_coco, source_coco):
         else:
             for source_ann in group:
                 if not any_lambda(dest_group, lambda x: x['image_id'] == source_ann['image_id']
-                                          and x.get('category_id', None) == source_ann.get('category_id', None)
-                                          and x.get('bbox', None) == source_ann.get('bbox', None)
-                                          and x.get('segmentation', None) == source_ann.get('segmentation', None)):
+                                                        and x.get('category_id', None) == source_ann.get('category_id',
+                                                                                                         None)
+                                                        and x.get('bbox', None) == source_ann.get('bbox', None)
+                                                        and x.get('segmentation', None) == source_ann.get(
+                    'segmentation', None)):
                     max_ann_id += 1
                     source_ann['id'] = max_ann_id
                     dest_annotations.append(source_ann)
@@ -248,7 +252,7 @@ def get_args():
         action='store_true',
         help='Assign category IDs in by appending, such that the ranges of IDs from different JSONs do not overlap\n'
              'e.g.\n'
-             '[{ "id":0: "name": "A"}, { "id":1: "name": "B"}]\n'   
+             '[{ "id":0: "name": "A"}, { "id":1: "name": "B"}]\n'
              '[{ "id":0: "name": "A"}, { "id":1: "name": "B"}]\n'
              ' vvv\n'
              '[{ "id":0: "name": "A"}, { "id":1: "name": "B"}, { "id":2: "name": "A"}, { "id":3: "name": "B"},]'

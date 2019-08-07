@@ -4,6 +4,7 @@ import copy
 import itertools
 import json
 import logging
+import signal
 import sys
 import time
 from datetime import datetime
@@ -16,7 +17,7 @@ from abyss_deep_learning import metrics
 from abyss_deep_learning.utils import bbox_to_polygon, MyCOCO
 
 np.set_printoptions(threshold=np.inf)
-
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # default sigpipe to terminate program instead of raising exception
 description = """
 
 calculate metrics on predictions vs labels

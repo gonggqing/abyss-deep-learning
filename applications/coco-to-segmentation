@@ -4,6 +4,7 @@ import copy
 import json
 import logging
 import os
+import signal
 import sys
 from numbers import Number
 from typing import Union
@@ -37,6 +38,8 @@ examples:
     
     cat coco.json | coco-to-segmentation --save-as bin --output-format uint32 # produce 4 byte values for each pixel
 """
+
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # default sigpipe to terminate program instead of raising exception
 
 
 def main(args: argparse.Namespace):
