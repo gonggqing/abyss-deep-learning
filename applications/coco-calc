@@ -5,6 +5,7 @@ import itertools
 import json
 import logging
 import os
+import signal
 import sys
 from ast import literal_eval
 from operator import itemgetter
@@ -15,9 +16,9 @@ import pandas as pd
 from PIL import Image
 from pycocotools.coco import COCO
 
-from abyss_deep_learning.metrics import poly_intersection_area
-from abyss_deep_learning.utils import polygon_area, imwrite, imread, do_overlap, polygon_x, polygon_y, MyCOCO
 from abyss_deep_learning.datasets.coco_utilities import coco_is_valid
+from abyss_deep_learning.metrics import poly_intersection_area
+from abyss_deep_learning.utils import polygon_area, imwrite, imread, do_overlap, MyCOCO
 
 __author__ = 'Kent Hu, Vsevolod Vlaskine'
 
@@ -134,6 +135,7 @@ examples
     cat coco.json | coco-calc resize --factor 0.3
     cat coco.json | coco-calc --verbose resize --size 480,640
 """
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # default sigpipe to terminate program instead of raising exception
 
 
 def main(args: argparse.Namespace) -> int:
@@ -1035,15 +1037,15 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         help="crop images and annotations. Annotations can be partially cropped if --keep-partial is specified",
     )
     parser_is_valid.add_argument('--validation',
-                        type=str,
-                        default='standard',
-                        choices={'standard', 'strict', 'skip'},
-                        help="Check if input coco is valid:\n"
-                             "standard: quick checks\n"
-                             "strict: more in-depth cross-reference checks(default)")
+                                 type=str,
+                                 default='standard',
+                                 choices={'standard', 'strict', 'skip'},
+                                 help="Check if input coco is valid:\n"
+                                      "standard: quick checks\n"
+                                      "strict: more in-depth cross-reference checks(default)")
 
-    parser_is_valid.add_argument('--images-check-exist', action='store_true', help="check that images exist. May need to cd to relative dir")
-
+    parser_is_valid.add_argument('--images-check-exist', action='store_true',
+                                 help="check that images exist. May need to cd to relative dir")
 
     parser_crop = subparsers.add_parser(
         'crop',
@@ -1101,7 +1103,6 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         '-s', '--size',
         help="<width>,<height> size",
     )
-
 
     parser_remap = subparsers.add_parser(
         'remap',
