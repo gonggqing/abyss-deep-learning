@@ -163,7 +163,10 @@ def main(args: argparse.Namespace) -> int:
         elif coco is True:
             pass
         else:
-            json.dump(coco.dataset, sys.stdout, indent=args.indent)
+            try:
+                json.dump(coco.dataset, sys.stdout, indent=args.indent)
+            except AttributeError:
+                json.dump(coco, sys.stdout, indent=args.indent)
         logging.shutdown()
         return status
 
@@ -481,9 +484,9 @@ def resize(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
 
 
 def repath(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
-    coco = MyCOCO(sys.stdin)
+    coco = json.load(sys.stdin)
 
-    for img_entry in coco.dataset['images']:
+    for img_entry in coco['images']:
         try:
             img_entry['path'] = os.path.join(args.path, os.path.basename(img_entry['path']))
         except KeyError:
