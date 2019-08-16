@@ -103,6 +103,7 @@ def get_args():
     parser.add_argument("--tfpn", action="store_true", help="Whether to calculate TFPN. Will be set to false if not using --cache-val.")
     parser.add_argument("--lr-schedule", type=str, help="The LR schedule to use, options are {step,exp,cyclic}. If left blank, no LR scheduling will be used. For example --lr-schedule cyclic")
     parser.add_argument("--lr-schedule-params", type=str, help="The parameters initialising the learning rate schedule. This is a dictionary that is used to initialise the LearningRateScheduler you are using. If left blank, default parameters will be used. For example for '--lr-schedule cyclic' do {'max_lr':0.006,'step_size':2000.}")
+    parser.add_argument("--only-train-head", action="store_true", help="Freezes the entire graph, but not the head, so only it is trained.")
     args = parser.parse_args()
     return args
 
@@ -281,7 +282,7 @@ def main(args):
             init_weights=args.weights,
             init_epoch=0,
             init_lr=args.lr,
-            trainable=True,
+            trainable=False if args.only_train_head else True, # if only_train_head, then all layers are frozen. Head layer is set to trainable later
             optimizer=args.optimizer,
             optimizer_args=optimizer_args,
             loss=args.loss,
@@ -289,6 +290,9 @@ def main(args):
             gpus=args.gpus,
             l12_reg=l12_reg
         )
+        if args.only_train_head:
+            classifier._maybe_create_model()
+            classifier.set_trainable({'logits': True})
     classifier.dump_args(os.path.join(args.scratch_dir, 'params.json'))
 
     # --------------------------------------
