@@ -199,11 +199,11 @@ def main(args):
             "flip_ud":True,  # Flip 50% of the time
             "gblur":None,  # No Gaussian Blur
             "avgblur":None,  # No Average Blur
-            "gnoise":(0,0.05*255),  # Add a bit of Gaussian noise
+            "gnoise":(0,0.05),  # Add a bit of Gaussian noise
             "scale":(0.8, 1.2),  # Don't scale
             "rotate":(-22.5, 22.5),  # Don't rotate
-            "bright":(0.75,1.25),  # Darken/Brighten (as ratio)
-            "colour_shift":(0.9,1.1)  # Colour shift (as ratio)
+            "bright":(0.9,1.1),  # Darken/Brighten (as ratio)
+            "colour_shift":(0.95,1.05)  # Colour shift (as ratio)
         }
     augmentation_cfg = create_augmentation_configuration(**aug_config)
 
