@@ -203,7 +203,8 @@ def main(args):
             "scale":(0.8, 1.2),  # Don't scale
             "rotate":(-22.5, 22.5),  # Don't rotate
             "bright":(0.9,1.1),  # Darken/Brighten (as ratio)
-            "colour_shift":(0.95,1.05)  # Colour shift (as ratio)
+            "colour_shift":(0.95,1.05),  # Colour shift (as ratio)
+            "cval":-1
         }
     augmentation_cfg = create_augmentation_configuration(**aug_config)
 
@@ -353,7 +354,7 @@ def main(args):
                 ImprovedTensorBoard(log_dir=log_dir, batch_size=args.batch_size, write_graph=True, embeddings_freq=embeddings_freq, embeddings_metadata=os.path.join(log_dir,'metadata.tsv'), embeddings_data=embeddings_data[0], embeddings_layer_names=['global_average_pooling2d_1'], num_classes=num_classes, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size) if (val_gen and not args.cache_val) else None, val_steps=val_steps, tfpn=tfpn, pr_curve=pr_curves, histogram_freq=histogram_freq),
                 #ImprovedTensorBoard(log_dir=log_dir, histogram_freq=3, batch_size=args.batch_size, write_graph=True, write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
                 ReduceLROnPlateau(monitor='val_loss', factor=0.5,
-                                  patience=10, min_lr=1e-8),
+                                  patience=25, min_lr=1e-8),
                 TerminateOnNaN()
                 ]
     if args.early_stopping_patience:

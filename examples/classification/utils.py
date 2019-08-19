@@ -47,7 +47,7 @@ def compute_class_weights(dataset):
     return dataset.stats['class_weights'].update((x,y/min_val) for x,y in dataset.stats['class_weights'].items())
 
 
-def create_augmentation_configuration(some_of=None, flip_lr=True, flip_ud=True, gblur=None, avgblur=None, gnoise=None, scale=None, rotate=None, bright=None, colour_shift=None):
+def create_augmentation_configuration(some_of=None, flip_lr=True, flip_ud=True, gblur=None, avgblur=None, gnoise=None, scale=None, rotate=None, bright=None, colour_shift=None, cval=0):
         """
         More info at https://imgaug.readthedocs.io/en/latest/source/augmenters.html
         Args:
@@ -61,6 +61,7 @@ def create_augmentation_configuration(some_of=None, flip_lr=True, flip_ud=True, 
             rotate: (tuple) Apply rotation transformations. This parameter is equal to rotation degrees. e.g. scale=(-45,45)
             bright: (tuple) Brighten the image by multiplying. This parameter is equal to the range of brightnesses, e.g. bright=(0.9,1.1)
             colour_shift: (tuple) Apply a color slight colour shift to some of the channels in the image. This parameter is equal to the multiplying factor on each channel. E.g. colour_shift=(0.9,1.1)
+            cval : (int) defines a constant value with which to fill in newly created pixels.
         """
         aug_list = []
         if flip_lr:
@@ -77,9 +78,9 @@ def create_augmentation_configuration(some_of=None, flip_lr=True, flip_ud=True, 
         if gnoise:
             sometimes_list.append(iaa.AdditiveGaussianNoise(scale=gnoise))
         if scale:
-            sometimes_list.append(iaa.Affine(scale=scale, mode='constant', cval=0, order=0))
+            sometimes_list.append(iaa.Affine(scale=scale, mode='constant', cval=cval, order=0))
         if rotate:
-            sometimes_list.append(iaa.Affine(rotate=rotate, mode='constant', cval=0, order=0))
+            sometimes_list.append(iaa.Affine(rotate=rotate, mode='constant', cval=cval, order=0))
         if bright:
             sometimes_list.append(iaa.Multiply(bright))
         if colour_shift:
