@@ -6,10 +6,11 @@ import logging
 import os
 import signal
 import sys
-from io import StringIO
 
 import pandas as pd
+import numpy as np
 from PIL import Image
+
 
 __author__ = 'Kent Hu'
 __maintainer__ = 'Kent Hu'
@@ -31,9 +32,20 @@ DESCRIPTION = \
             cat images.csv | coco-from-csv -f path --categories <( echo medium,1; echo high,2 )
             cat images.csv | coco-from-csv -f path --categories <( echo '[ { "id": 1, "name": "medium" }, { "id": 2, "name": "high" } ]' )
             cat images.csv | coco-from-csv -f path --categories <( echo '{ "categories": [ { "id": 1, "name": "medium" }, { "id": 2, "name": "high" } ] }' )
+
+        segmentation
+            cat contours.csv | coco-from-csv --fields 'path,index,parent,x,y,category_id' --map class-mapping.csv
+
     """
 EMPTY = 0
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # default sigpipe to terminate program instead of raising exception
+
+
+def print_error(modes):
+    logging.error(
+        "Could not find required fields options are:\n{}".format(
+            '\n'.join(['{} = {}'.format(m[0], ','.join(m[1])) for m in modes])))
+    sys.exit(1)
 
 
 def main(args):
@@ -41,48 +53,68 @@ def main(args):
                         datefmt='%Y-%m-%d %H:%M:%S',
                         level=args.verbose)
     logging.info("--verbose enabled")
-    buffer = sys.stdin.read().strip()
-    if not buffer: logging.error(
-        "expected input from stdin: received empty characters {}".format(repr(buffer))); sys.exit(1)
-    csv_ = StringIO(buffer)
+    #buffer = sys.stdin.read().strip()
+    #if not buffer: logging.error(
+    #    "expected input from stdin: received empty characters {}".format(repr(buffer))); sys.exit(1)
+    #csv_ = StringIO(buffer)
 
+    modes = [
+        ('bbox', ['path', 'x1', 'y1', 'x2', 'y2', 'category_id']),
+        ('bbox', ['path', 'x', 'y', 'w', 'h', 'category_id']),
+        ('video', ['path', 'begin_frame', 'end_frame', 'caption']),
+        ('contours', ['path', 'index','parent','x','y','category_id']),
+        ('path', ['path'])
+    ]
+    mode = None
     try:
-        def get_empty_name():
-            global EMPTY
-            name = '__empty__' + str(EMPTY) + '__'
-            EMPTY += 1
-            return name
-
-        fields = args.fields.split(',')
-        fields = [get_empty_name() if x == '' else x for x in fields]
-        df = pd.read_csv(csv_, names=fields, header=None) if args.fields else pd.read_csv(csv_)
+        if args.fields:
+            fields = args.fields.split(',')
+            for m in modes:
+                if all(field in fields for field in m[1]):
+                    mode = m
+                    break
+            names = [f for i,f in enumerate(fields) if f != '']
+            usecols = [i for i,f in enumerate(fields) if f != '']
+            if mode is None:
+                print_error(modes)
+            df = pd.read_csv(sys.stdin, names=names, usecols=usecols, header=None)
+        else:
+            df = pd.read_csv(sys.stdin)
+            for m in modes:
+                if all(field in fields for field in df):
+                    mode = m
+                    break
+            if mode is None:
+                print_error(modes)
     except pd.errors.ParserError as e:
         logging.error(e, "Mismatch in expected and received fields in csv")
         sys.exit(1)
-
-    coco_json = {}
-    if all(field in df for field in ['path', 'x1', 'y1', 'x2', 'y2', 'category_id']):
+    if mode[0] == 'bbox':
+        if 'w' not in df or 'h' not in df:
+            df['w'] = df['x2'] - df['x1']
+            df['h'] = df['y2'] - df['y1']
+            df.rename(columns=dict(x1='x', y1='y'))
+        logging.info("Generating from bounding boxes")
         coco_json = generate_from_bounding_boxes(df, args)
-    elif all(field in df for field in ['path', 'x', 'y', 'w', 'h', 'category_id']):
-        df['x1'] = df['x']
-        df['y1'] = df['y']
-        df['x2'] = df['x'] + df['w']
-        df['y2'] = df['y'] + df['h']
-        coco_json = generate_from_bounding_boxes(df, args)
-    elif all(field in df for field in ['path', 'begin_frame', 'end_frame', 'caption']):
+    elif mode[0] == 'video':
+        logging.info("Generating from video")
         coco_json = generate_from_video_frames(df, args)
-    elif all(field in df for field in ['path']):
+    elif mode[0] == 'contours':
+        logging.info("Generating from contours")
+        coco_json = generate_from_contours(df, args)
+    elif mode[0] == 'path':
+        logging.info("Generating from path only")
         coco_json = make_images(df, args)
     else:
         logging.error(
-            "Could not find required fields\n (path) or\n (path,x1,y1,x2,y2,category_id') or\n ('path','begin_frame','end_frame','caption')")
+            "Could not find required fields\n {}".format('\n'.join([ '{} = {}'.format(m[0], ','.join(m[1])) for m in modes])))
         sys.exit(1)
 
     json.dump(coco_json, sys.stdout, indent=args.indent)
     sys.exit(0)
 
 
-def make_image(row, width, height, id):  # todo! reuse in generate_from_bounding_boxes()
+def make_image(row, width, height, id, args):
     image_path = row['path']
     image_file_name = os.path.basename(image_path)
     image = {
@@ -99,7 +131,7 @@ def make_image(row, width, height, id):  # todo! reuse in generate_from_bounding
                     "could not get image size from [{}]; no image width/height will be in coco".format(image_path))
             else:
                 logging.error(
-                    "could not get image size from [{}]; use --force to override".format(image_path));
+                    "could not get image size from [{}]; use --force to override".format(image_path))
                 sys.exit(1)
             width = height = None
     if width:
@@ -109,81 +141,83 @@ def make_image(row, width, height, id):  # todo! reuse in generate_from_bounding
 
 
 def make_images(df, args):
-    logging.info("Generating from bounding images")
     coco_json = {
         'categories': get_categories_from_fd(args.map),
         'annotations': [],
         'images': [],
     }
-    width, height = args.image_size.split(',')
-    for idx, row in df.iterrows(): coco_json['images'].append(
-        make_image(row, int(width), int(height), len(coco_json['images'])))
+    if args.image_size:
+        width, height = args.image_size.split(',')
+        width = int(width)
+        height = int(height)
+    else:
+        width = None
+        height = None
+
+    for _,group in df.groupby(['path'], sort=False):
+        coco_json['images'].append(make_image(group.iloc[0], width, height, len(coco_json['images']), args))
     return coco_json
 
 
-def generate_from_bounding_boxes(df, args):  # def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
-    logging.info("Generating from bounding boxes")
-    coco_json = {
-        'images': [],
-        'annotations': [],
-        'categories': get_categories_from_fd(args.map)
-    }
+def generate_from_contours(df, args):
+    logging.info("Make images")
+    coco_json = make_images(df, args)
+    logging.info("group contours")
+    image_name_to_id = { image['path']: image['id'] for image in coco_json['images'] }
 
-    seen_imgs = set()
-    img_file_name_2_img_id = {}
-    for idx, row in df.iterrows():
+    df.sort_values(by=['path', 'index', 'parent'], inplace=True)
+
+    all_points = df[['x','y', 'index']].to_numpy()
+    end = 0
+
+    for path, path_group in df.groupby(['path'], sort=False):
+        image_id = image_name_to_id[path]
+        for index, index_group in path_group.groupby(['parent'], sort=False):
+            # this operation is very slow, extract from numpy by index instead
+            # points = index_group[['x', 'y', 'parent']].to_numpy()
+            start = end
+            end = end + index_group['parent'].count()
+            points = all_points[start:end]
+
+            contours = np.split(points[:, 0:2], np.unique(points[:, 2], return_index=True)[1][1:])
+            segmentation = list()
+            for c in contours:
+                segmentation.append([int(x) for x in np.reshape(c, -1)])
+
+            outer = contours[0]
+
+            min_xy = outer.min(0)
+            max_xy = outer.max(0)
+            wh = max_xy-min_xy
+
+            coco_json['annotations'].append({
+                'id': len(coco_json['annotations']),
+                'image_id': int(image_id),
+                "category_id": int(index_group['category_id'].iloc[0]),
+                "segmentation": segmentation,
+                "bbox": [ int(min_xy[0]), int(min_xy[1]), int(wh[0]), int(wh[1]) ],
+                "area": int(wh[0]*wh[1]) # TODO actual area
+            })
+
+    return coco_json
+    
+
+def generate_from_bounding_boxes(df, args):  # def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
+    coco_json = make_images(df, args)
+    image_name_to_id = { image['path']: image['id'] for image in coco_json['images']}
+   
+    for _,row in df.iterrows():
         category_id = int(row['category_id'])
         if category_id < 0:
             continue
-
         img_path = row['path']
-        img_file_name = os.path.basename(img_path)
-
-        if img_file_name not in seen_imgs:
-            img_id = row['image_id'] if 'image_id' in row else (len(seen_imgs))
-            seen_imgs.add(img_file_name)
-
-            # PIL.Image.open does lazy loading so raster data will not be loaded in
-            try:
-                width, height = Image.open(img_path).size
-            except IOError:
-                logging.info("img_path [{}] could not be found".format(img_path))
-                logging.info("Using width and height values from command line argument --image-size")
-                if args.image_size:
-                    width, height = args.image_size.split(',')
-                else:
-                    width = height = None
-                    if args.force:
-                        logging.warning("width and height values will be omitted from image [{}]".format(img_path))
-                    else:
-                        logging.error("width and height are not given for image [{}]; use --force to override".format(
-                            img_path));
-                        sys.exit(1)
-
-            img = {
-                'id': img_id,
-                'file_name': img_file_name,
-                'license': 0,
-                'date_captured': '',
-                'path': img_path,
-            }
-            if width and height:
-                img['width'] = int(width)
-                img['height'] = int(height)
-            coco_json['images'].append(img)
-            img_file_name_2_img_id[img_file_name] = img_id
-
-        x = row['x1']
-        y = row['y1']
-        width = row['x2'] - x
-        height = row['y2'] - y
-        bbox = [int(x), int(y), int(width), int(height)]
+        bbox = [int(row['x']), int(row['y']), int(row['w']), int(row['h'])]
         coco_json['annotations'].append({
             'id': len(coco_json['annotations']),
-            'image_id': img_file_name_2_img_id[img_file_name],
+            'image_id': image_name_to_id[img_path],
             'category_id': category_id,
-            'segmentation': [bbox_to_segmentation([x, y, width, height])],
-            'area': int(width * height),
+            'segmentation': [bbox_to_segmentation(bbox)],
+            'area': int(bbox[2] * bbox[3]),
             'bbox': bbox,
             'iscrowd': 0,
             'score': row.get('score', 1),
@@ -207,7 +241,7 @@ def get_categories_from_fd(mapping):
         else:
             categories = []
             buf = buf.split('\n')
-            reader = csv.reader(buf)
+            #reader = csv.reader(buf)
             for row in buf:
                 s = row.split(',')
                 if len(s) < 2: logging.error(
