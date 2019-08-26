@@ -282,7 +282,7 @@ def warn_once(func, message):
     return new_func
 
 
-def imread(path: str, size: Tuple[int, int] = None, dtype=None):
+def imread(path: str, scale: float = 1, size: Tuple[int, int] = None, dtype=None):
     """
     Read an image from the file system, optionally resizing the image size.
 
@@ -290,11 +290,14 @@ def imread(path: str, size: Tuple[int, int] = None, dtype=None):
         path: Path to image, relative or absolute
         size: 2-tuple (width, height)
         dtype: numpy dtype to cast to
+        scale: scale image by factor
 
     """
     im = PIL.Image.open(path)
+    width, height = im.size
+    im = im.resize((int(width * scale), int(height * scale)), PIL.Image.ANTIALIAS)
     if size is not None:
-        im = im.resize(size, resample=PIL.Image.BICUBIC)
+        im = im.resize(size, resample=PIL.Image.ANTIALIAS)
     return np.array(im, dtype=dtype)
 
 
@@ -398,18 +401,17 @@ def polygon_to_mini_mask(polygon_: List[Union[int, float]], value: float = 1) ->
 
 
 def draw_polygon(x, y, grid: np.array, value: float = 1) -> np.array:
-
     grid[polygon(y, x)] = value
     nx = len(np.unique(x))
     ny = len(np.unique(y))
     if nx > 2 or ny > 2:
         grid[polygon_perimeter(y, x)] = value
     elif nx == 2 or ny == 2:
-        for i in range(len(x)-1):
-            if y[i] == y[i+1] and x[i] == x[i+1]:
-                grid[y, x] = value # single pixel drawn
+        for i in range(len(x) - 1):
+            if y[i] == y[i + 1] and x[i] == x[i + 1]:
+                grid[y, x] = value  # single pixel drawn
             else:
-                grid[line(y[i], x[i], y[i+1], x[i+1])] = value # draw line
+                grid[line(y[i], x[i], y[i + 1], x[i + 1])] = value  # draw line
     elif nx == 1 and ny == 1:
         grid[y, x] = value
     else:
