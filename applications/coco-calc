@@ -135,6 +135,12 @@ examples
     cat coco.json | coco-calc resize --factor 0.3
     cat coco.json | coco-calc --verbose resize --size 480,640
 """
+
+_SIMPLIFY_DESCRIPTION = """
+Reduce the number of polygon points in segmentation.
+Uses the Ramer–Douglas–Peucker algorithm. 
+"""
+
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # default sigpipe to terminate program instead of raising exception
 
 
@@ -163,9 +169,9 @@ def main(args: argparse.Namespace) -> int:
         elif coco is True:
             pass
         else:
-            try:
+            if isinstance(coco, MyCOCO):
                 json.dump(coco.dataset, sys.stdout, indent=args.indent)
-            except AttributeError:
+            else:
                 json.dump(coco, sys.stdout, indent=args.indent)
         logging.shutdown()
         return status
@@ -495,6 +501,26 @@ def repath(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                 img_entry['path'] = os.path.join(args.path, os.path.basename(img_entry['file_name']))
             except KeyError:
                 logging.warning("Unable to find 'file_name' key for image {}".format(img_entry))
+    return coco, 0
+
+
+def simplify(args: argparse.Namespace) -> Tuple[Union[dict, None], int]:
+    from simplification.cutil import simplify_coords
+    # from skimage.measure import approximate_polygon
+    coco = json.load(sys.stdin)
+    #before_total = 0
+    #after_total = 0
+    for ann in coco['annotations']:
+        for i, poly in enumerate(ann['segmentation']):
+            seg = np.array(poly)
+            simplified = simplify_coords(np.reshape(seg, (-1, 2)), args.tolerance)
+            # slow version in skimage
+            #simplified = approximate_polygon(np.reshape(seg,(-1,2)), 2.0)
+            after = np.reshape(simplified, (-1))
+            ann['segmentation'][i] = after.tolist()  # [x[0] for x in seg]
+            #before_total += seg.shape[0]
+            #after_total += after.shape[0]
+
     return coco, 0
 
 
@@ -1141,6 +1167,21 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         help="New path to prepend to each image in data set",
     )
 
+    parser_simplify = subparsers.add_parser(
+        'simplify',
+        description=_SIMPLIFY_DESCRIPTION,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=parents,
+        help="Simplify segmentation polygons.",
+    )
+    parser_simplify.add_argument(
+        '--tolerance',
+        default=1.0,
+        type=float,
+        help="pixel distance tolerance",
+    )
+
+
     parser_coverage = subparsers.add_parser(
         'coverage',
         description=_COVERAGE_DESCRIPTION,
@@ -1269,6 +1310,7 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
     parser_remap.set_defaults(func=remap)
     parser_repath.set_defaults(func=repath)
     parser_resize.set_defaults(func=resize)
+    parser_simplify.set_defaults(func=simplify)
     return parser.parse_args(flags)
 
 
