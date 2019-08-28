@@ -93,7 +93,7 @@ def main(args):
         if 'w' not in df or 'h' not in df:
             df['w'] = df['x2'] - df['x1']
             df['h'] = df['y2'] - df['y1']
-            df.rename(columns=dict(x1='x', y1='y'))
+            df.rename(columns={'x1': 'x', 'y1': 'y'}, inplace=True)
         logging.info("Generating from bounding boxes")
         coco_json = generate_from_bounding_boxes(df, args)
     elif mode[0] == 'video':
