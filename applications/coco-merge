@@ -150,7 +150,7 @@ def merge_pair(args, dest_coco, source_coco):
     dest_annotations = dest_coco['annotations']
 
     dest_annotations_sorted = sorted(dest_annotations, key=lambda x: x['image_id'])
-    dest_annotations_dict = dict([(key, list(group)) for key, group in
+    dest_annotations_dict = dict([(key, group) for key, group in
                                   groupby(dest_annotations_sorted, lambda x: x['image_id'])])
 
     max_ann_id = max_or_zero([e['id'] for e in dest_coco['annotations']])
