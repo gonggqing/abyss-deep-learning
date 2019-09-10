@@ -161,6 +161,19 @@ def main(args):
                     categories.append(category)
         data['categories'] = categories
 
+    for d in data['images']:
+        for f in ['id', 'width', 'height']:
+            if f in d:
+                d[f] = int(d[f])
+    for d in data['annotations']:
+        for f in ['id', 'category_id', 'image_id']:
+            if f in d:
+                d[f] = int(d[f])
+    for d in data['categories']:
+        for f in ['id']:
+            if f in d:
+                d[f] = int(d[f])
+
     logging.info("Printing to stdout")
     json.dump(data, sys.stdout, indent=args.indent)
     logging.info("Done in {elapsed_time}s".format(elapsed_time=time.perf_counter() - tic))
