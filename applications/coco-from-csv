@@ -33,6 +33,9 @@ DESCRIPTION = \
             cat images.csv | coco-from-csv -f path --categories <( echo '[ { "id": 1, "name": "medium" }, { "id": 2, "name": "high" } ]' )
             cat images.csv | coco-from-csv -f path --categories <( echo '{ "categories": [ { "id": 1, "name": "medium" }, { "id": 2, "name": "high" } ] }' )
 
+        points
+            cat points.csv | coco-from-csv --fields path,x,y,score --map <( echo point,0 )
+
         segmentation
             cat contours.csv | coco-from-csv --fields 'path,index,parent,x,y,category_id' --map class-mapping.csv
 
@@ -58,11 +61,13 @@ def main(args):
     #    "expected input from stdin: received empty characters {}".format(repr(buffer))); sys.exit(1)
     #csv_ = StringIO(buffer)
 
+    # Required columns in CSV data. Names are provided by user on command line
     modes = [
         ('bbox', ['path', 'x1', 'y1', 'x2', 'y2', 'category_id']),
         ('bbox', ['path', 'x', 'y', 'w', 'h', 'category_id']),
         ('video', ['path', 'begin_frame', 'end_frame', 'caption']),
         ('contours', ['path', 'index','parent','x','y','category_id']),
+        ('point', ['path', 'x', 'y']),
         ('path', ['path'])
     ]
     mode = None
@@ -102,6 +107,9 @@ def main(args):
     elif mode[0] == 'contours':
         logging.info("Generating from contours")
         coco_json = generate_from_contours(df, args)
+    elif mode[0] == 'point':
+        logging.info("Generating from points")
+        coco_json = generate_from_point(df, args)
     elif mode[0] == 'path':
         logging.info("Generating from path only")
         coco_json = make_images(df, args)
@@ -202,7 +210,7 @@ def generate_from_contours(df, args):
     return coco_json
     
 
-def generate_from_bounding_boxes(df, args):  # def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
+def generate_from_bounding_boxes(df: pd.DataFrame, args):  # def generate_from_bounding_boxes(df: pd.DataFrame) -> dict:
     coco_json = make_images(df, args)
     image_name_to_id = { image['path']: image['id'] for image in coco_json['images']}
    
@@ -227,7 +235,7 @@ def generate_from_bounding_boxes(df, args):  # def generate_from_bounding_boxes(
 
 def get_categories_from_fd(mapping):
     if mapping is None:
-        logging.warning("no --categories specified, empty catergories will be output")
+        logging.warning("no --categories specified, empty categories will be output")
         return []
     with open(mapping) as f:
         buf = f.read().strip()
@@ -258,6 +266,30 @@ def get_categories_from_fd(mapping):
 def bbox_to_segmentation(bbox: list) -> list:
     x, y, width, height = bbox
     return [x, y, x + width, y, x + width, y + height, x, y + height]
+
+
+def generate_from_point(df: pd.DataFrame, args):
+    coco_json = make_images(df, args)
+    image_name_to_id = {image['path']: image['id'] for image in coco_json['images']}
+
+    for _, row in df.iterrows():
+        img_path = row['path']
+
+        bbox = [int(row['x']), int(row['y']), 1, 1]
+
+        coco_json['annotations'].append({
+            'id': len(coco_json['annotations']),
+            'image_id': image_name_to_id[img_path],
+            'category_id': row.get('category_id', 0),
+            'annotation_type': 'point',
+            'segmentation': [bbox_to_segmentation(bbox)],
+            'area': int(bbox[2] * bbox[3]),
+            'bbox': bbox,
+            'iscrowd': 0,
+            'score': row.get('score', 1),
+        })
+
+    return coco_json
 
 
 def generate_from_video_frames(df: pd.DataFrame, args) -> dict:
