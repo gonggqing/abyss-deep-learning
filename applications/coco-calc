@@ -236,7 +236,7 @@ def crop(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                 continue
             cropped = img[offset_y: offset_y + crop_height, offset_x: offset_x + crop_width]
             #out_path = stubname + '.' + str(ann_entry['id']) + '.png'
-            out_path = stubname + '.' + str(offset_x) +'.' + str(offset_y) + '.png'
+            out_path = stubname + '.' + str(offset_x) +'.' + str(offset_y) + '.' + str(ann_entry['id']) + '.png'
             cropped_entry = {
                 'file_name': os.path.basename(out_path),
                 'path': out_path,
