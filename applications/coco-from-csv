@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import argparse
-import csv
 import json
 import logging
 import os
@@ -10,6 +9,8 @@ import sys
 import pandas as pd
 import numpy as np
 from PIL import Image
+from typing import Iterator
+import cv2
 
 
 __author__ = 'Kent Hu'
@@ -167,6 +168,42 @@ def make_images(df, args):
     return coco_json
 
 
+class CsvToPolygon:
+
+    def __init__(self, df, point_key, polygon_group_key):
+        self.polygon_group_key = polygon_group_key
+        self.all_points = df[[point_key[0], point_key[1], 'index', polygon_group_key]].to_numpy()
+        self.image_grouping = df.groupby(['path'], sort=False)
+
+    @property
+    def images(self) -> Iterator[object]:
+        end = 0
+        for path, path_group in self.image_grouping:
+            polygons = list()
+            for index, index_group in path_group.groupby([self.polygon_group_key], sort=False):
+                start = end
+                end = end + index_group[self.polygon_group_key].count()
+                points = self.all_points[start:end]
+
+                if any(points[:, 3] != index):
+                    logging.error('mismatch numpy pandas')
+                    sys.exit(1)
+
+                contours = np.split(points[:, 0:2], np.unique(points[:, 2], return_index=True)[1][1:])
+
+                area = cv2.contourArea(contours[0])
+                for i in range(1, len(contours)):
+                    area -= cv2.contourArea(contours[i])
+
+                polygons.append({
+                    'id': index_group[self.polygon_group_key].iloc[0],
+                    'category_id': index_group['category_id'].iloc[0],
+                    'contours': contours,
+                    'area': area
+                })
+            yield {"path": path, 'polygons': polygons}
+
+
 def generate_from_contours(df, args):
     logging.info("Make images")
     coco_json = make_images(df, args)
@@ -175,36 +212,30 @@ def generate_from_contours(df, args):
 
     df.sort_values(by=['path', 'index', 'parent'], inplace=True)
 
-    all_points = df[['x','y', 'index']].to_numpy()
-    end = 0
+    csv_to_polygon = CsvToPolygon(df, ('x','y'), 'parent')
 
-    for path, path_group in df.groupby(['path'], sort=False):
+    for image in csv_to_polygon.images:
+        path = image['path']
         image_id = image_name_to_id[path]
-        for index, index_group in path_group.groupby(['parent'], sort=False):
-            # this operation is very slow, extract from numpy by index instead
-            # points = index_group[['x', 'y', 'parent']].to_numpy()
-            start = end
-            end = end + index_group['parent'].count()
-            points = all_points[start:end]
-
-            contours = np.split(points[:, 0:2], np.unique(points[:, 2], return_index=True)[1][1:])
-            segmentation = list()
-            for c in contours:
-                segmentation.append([int(x) for x in np.reshape(c, -1)])
+        for polygon in image['polygons']:
+            contours = polygon['contours']
+            category_id = polygon['category_id']
+            area = polygon['area']
+            segmentation = [np.reshape(c, -1).tolist() for c in contours]
 
             outer = contours[0]
-
             min_xy = outer.min(0)
             max_xy = outer.max(0)
             wh = max_xy-min_xy
+            # area = int(wh[0] * wh[1])
 
             coco_json['annotations'].append({
                 'id': len(coco_json['annotations']),
                 'image_id': int(image_id),
-                "category_id": int(index_group['category_id'].iloc[0]),
+                "category_id": int(category_id),
                 "segmentation": segmentation,
                 "bbox": [ int(min_xy[0]), int(min_xy[1]), int(wh[0]), int(wh[1]) ],
-                "area": int(wh[0]*wh[1]) # TODO actual area
+                "area": area
             })
 
     return coco_json
