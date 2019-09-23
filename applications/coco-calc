@@ -312,7 +312,8 @@ def crop_poly(ann_entry, crop_height, crop_width, offset_x, offset_y, keep_parti
 
 
 def remap(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
-    coco = MyCOCO(sys.stdin)
+    #coco = MyCOCO(sys.stdin)
+    coco =json.load(sys.stdin)
 
     # literal_eval allows usage of either single quote (') or double quote(") to interpret a json string
     if os.path.isfile(args.mapping):
@@ -321,17 +322,29 @@ def remap(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
     else:
         mapping = literal_eval(args.mapping)
 
-    source_categories = coco.loadCats(ids=coco.getCatIds())
-    if not source_categories:
-        return coco, 1
-    for category in source_categories:
-        if not (category['id'] in mapping or category['name'] in mapping):
-            mapping[category['name']] = category['name']
+    # source_categories = coco.loadCats(ids=coco.getCatIds())
+    # if not source_categories:
+    #    return coco, 1
+    # for category in source_categories:
+    #    if not (category['id'] in mapping or category['name'] in mapping):
+    #        mapping[category['name']] = category['name']
 
-    output_categories = copy.deepcopy(coco.loadCats(ids=coco.getCatIds()))
+    if coco.get("categories") is None:
+        return coco, 1
+    else:
+        source_categories = coco.get("categories")
+
+    #output_categories = copy.deepcopy(coco.loadCats(ids=coco.getCatIds()))
+    # for category in output_categories:
+    #     if category['name'] in mapping.keys():
+    #         category_id = mapping[category['name']]
+    #         if isinstance(category_id, int):
+    #             category['id'] = category_id
+
+    output_categories = copy.deepcopy(coco.get("categories"))
     for category in output_categories:
-        if category['name'] in mapping.keys():
-            category_id = mapping[category['name']]
+        if category['id'] in mapping.keys():
+            category_id = mapping[category['id']]
             if isinstance(category_id, int):
                 category['id'] = category_id
 
@@ -349,66 +362,72 @@ def remap(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
         target_categories = args.target_categories
 
     new_name_2_id = {category['name']: category['id'] for category in target_categories}
-    source_category_names = [category['name'] for category in source_categories]
-    target_category_names = [category['name'] for category in target_categories]
+    source_category_ids = [category['id'] for category in source_categories]
+    target_category_ids = [category['id'] for category in target_categories]
     annotations = []
-    if len(coco.dataset['annotations']) > 0:
+    if len(coco.get('annotations')) > 0:
         added_annotation_ids = set()
 
         for old, new in mapping.items():
-            if isinstance(old, str) and old not in source_category_names:
-                logging.error("Cannot find source key {} in category names {}".format(old, source_category_names))
+            if isinstance(old, str) and old not in source_category_ids:
+                logging.error("Cannot find source key {} in category names {}".format(old, source_category_ids))
                 sys.exit(1)
 
-            if isinstance(new, str) and new not in target_category_names:
-                logging.error("cannot find target key {} in category names {}".format(new, target_category_names))
+            if isinstance(new, str) and new not in target_category_ids:
+                logging.error("cannot find target key {} in category names {}".format(new, target_category_ids))
                 sys.exit(1)
 
             elif isinstance(old, int) and isinstance(new, int):
-                for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=old)):
-                    ann_copy = copy.deepcopy(ann)
-                    ann_copy['category_id'] = new
-                    annotations.append(ann_copy)
-                    added_annotation_ids.add(ann_copy['id'])
-                category = coco.loadCats(ids=coco.getCatIds(catIds=old)).pop()
-                category['id'] = new
+                for ann in coco.get("annotations"):
+                    if ann.get("category_id") is old:
+                        ann_copy = copy.deepcopy(ann)
+                        ann_copy['category_id'] = new
+                        annotations.append(ann_copy)
+                        added_annotation_ids.add(ann_copy['id'])
+                category = [c for c in coco.get("categories") if c.get('id') is old]
+                for c in category:
+                    c['id'] = new
 
             elif isinstance(old, int) and isinstance(new, str):
                 if new in new_name_2_id.keys():
-                    for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=old)):
-                        ann_copy = copy.deepcopy(ann)
-                        ann_copy['category_id'] = new_name_2_id[new]
-                        annotations.append(ann_copy)
-                        added_annotation_ids.add(ann_copy['id'])
+                    for ann in coco.get("annotations"):
+                        if ann.get("category_id") is old:
+                            ann_copy = copy.deepcopy(ann)
+                            ann_copy['category_id'] = new_name_2_id[new]
+                            annotations.append(ann_copy)
+                            added_annotation_ids.add(ann_copy['id'])
 
             elif isinstance(old, str) and isinstance(new, int):
-                for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=coco.getCatIds(catNms=old))):
-                    ann_copy = copy.deepcopy(ann)
-                    ann_copy['category_id'] = new
-                    annotations.append(ann_copy)
-                    added_annotation_ids.add(ann_copy['id'])
-                category = coco.loadCats(ids=coco.getCatIds(catNms=old)).pop()
-                category['id'] = new
+                for ann in coco.get("annotations"):
+                    if ann.get("category_id") is old:
+                        ann_copy = copy.deepcopy(ann)
+                        ann_copy['category_id'] = new
+                        annotations.append(ann_copy)
+                        added_annotation_ids.add(ann_copy['id'])
+                category = [c for c in coco.get("categories") if c.get('id') is old]
+                for c in category:
+                    c['id'] = new
 
             elif isinstance(old, str) and isinstance(new, str):
                 if new in new_name_2_id.keys():
-                    for ann in coco.loadAnns(ids=coco.getAnnIds(catIds=coco.getCatIds(catNms=old))):
-                        ann_copy = copy.deepcopy(ann)
-                        ann_copy['category_id'] = new_name_2_id[new]
-                        annotations.append(ann_copy)
-                        added_annotation_ids.add(ann_copy['id'])
+                    for ann in coco.get("annotations"):
+                        if ann.get("category_id") is old:
+                            ann_copy = copy.deepcopy(ann)
+                            ann_copy['category_id'] = new_name_2_id[new]
+                            annotations.append(ann_copy)
+                            added_annotation_ids.add(ann_copy['id'])
 
-        to_add_annotation_ids = set(coco.getAnnIds()) - added_annotation_ids
-        annotations.extend(coco.loadAnns(ids=to_add_annotation_ids))
+        to_add_annotation_ids = set([a.get("id") for a in coco.get("annotations")]) - added_annotation_ids
+        annotations.extend([a for a in coco.get("annotations") if a.get("id") in to_add_annotation_ids])
 
-    coco.dataset['annotations'] = annotations
+    coco['annotations'] = annotations
 
     categories = target_categories
     if args.keep_source_categories:
         categories.extend(source_categories)
 
-    coco.dataset['categories'] = sorted(drop_duplicates(categories), key=itemgetter('id'))
-    category_ids = coco.getCatIds()
+    coco['categories'] = sorted(drop_duplicates(categories), key=itemgetter('id'))
+    category_ids = [c.get('id') for c in coco.get("categories")]
     if len(set(category_ids)) != len(category_ids):
         logging.warning('There are duplicate category ids in the coco dataset.')
 
