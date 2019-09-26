@@ -7,7 +7,7 @@ from collections import Counter
 from contextlib import redirect_stdout
 from io import TextIOWrapper
 from numbers import Number
-from typing import Tuple, Union, List
+from typing import Tuple, Union, List, Dict
 
 import PIL.Image
 import cv2
@@ -386,6 +386,29 @@ def polygon_to_mask(polygon_: List[Union[int, float]], value: float = 1) -> np.a
     grid = np.zeros([max_y, max_x])
 
     return draw_polygon(x, y, grid, value)
+
+
+CocoAnnotationEntry = Dict[str, Union[str, int, float, List[List[Union[int, float]]]]]
+
+
+def annotations_to_mask(anns: List[CocoAnnotationEntry], shape: Tuple[int, int]) -> np.ndarray:
+    """
+    Converts coco annotation to mask file using opencv drawContours
+
+    Args:
+        anns: list of annotation entries in COCO format
+        shape: height x width of original image
+
+    Returns:
+        mask of filled in category value of each annotation entry
+    """
+    from cv2 import drawContours
+    mask = np.array(shape, dtype=np.uint8)
+    for ann in anns:
+        # reshape segmentation
+        contours = [np.reshape(segm, (len(segm) // 2, 1, 2)) for segm in ann['segmentation']]
+        drawContours(image=mask, contours=contours, contourIdx=-1, color=ann.get('category_id', 0), thickness=-1)
+    return mask
 
 
 def polygon_to_mini_mask(polygon_: List[Union[int, float]], value: float = 1) -> np.array:
