@@ -191,9 +191,9 @@ class CsvToPolygon:
 
                 contours = np.split(points[:, 0:2], np.unique(points[:, 2], return_index=True)[1][1:])
 
-                area = cv2.contourArea(contours[0])
+                area = cv2.contourArea(contours[0].astype(np.float32))
                 for i in range(1, len(contours)):
-                    area -= cv2.contourArea(contours[i])
+                    area -= cv2.contourArea(contours[i].astype(np.float32))
 
                 polygons.append({
                     'id': index_group[self.polygon_group_key].iloc[0],
@@ -210,7 +210,7 @@ def generate_from_contours(df, args):
     logging.info("group contours")
     image_name_to_id = { image['path']: image['id'] for image in coco_json['images'] }
 
-    df.sort_values(by=['path', 'index', 'parent'], inplace=True)
+    df.sort_values(by=['path', 'parent', 'index'], inplace=True)
 
     csv_to_polygon = CsvToPolygon(df, ('x','y'), 'parent')
 
