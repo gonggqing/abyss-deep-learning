@@ -794,8 +794,8 @@ def create_mask(args: argparse.Namespace) -> Tuple[None, int]:
             raise e
 
         shape = int(float(first_img_entry['height'])), int(float(first_img_entry['width']))
-        sys.stdout.buffer.write(annotations_to_mask(first_coco.loadAnns(first_coco.getAnnIds(imgIds=first_img_entry['id'])), shape).astype(np.uint8).tobytes())
-        sys.stdout.buffer.write(annotations_to_mask(second_coco.loadAnns(second_coco.getAnnIds(imgIds=second_img_entry['id'])), shape).astype(np.uint8).tobytes())
+        sys.stdout.buffer.write(annotations_to_mask(first_coco.loadAnns(first_coco.getAnnIds(imgIds=first_img_entry['id'])), shape).astype(np.int32).tobytes())
+        sys.stdout.buffer.write(annotations_to_mask(second_coco.loadAnns(second_coco.getAnnIds(imgIds=second_img_entry['id'])), shape).astype(np.int32).tobytes())
 
     return None, 0
 
