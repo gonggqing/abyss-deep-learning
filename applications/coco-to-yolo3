@@ -9,7 +9,7 @@ from pycocotools.coco import COCO
 
 def bbox_to_roi(bbox):
     x, y, w, h = bbox
-    roi = [x, y, x + w, y + w]
+    roi = [x, y, x + w, y + h]
     return roi
 
 def coco_to_yolo3(args):
