@@ -57,10 +57,10 @@ def main(args: argparse.Namespace):
         mask_buffer = f.read().strip()
 
     if not buffer:
-        logging.CRITICAL("Expecting input from stdin: received empty characters {}".format(repr(buffer)))
+        logging.CRITICAL(f"Expecting input from stdin: received empty characters {repr(buffer)}")
         sys.exit(1)
     if not mask_buffer:
-        logging.CRITICAL("Expecting input from mask_file: received empty characters {}".format(repr(buffer)))
+        logging.CRITICAL(f"Expecting input from mask_file: received empty characters {repr(buffer)}")
         sys.exit(1)
 
     if args.image_list:
@@ -85,19 +85,19 @@ def main(args: argparse.Namespace):
                 categories_buffer = f.read().strip()
             category_json = json.loads(categories_buffer)
         except Exception as ex:
-            logging.error('reading {} categories file'.format(args.categories))
+            logging.error(f"reading {args.categories} categories file")
             sys.exit(1)
 
         categories = category_json.get('categories', None)
         if categories is None or len(categories) == 0:
-            logging.error('{} did not contain categories'.format(args.categories))
+            logging.error(f"{args.categories} did not contain categories")
             sys.exit(1)
 
     if categories is None:
         categories = image_json.get('categories', [])
         if len(categories) == 0:
-            logging.warn(
-                'Invalid coco may be produced, categories should be provided in json stdin or via --categories')
+            logging.warning(
+                "Invalid coco may be produced, categories should be provided in json stdin or via --categories")
 
     num_classes = args.num_classes
     if args.category_id == 'from-mask':
@@ -130,7 +130,7 @@ def main(args: argparse.Namespace):
 
         original_entry = images_by_id.get(mask_id, None)
         if original_entry is None:
-            logging.warning('Skipping mask {} as original entry could not be found'.format(mask_id))
+            logging.warning(f"Skipping mask {mask_id} as original entry could not be found")
             continue
         height = original_entry.get('height')
         width = original_entry.get('width')
@@ -147,9 +147,7 @@ def main(args: argparse.Namespace):
 
         if padded_mask is None:
             logging.error(
-                "failed to load from file: '{}'; possibly, file type {} not supported".format(mask_entry['path'],
-                                                                                              get_file_ext(
-                                                                                                  mask_entry['path'])))
+                f"failed to load from file: '{mask_entry['path']}'; possibly, file type {get_file_ext(mask_entry['path'])} not supported")
             sys.exit(1)
 
         category_ids = []
@@ -213,7 +211,7 @@ def main(args: argparse.Namespace):
         shape = height, width
 
         for contours, category_id in zip(category_contours, category_ids):
-            logging.info("{} contours in category {}".format(len(contours), category_id))
+            logging.info(f"{len(contours)} contours in category {category_id}")
             contours = np.subtract(contours, 1)
             for contour in contours:
                 contour = skimage.measure.approximate_polygon(contour, args.tolerance)
@@ -239,7 +237,7 @@ def main(args: argparse.Namespace):
 
         if args.save_per_image:
             with open(os.path.join(os.path.dirname(mask_entry['path']),
-                                   "{}.{}".format(os.path.splitext(mask_entry['file_name'])[0], 'json')), "w") as f:
+                                   f"{os.path.splitext(mask_entry['file_name'])[0]}.json"), "w") as f:
                 json.dump(coco_json, f, indent=4)
         logging.info(
             "Processing time for mask {}: {}h {}m {}s".format(mask_id, *pretty_time(time.perf_counter() - tic)))
@@ -335,11 +333,7 @@ def load_input(image_entry: dict, input_format: str, width: int, height: int, ma
             img_buf = np.reshape(img_buf, (height, width))
         except TypeError:
             logging.error(
-                "failed to reshape buffer of {} items to height: {} width: {} input from file '{}'".format(len(img_buf),
-                                                                                                           height,
-                                                                                                           width,
-                                                                                                           image_entry[
-                                                                                                               'path']))
+                f"failed to reshape buffer of {len(img_buf)} items to height: {height} width: {width} input from file '{image_entry['path']}'")
             sys.exit(1)
         if normalize:
             min_ = np.min(img_buf)
@@ -349,7 +343,7 @@ def load_input(image_entry: dict, input_format: str, width: int, height: int, ma
         img_buf = imread(image_entry['path'], dtype=np.float16)
         img_buf /= 255
     else:
-        logging.error("unsupported file type: '{}'".format(image_entry['path']))
+        logging.error(f"unsupported file type: '{image_entry['path']}'")
         sys.exit(1)
     img[padding: padding + height, padding: padding + width] = img_buf[:, :]
     return img
