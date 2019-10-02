@@ -400,15 +400,64 @@ def annotations_to_mask(anns: List[CocoAnnotationEntry], shape: Tuple[int, int])
         shape: height x width of original image
 
     Returns:
-        mask of filled in category value of each annotation entry
+        mask of filled in annotation id of each annotation entry
     """
     from cv2 import drawContours
-    mask = np.array(shape, dtype=np.uint8)
+    mask = np.zeros(shape, dtype=np.uint8)
     for ann in anns:
         # reshape segmentation
         contours = [np.reshape(segm, (len(segm) // 2, 1, 2)) for segm in ann['segmentation']]
-        drawContours(image=mask, contours=contours, contourIdx=-1, color=ann.get('category_id', 0), thickness=-1)
+        # hierarchy may not be needed??? TODO: requires extensive testing with COCO format
+        drawContours(image=mask, contours=contours, contourIdx=-1, color=ann.get('id', 0), thickness=-1)
     return mask
+
+
+def contours_hierarchy_to_anns(contours: List[np.ndarray], hierarchy: np.ndarray) -> List[List[object]]:
+    """Input arguments are contours and hierarchy found in an image using mode=cv2.RETR_CCOMP, method=cv2.CHAIN_APPROX_SIMPLE
+
+    Args:
+        contours: contours generated from cv2.findContours
+        hierarchy: 2 level hierarchy generated from cv2.findContours
+
+    Returns:
+        A list of COCO format annotations where each annotation is of a single hierarchy-1 contour
+    """
+    # TODO: Refactor code structure
+
+    if len(hierarchy) == 0:
+        return [[[]]]
+
+    hierarchy = hierarchy[0]
+    anns = []
+    # OpenCV hierarchy representation is an array of four values [Next, Previous, First_Child, Parent]
+    contour = hierarchy[0]  # first contour
+    while contour[0] != -1:  # iterate through hierarchy-1 contours
+        idx = np.argwhere(np.all(hierarchy == contour, axis=1)).item()  # index of contour to get
+        ann = [contours[idx].flatten().tolist()]
+        if contour[2] != -1:
+            child = hierarchy[contour[2]]  # first child
+            idx = np.argwhere(np.all(hierarchy == child, axis=1)).item()
+            ann.append(contours[idx].flatten().tolist())
+            while child[0] != -1:  # iterate through hierarchy-2 contours
+                child = hierarchy[child[0]]  # next child contour
+                idx = np.argwhere(np.all(hierarchy == child, axis=1)).item()  # index of child contour
+                ann.append(contours[idx].flatten().tolist())
+        contour = hierarchy[contour[0]]  # next contour
+        anns.append(ann)
+
+    idx = np.argwhere(np.all(hierarchy == contour, axis=1)).item()  # index of contour to get
+    ann = [contours[idx].flatten().tolist()]
+    if contour[2] != -1:
+        child = hierarchy[contour[2]]  # first child
+        idx = np.argwhere(np.all(hierarchy == child, axis=1)).item()
+        ann.append(contours[idx].flatten().tolist())
+        while child[0] != -1:  # iterate through hierarchy-2 contours
+            child = hierarchy[child[0]]  # next child contour
+            idx = np.argwhere(np.all(hierarchy == child, axis=1)).item()  # index of child contour
+            ann.append(contours[idx].flatten().tolist())
+    anns.append(ann)
+
+    return anns
 
 
 def polygon_to_mini_mask(polygon_: List[Union[int, float]], value: float = 1) -> np.array:
