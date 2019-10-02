@@ -403,7 +403,7 @@ def annotations_to_mask(anns: List[CocoAnnotationEntry], shape: Tuple[int, int])
         mask of filled in annotation id of each annotation entry
     """
     from cv2 import drawContours
-    mask = np.zeros(shape, dtype=np.uint8)
+    mask = np.zeros(shape, dtype=np.int32)  # TODO: Check with Toby if this should be np.uint8 or np.int32, depending on value of pixel if taken from annotation id, category id, or id of annotation in list entry
     for ann in anns:
         # reshape segmentation
         contours = [np.reshape(segm, (len(segm) // 2, 1, 2)) for segm in ann['segmentation']]
