@@ -10,13 +10,9 @@ from contextlib import redirect_stdout
 
 import pandas as pd
 
-signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # default handling of SIGPIPE
 
-DESCRIPTION = \
-    """
-YO
-
-Convert COCO json file and output csv formatted COCO data to stdout.
+DESCRIPTION = """Convert COCO json file and output csv formatted COCO data to stdout.
 
 Can perform join operations between different coco sections based on arguments given to positional argument section and 
 optional argument -f/--fields
@@ -34,10 +30,26 @@ examples
 
 
 def main(args: argparse.Namespace = None):
+    if args.what == 'retinanet':
+        if args.section == 'annotations':
+            # todo: this will not work, if path field is not present in images: it will output empty field for path
+            #       according to coco spec, images/file_name is basename of the file, while we need the full path
+            #       it is unclear which field to use (e.g. coco_url may be the right candidate)
+            #       please don't hack this code, ask the authors what is a better way
+            #       for a quick workaround you always can run coco-to-csv with explicit --fields, something like:
+            #       coco-to-csv --fields 'images/coco_url,bbox,categories/name'
+            # args.fields = 'images/path,bbox,categories/name'  # args.fields = 'images/file_name,bbox,categories/name'
+            args.fields = [['images', 'path'], ['bbox'], ['categories', 'name']]
+            args.bbox_position = 'absolute'
+        elif args.section == 'categories':
+            args.fields = [['name'], ['id']]
+            args.index_from = 0
+    elif args.what == 'yolo3':
+        return coco_to_yolo3()
 
     coco_dataset = json.loads(sys.stdin.read())
 
-    #coco = load_coco(sys.stdin.read())
+    # coco = load_coco(sys.stdin.read())
     section = coco_dataset[args.section]
     csv_writer = csv.writer(sys.stdout)
 
@@ -256,6 +268,22 @@ def main(args: argparse.Namespace = None):
     sys.exit()
 
 
+def coco_to_yolo3() -> int:
+    coco_dataset = json.loads(sys.stdin.read())
+    im_id_to_path = {entry['id']: {
+        'path': entry['path'],
+        'bbox': [],
+    } for entry in coco_dataset['images']}
+    for ann in coco_dataset['annotations']:
+        x, y, w, h = ann['bbox']
+        bbox = [x, y, x + w, y + h, str(int(ann['category_id']))]
+        bbox = [str(int(i)) for i in bbox]
+        im_id_to_path[ann['image_id']]['bbox'].append(bbox)
+    for im_id, path_and_bbox in im_id_to_path.items():
+        print(f"{path_and_bbox['path']} {' '.join([','.join(bbox) for bbox in path_and_bbox['bbox']])}")
+    return 0
+
+
 def get_header(section_):
     priority_dict = {
         "id": 0,
@@ -314,24 +342,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('-v', '--verbose', action='store_true', help="More output to stderr")
     args = parser.parse_args()
 
-    if args.what == 'retinanet':
-        if args.section == 'annotations':
-            # todo: this will not work, if path field is not present in images: it will output empty field for path
-            #       according to coco spec, images/file_name is basename of the file, while we need the full path
-            #       it is unclear which field to use (e.g. coco_url may be the right candidate)
-            #       please don't hack this code, ask the authors what is a better way
-            #       for a quick workaround you always can run coco-to-csv with explicit --fields, something like:
-            #       coco-to-csv --fields 'images/coco_url,bbox,categories/name'
-            args.fields = 'images/path,bbox,categories/name'  # args.fields = 'images/file_name,bbox,categories/name'
-            args.bbox_position = 'absolute'
-        elif args.section == 'categories':
-            args.fields = 'name,id'
-            args.index_from = 0
-    if args.what == 'yolo3':
-        die("yolo3: todo")
-
     try:
-        args.fields = list(map(lambda x: x.split('/'), args.fields.split(',')))
+        args.fields = [str_.split('/') for str_ in args.fields.split(',')]
     except AttributeError:
         args.fields = []
 

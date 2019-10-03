@@ -762,6 +762,44 @@ def assign_from_sorted(coco: COCO, args: argparse.Namespace) -> Tuple[Union[COCO
     return coco, 0
 
 
+def create_mask(args: argparse.Namespace) -> Tuple[None, int]:
+    from abyss_deep_learning.utils import annotations_to_mask
+
+    first_coco = None
+    second_coco = None
+
+    if args.first is not None and args.second is not None:
+        first_coco = MyCOCO(args.first)
+        second_coco = MyCOCO(args.second)
+
+    elif args.first is not None:
+        first_coco = MyCOCO(args.first)
+        second_coco = MyCOCO(sys.stdin)
+
+    elif args.second is not None:
+        second_coco = MyCOCO(args.second)
+        first_coco = MyCOCO(sys.stdin)
+
+    assert first_coco is not None and second_coco is not None, "could not load --first or --second COCO JSON's properly"
+
+    for first_img_entry in first_coco.dataset['images']:
+        logging.info(f"dumping image {first_img_entry['id']}")
+        try:
+            second_img_entry = second_coco.loadImgs(first_img_entry['id'])[0]
+        except KeyError as e:
+            logging.warning(
+                "Cannot find matching image {} from stdin in JSON file {},"
+                "try matching image ids using coco-calc assign-new-image-ids".format(first_img_entry['id'], args.second)
+            )
+            raise e
+
+        shape = int(float(first_img_entry['height'])), int(float(first_img_entry['width']))
+        sys.stdout.buffer.write(annotations_to_mask(first_coco.loadAnns(first_coco.getAnnIds(imgIds=first_img_entry['id'])), shape).astype(np.int32).tobytes())
+        sys.stdout.buffer.write(annotations_to_mask(second_coco.loadAnns(second_coco.getAnnIds(imgIds=second_img_entry['id'])), shape).astype(np.int32).tobytes())
+
+    return None, 0
+
+
 def intersections(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
     first_coco = None
     second_coco = None
@@ -1321,7 +1359,22 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         help="Key to match by. Default is %(default)s.",
     )
 
+    parser_create_mask = subparsers.add_parser(
+        'create-mask',
+        parents=parents,
+        help="Generate binary masks from coco image entries and dump to stdout"
+    )
+    parser_create_mask.add_argument(
+        '--first',
+        help="First coco file"
+    )
+    parser_create_mask.add_argument(
+        '--second',
+        help="Second coco file"
+    )
+
     parser_is_valid.set_defaults(func=is_valid)
+    parser_create_mask.set_defaults(func=create_mask)
     parser_crop.set_defaults(func=crop)
     parser_coverage.set_defaults(func=coverage)
     parser_intersections.set_defaults(func=intersections)
