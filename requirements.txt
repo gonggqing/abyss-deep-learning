@@ -13,3 +13,6 @@ pycocotools
 keras_retinanet
 tensorflow-gpu==1.13.1
 imgaug
+Trains
+sklearn
+git+https://www.github.com/keras-team/keras-contrib.git
