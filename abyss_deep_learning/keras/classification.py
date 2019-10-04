@@ -6,6 +6,7 @@ import os
 import json
 from itertools import cycle
 from random import shuffle
+import sys
 import warnings
 
 import keras.backend as K
@@ -87,65 +88,27 @@ class ModelPersistence: # todo: refactor
         f.close()
         return model
 
-def loadTaskByDict(json_path):
-    """
-    Allows the user to instantiate the Image Classifier using a dictionary of arguments. The same one that is created by Task.dump_args.
-
-    This is useful for loading the classifier for validation/prediction.
-
-    Args:
-        json_path: path to the params json
-
-    Returns:
-        Task: The initialised Image Classifier.
-
-    """
-    params = json.load(open(json_path, 'r'))
-
-    if params['metrics']:
-        mets = params['metrics'].split(',')
-    else:
-        mets = None
-
-    return Task(
-        backbone=params['backbone'],
-        output_activation=params['output_activation'],
-        input_shape=params['input_shape'],
-        pooling=params['pooling'],
-        classes=params['classes'],
-        init_weights=params['init_weights'],
-        init_epoch=params['init_epoch'],
-        init_lr=params['init_lr'],
-        trainable=params['trainable'],
-        loss=params['loss'],
-        optimizer=params['optimizer'],
-        optimizer_args=params['optimizer_args'],
-        metrics=mets
-    )
-
-
-class Task(BaseEstimator, ClassifierMixin, ModelPersistence):
-
+class Task( BaseEstimator, ClassifierMixin, ModelPersistence ):
     """A generic image classifier that can use multiple backends, complete with persistance
     functionality, and hides some complex implementation details.
     """
-
-    def __init__(self,
-                 backbone='xception',
-                 output_activation='softmax',
-                 input_shape=(299, 299, 3),
-                 pooling='avg',
-                 classes=2,
-                 init_weights='imagenet',
-                 init_epoch=0,
-                 init_lr=1e-3,
-                 trainable=True,
-                 optimizer='adam',
-                 optimizer_args={},
-                 loss='categorical_crossentropy',
-                 metrics=None,
-                 gpus=None,
-                 l12_reg=(None,None)):
+    
+    def __init__( self
+                , backbone = 'xception'
+                , output_activation = 'softmax'
+                , input_shape = ( 299, 299, 3 )
+                , pooling = 'avg'
+                , classes = 2
+                , init_weights = 'imagenet'
+                , init_epoch = 0
+                , init_lr = 1e-3
+                , trainable = True
+                , optimizer = 'adam'
+                , optimizer_args = {}
+                , loss = 'categorical_crossentropy'
+                , metrics = None
+                , gpus = None
+                , l12_reg = ( None, None ) ):
         """Summary
 
         Args:
@@ -182,6 +145,26 @@ class Task(BaseEstimator, ClassifierMixin, ModelPersistence):
 
         # For adding regularisation
         self.l12_reg = l12_reg
+    
+    @staticmethod
+    def from_dict( params ):
+        return Task( backbone = params['backbone']
+                   , output_activation = params['output_activation']
+                   , input_shape = params['input_shape']
+                   , pooling = params['pooling']
+                   , classes = params['classes']
+                   , init_weights = params['init_weights']
+                   , init_epoch = params['init_epoch']
+                   , init_lr = params['init_lr']
+                   , trainable = params['trainable']
+                   , loss = params['loss']
+                   , optimizer = params['optimizer']
+                   , optimizer_args = params['optimizer_args']
+                   , metrics = params['metrics'].split(',') if params['metrics'] else None )
+
+    @staticmethod
+    def from_json( filename ):
+        return Task.from_dict( json.load( open( filename , 'r' ) ) )
 
     def dump_args(self, json_path):
         """
@@ -192,15 +175,10 @@ class Task(BaseEstimator, ClassifierMixin, ModelPersistence):
         Returns:
 
         """
-        if not os.path.exists(os.path.dirname(json_path)):
-            os.makedirs(os.path.dirname(json_path))
-
+        if not os.path.exists(os.path.dirname(json_path)): os.makedirs(os.path.dirname(json_path))
         params = {}
         params['backbone'] = self.backbone
-        if isinstance(self.loss, str):
-            params['loss'] = self.loss
-        else:
-            params['loss'] = None
+        params['loss'] = self.loss if isinstance( self.loss, str ) else None
         params['output_activation'] = self.output_activation
         params['input_shape'] = self.input_shape
         params['pooling'] = self.pooling
@@ -214,16 +192,11 @@ class Task(BaseEstimator, ClassifierMixin, ModelPersistence):
         if isinstance(self.metrics, str):
             params['metrics'] = self.metrics
         elif isinstance(self.metrics, list):
-            try:
-                mets = ','.join(self.metrics)
-            finally:
-                mets = None
-            params['metrics'] = mets
+            try: params['metrics'] = ','.join(self.metrics)
+            except: params['metrics'] = None
         else:
             params['metrics'] = None
-
         json.dump(params, open(json_path, 'w'), indent=4, sort_keys=True)
-
 
     def add_regularisation(self, l1=None, l2=None):
         """

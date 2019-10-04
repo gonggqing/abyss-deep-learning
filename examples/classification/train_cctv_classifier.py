@@ -274,7 +274,7 @@ def main(args):
         classifier = classification.Task.load(args.resume_from_ckpt)
         classifier.set_lr(args.lr) # update learning rate
     elif args.load_params_json:
-        classifier = loadTaskByDict(args.load_params_json)
+        classifier = classification.Task.from_json( args.load_params_json )
     else:
         classifier = classification.Task(
             backbone=args.backbone,
