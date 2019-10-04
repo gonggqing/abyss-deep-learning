@@ -493,8 +493,6 @@ class Task( BaseEstimator, ClassifierMixin, ModelPersistence ):
         check_is_fitted(self, "model_")
         return self.model_.predict(x, batch_size=batch_size, verbose=verbose, steps=steps)
 
-    def 
-    
     def predict(self, x, batch_size=32, verbose=0, steps=None):
         """Returns the class predictions for the given data.
         # Arguments
@@ -517,13 +515,10 @@ class Task( BaseEstimator, ClassifierMixin, ModelPersistence ):
         Returns:
             TYPE: Description
         """
-        proba = self.predict_proba(x, batch_size=batch_size, verbose=verbose, steps=steps)
-
-        if proba.shape[-1] > 1:
-            classes = proba.argmax(axis=-1)
-        else:
-            classes = (proba > 0.5).astype('int32')
-        return self.classes_[classes]
+        #proba = self.predict_proba(x, batch_size=batch_size, verbose=verbose, steps=steps)
+        #classes = proba.argmax(axis=-1) if proba.shape[-1] > 1 else (proba > 0.5).astype('int32')
+        #return self.classes_[classes]
+        raise NotImplementedError("not implemented: please implement your own predict() method")
 
     @staticmethod
     def load(filepath):
