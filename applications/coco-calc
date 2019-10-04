@@ -14,11 +14,10 @@ from typing import List, Tuple, Union
 import numpy as np
 import pandas as pd
 from PIL import Image
-from pycocotools.coco import COCO
-
 from abyss_deep_learning.datasets.coco_utilities import coco_is_valid
 from abyss_deep_learning.metrics import poly_intersection_area
-from abyss_deep_learning.utils import polygon_area, imwrite, imread, do_overlap, MyCOCO
+from abyss_deep_learning.utils import polygon_area, imwrite, imread, do_overlap, MyCOCO, partition_intersections
+from pycocotools.coco import COCO
 
 __author__ = 'Kent Hu, Vsevolod Vlaskine'
 
@@ -235,8 +234,8 @@ def crop(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                 )
                 continue
             cropped = img[offset_y: offset_y + crop_height, offset_x: offset_x + crop_width]
-            #out_path = stubname + '.' + str(ann_entry['id']) + '.png'
-            out_path = stubname + '.' + str(offset_x) +'.' + str(offset_y) + '.' + str(ann_entry['id']) + '.png'
+            # out_path = stubname + '.' + str(ann_entry['id']) + '.png'
+            out_path = stubname + '.' + str(offset_x) + '.' + str(offset_y) + '.' + str(ann_entry['id']) + '.png'
             cropped_entry = {
                 'file_name': os.path.basename(out_path),
                 'path': out_path,
@@ -312,8 +311,8 @@ def crop_poly(ann_entry, crop_height, crop_width, offset_x, offset_y, keep_parti
 
 
 def remap(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
-    #coco = MyCOCO(sys.stdin)
-    coco =json.load(sys.stdin)
+    # coco = MyCOCO(sys.stdin)
+    coco = json.load(sys.stdin)
 
     # literal_eval allows usage of either single quote (') or double quote(") to interpret a json string
     if os.path.isfile(args.mapping):
@@ -334,7 +333,7 @@ def remap(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
     else:
         source_categories = coco.get("categories")
 
-    #output_categories = copy.deepcopy(coco.loadCats(ids=coco.getCatIds()))
+    # output_categories = copy.deepcopy(coco.loadCats(ids=coco.getCatIds()))
     # for category in output_categories:
     #     if category['name'] in mapping.keys():
     #         category_id = mapping[category['name']]
@@ -528,18 +527,18 @@ def simplify(args: argparse.Namespace) -> Tuple[Union[dict, None], int]:
     from simplification.cutil import simplify_coords
     # from skimage.measure import approximate_polygon
     coco = json.load(sys.stdin)
-    #before_total = 0
-    #after_total = 0
+    # before_total = 0
+    # after_total = 0
     for ann in coco['annotations']:
         for i, poly in enumerate(ann['segmentation']):
             seg = np.array(poly)
             simplified = simplify_coords(np.reshape(seg, (-1, 2)), args.tolerance)
             # slow version in skimage
-            #simplified = approximate_polygon(np.reshape(seg,(-1,2)), 2.0)
+            # simplified = approximate_polygon(np.reshape(seg,(-1,2)), 2.0)
             after = np.reshape(simplified, (-1))
             ann['segmentation'][i] = after.tolist()  # [x[0] for x in seg]
-            #before_total += seg.shape[0]
-            #after_total += after.shape[0]
+            # before_total += seg.shape[0]
+            # after_total += after.shape[0]
 
     return coco, 0
 
@@ -762,8 +761,11 @@ def assign_from_sorted(coco: COCO, args: argparse.Namespace) -> Tuple[Union[COCO
     return coco, 0
 
 
-def create_mask(args: argparse.Namespace) -> Tuple[None, int]:
+def to_mask(args: argparse.Namespace) -> Tuple[None, int]:
     from abyss_deep_learning.utils import annotations_to_mask
+    from abyss_deep_learning.utils import MyCOCO
+
+    import numpy as np
 
     first_coco = None
     second_coco = None
@@ -794,13 +796,23 @@ def create_mask(args: argparse.Namespace) -> Tuple[None, int]:
             raise e
 
         shape = int(float(first_img_entry['height'])), int(float(first_img_entry['width']))
-        sys.stdout.buffer.write(annotations_to_mask(first_coco.loadAnns(first_coco.getAnnIds(imgIds=first_img_entry['id'])), shape).astype(np.int32).tobytes())
-        sys.stdout.buffer.write(annotations_to_mask(second_coco.loadAnns(second_coco.getAnnIds(imgIds=second_img_entry['id'])), shape).astype(np.int32).tobytes())
+        sys.stdout.buffer.write(
+            annotations_to_mask(first_coco.loadAnns(first_coco.getAnnIds(imgIds=first_img_entry['id'])), shape).astype(
+                np.int32).flatten().tobytes())
+        sys.stdout.buffer.write(
+            annotations_to_mask(second_coco.loadAnns(second_coco.getAnnIds(imgIds=second_img_entry['id'])),
+                                shape).astype(np.int32).flatten().tobytes())
 
     return None, 0
 
 
 def intersections(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
+    from abyss_deep_learning.utils import MyCOCO
+    from abyss_deep_learning.utils import annotations_to_mask
+
+    import pandas as pd
+    import numpy as np
+
     first_coco = None
     second_coco = None
 
@@ -827,59 +839,73 @@ def intersections(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                 "try matching image ids using coco-calc assign-new-image-ids".format(first_img_entry['id'], args.second)
             )
             raise e
-        first_ann_entries, first_polys = get_img_polys(first_coco, first_img_entry['id'])
-        second_ann_entries, second_polys = get_img_polys(second_coco, second_img_entry['id'])
-        first_areas, second_areas, intersection_areas = poly_intersection_area(first_polys, second_polys)
-        if intersection_areas.size == 0:
-            logging.warning("skipping image {} as no intersections exist".format(first_img_entry['id']))
-            continue
 
-        first_areas = np.array(first_areas, dtype=np.uint)  # cast to numpy array
-        second_areas = np.array(second_areas, dtype=np.uint)  # cast to numpy array
-        if args.output_non_intersecting == 'first':
-            first_idxs = np.where(~intersection_areas.any(axis=1))[0]
-            for i in first_idxs.tolist():
-                print(",".join(str(j) for j in (
-                    first_img_entry['path'],
-                    first_img_entry['id'],
-                    first_ann_entries[i]['id'],
-                    first_ann_entries[i]['category_id'],
-                    first_areas[i],
-                )))
-        elif args.output_non_intersecting == 'second':
-            second_idxs = np.where(~intersection_areas.any(axis=0))[0]
-            for i in second_idxs.tolist():
-                print(",".join(str(j) for j in (
-                    first_img_entry['path'],
-                    first_img_entry['id'],
-                    second_ann_entries[i]['id'],
-                    second_ann_entries[i]['category_id'],
-                    second_areas[i],
-                )))
+        if args.partitions:
+            shape = int(float(first_img_entry['height'])), int(float(first_img_entry['width']))
+            first = annotations_to_mask(first_coco.loadAnns(first_coco.getAnnIds(imgIds=first_img_entry['id'])), shape)
+            second = annotations_to_mask(second_coco.loadAnns(second_coco.getAnnIds(imgIds=second_img_entry['id'])),
+                                         shape)
+            first_area = pd.DataFrame(np.vstack(np.unique(first, return_counts=True)).transpose()[:, :],
+                                      columns=['first', 'area'])
+            intersection_counts = pd.DataFrame(partition_intersections(first, second)[:, :],
+                                               columns=['first', 'second', 'count'])
+            df = intersection_counts.merge(first_area, on='first')
+            df.insert(0, 'path', first_img_entry['path'])
+            df.to_csv(sys.stdout, header=False, index=False)
         else:
-            first_idxs, second_idxs = np.where(intersection_areas != 0)
-            for i, j in zip(first_idxs.tolist(), second_idxs.tolist()):
-                if first_areas[i] <= 0:
-                    logging.warning("annotation {} from {} may be malformed polygon as it has area {}".format(
-                        first_ann_entries[i]['id'], args.first, first_areas[i]
-                    ))
+            first_ann_entries, first_polys = get_img_polys(first_coco, first_img_entry['id'])
+            second_ann_entries, second_polys = get_img_polys(second_coco, second_img_entry['id'])
+            first_areas, second_areas, intersection_areas = poly_intersection_area(first_polys, second_polys)
+            if intersection_areas.size == 0:
+                logging.warning("skipping image {} as no intersections exist".format(first_img_entry['id']))
+                continue
 
-                if second_areas[j] <= 0:
-                    logging.warning("annotation {} from {} may be malformed polygon as it has area {}".format(
-                        second_ann_entries[j]['id'], args.second, second_areas[j]
-                    ))
+            first_areas = np.array(first_areas, dtype=np.uint)  # cast to numpy array
+            second_areas = np.array(second_areas, dtype=np.uint)  # cast to numpy array
+            if args.output_non_intersecting == 'first':
+                first_idxs = np.where(~intersection_areas.any(axis=1))[0]
+                for i in first_idxs.tolist():
+                    print(",".join(str(j) for j in (
+                        first_img_entry['path'],
+                        first_img_entry['id'],
+                        first_ann_entries[i]['id'],
+                        first_ann_entries[i]['category_id'],
+                        first_areas[i],
+                    )))
+            elif args.output_non_intersecting == 'second':
+                second_idxs = np.where(~intersection_areas.any(axis=0))[0]
+                for i in second_idxs.tolist():
+                    print(",".join(str(j) for j in (
+                        first_img_entry['path'],
+                        first_img_entry['id'],
+                        second_ann_entries[i]['id'],
+                        second_ann_entries[i]['category_id'],
+                        second_areas[i],
+                    )))
+            else:
+                first_idxs, second_idxs = np.where(intersection_areas != 0)
+                for i, j in zip(first_idxs.tolist(), second_idxs.tolist()):
+                    if first_areas[i] <= 0:
+                        logging.warning("annotation {} from {} may be malformed polygon as it has area {}".format(
+                            first_ann_entries[i]['id'], args.first, first_areas[i]
+                        ))
 
-                print(",".join(str(k) for k in (
-                    first_img_entry['path'],
-                    first_img_entry['id'],
-                    first_ann_entries[i]['id'],
-                    first_ann_entries[i]['category_id'],
-                    first_areas[i],
-                    second_ann_entries[j]['id'],
-                    second_ann_entries[j]['category_id'],
-                    second_areas[j],
-                    intersection_areas[i, j],
-                )))
+                    if second_areas[j] <= 0:
+                        logging.warning("annotation {} from {} may be malformed polygon as it has area {}".format(
+                            second_ann_entries[j]['id'], args.second, second_areas[j]
+                        ))
+
+                    print(",".join(str(k) for k in (
+                        first_img_entry['path'],
+                        first_img_entry['id'],
+                        first_ann_entries[i]['id'],
+                        first_ann_entries[i]['category_id'],
+                        first_areas[i],
+                        second_ann_entries[j]['id'],
+                        second_ann_entries[j]['category_id'],
+                        second_areas[j],
+                        intersection_areas[i, j],
+                    )))
     return None, 0
 
 
@@ -1119,7 +1145,7 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
     parser_is_valid = subparsers.add_parser(
         'is-valid',
         description=_IS_VALID_DESCRIPTION,
-        formatter_class=argparse.RawTextHelpFormatter,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=parents + image_operations,
         help="crop images and annotations. Annotations can be partially cropped if --keep-partial is specified",
     )
@@ -1239,7 +1265,6 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         help="pixel distance tolerance",
     )
 
-
     parser_coverage = subparsers.add_parser(
         'coverage',
         description=_COVERAGE_DESCRIPTION,
@@ -1304,6 +1329,11 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         '--second', '--covering',
         help="JSON file to match intersecting polygons with",
     )
+    parser_intersections.add_argument(
+        '--partitions',
+        action='store_true',
+        help="Print output csv of intersecting polygons on annotation id"
+    )
 
     parser_non_max_suppression = subparsers.add_parser(
         'nms',
@@ -1359,22 +1389,22 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         help="Key to match by. Default is %(default)s.",
     )
 
-    parser_create_mask = subparsers.add_parser(
-        'create-mask',
+    parser_to_mask = subparsers.add_parser(
+        'to-mask',
         parents=parents,
         help="Generate binary masks from coco image entries and dump to stdout"
     )
-    parser_create_mask.add_argument(
+    parser_to_mask.add_argument(
         '--first',
         help="First coco file"
     )
-    parser_create_mask.add_argument(
+    parser_to_mask.add_argument(
         '--second',
         help="Second coco file"
     )
 
     parser_is_valid.set_defaults(func=is_valid)
-    parser_create_mask.set_defaults(func=create_mask)
+    parser_to_mask.set_defaults(func=to_mask)
     parser_crop.set_defaults(func=crop)
     parser_coverage.set_defaults(func=coverage)
     parser_intersections.set_defaults(func=intersections)
@@ -1392,14 +1422,6 @@ class MyParser(argparse.ArgumentParser):
         self.print_help(sys.stderr)
         logging.critical(msg)
         sys.exit(1)
-
-
-class Verbose:
-    @staticmethod
-    def write(line):
-        line = line.strip()
-        if line:
-            logging.info(line)
 
 
 if __name__ == '__main__':
