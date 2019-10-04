@@ -19,4 +19,5 @@ python3 ~/src/abyss/deep-learning/examples/classification/train_cctv_classifier.
     --histogram-freq 10\
     --lr-schedule 'cyclic' \
     --lr-schedule-params "{'max_lr':1e-4,'step_size':11250}"\
-    --trains-experiment example-CCTV-experiment
+    --trains-experiment example-CCTV-experiment \
+    --gpu-allow-growth

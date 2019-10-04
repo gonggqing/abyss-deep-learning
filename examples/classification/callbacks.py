@@ -10,7 +10,7 @@ import math
 
 from sklearn.metrics import precision_score, recall_score, f1_score
 """
-These callbacks are designed to be used with the ImageClassifier class
+These callbacks are designed to be used with the keras.classification.Task class
 """
 
 
@@ -82,7 +82,7 @@ class PrecisionRecallF1Callback(keras.callbacks.Callback):
 
 class SaveModelCallback(Callback):
     """
-    Saves the model at the end of an epoch. To be used with an ImageClassifier class.
+    Saves the model at the end of an epoch. To be used with an keras.classification.Task class.
 
     Usage:
         callbacks = [SaveModelCallback(classifier.save, 'models')]

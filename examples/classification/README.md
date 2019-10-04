@@ -192,12 +192,12 @@ The multihot generator converts the output of the annotation translator (which i
 
 ### Model Initialisation
 
-For image classification an ImageClassifier class is used, which initialises, compiles, saves and loads the image classifier model. It uses one of the available keras.applications models, such as Xception.
+For image classification an keras.classification.Task class is used, which initialises, compiles, saves and loads the image classifier model. It uses one of the available keras.applications models, such as Xception.
 
 
 To initialise an xception model with Imagenet weights
 ```python
-classifier = ImageClassifier(
+classifier = keras.classification.Task(
                  backbone='xception',
                  output_activation='softmax',
                  pooling='avg',
@@ -218,7 +218,7 @@ classifier = ImageClassifier(
 
 Alternatively, to load a model from an existing checkpoint:
 ```python
-classifier = ImageClassifier.load('path/to/checkpoint.h5')
+classifier = keras.classification.Task.load('path/to/checkpoint.h5')
 
 ```
 
@@ -322,7 +322,7 @@ This callback subclasses and modifies the standard keras tensorboard callback to
 
 ##### Saving Models
 
-A custom save model callback is currently used, which uses the ImageClassifier.save function. This shouldn't be necessary and using the standard Keras ModelCheckpoint should be fine.
+A custom save model callback is currently used, which uses the keras.classification.Task.save function. This shouldn't be necessary and using the standard Keras ModelCheckpoint should be fine.
 
 ##### Dependencies in current training:
 

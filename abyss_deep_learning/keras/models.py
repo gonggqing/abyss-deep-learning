@@ -102,7 +102,7 @@ def loadImageClassifierByDict(json_path):
         metrics=mets
     )
 
-
+# DEPRECATED! will be removed soon; use abyss_deep_learning.keras.classification.Task instead
 class ImageClassifier(BaseEstimator, ClassifierMixin, ModelPersistence):
 
     """A generic image classifier that can use multiple backends, complete with persistance

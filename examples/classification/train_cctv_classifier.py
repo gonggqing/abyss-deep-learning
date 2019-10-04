@@ -12,17 +12,17 @@ from keras.callbacks import TensorBoard, ReduceLROnPlateau, EarlyStopping, Callb
 import tensorflow as tf
 import keras.optimizers
 import math
+import sys
 
 from abyss_deep_learning.datasets.coco import ImageClassificationDataset
 from abyss_deep_learning.datasets.translators import CategoryTranslator
 from abyss_deep_learning.keras.classification import caption_map_gen, onehot_gen
-from abyss_deep_learning.keras.models import ImageClassifier, loadImageClassifierByDict
+from abyss_deep_learning.keras import classification
 from abyss_deep_learning.keras.utils import lambda_gen, batching_gen, gen_dump_data, head_gen
 
 from callbacks import SaveModelCallback, PrecisionRecallF1Callback, TrainValTensorBoard, TrainsCallback, create_lr_schedule_callback
 from utils import to_multihot, multihot_gen, compute_class_weights, create_augmentation_configuration
 from translators import MultipleTranslators, HotTranslator
-from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard, produce_embeddings_tsv
 from abyss_deep_learning.keras.classification import augmentation_gen
 import trains
 from trains import Task
@@ -82,11 +82,12 @@ def get_args():
     parser.add_argument("--l12-regularisation", type=str, default="None,None",
                         help="Whether to add l1 l2 regularisation to the convolutional layers of the model. Format (l1,l2), if absent leave as None. For example (None,0.01) to just add l2 regularisation ")
     parser.add_argument("--resume-from-ckpt", type=str,
-                        help="Resume the model from the given .h5 checkpoint, as saved by the ImageClassifier.save function. This loads in all weights and parameters from the previous training.")
+                        help="Resume the model from the given .h5 checkpoint, as saved by the classification.Task.save function. This loads in all weights and parameters from the previous training.")
     parser.add_argument("--weights", type=str, default='imagenet',
                         help="Path to the weights to load into this model. Re-initalises all the checkpoints etc. Default is 'imagenet' which loads the 'imagenet' trained weights")
     parser.add_argument("--gpu-fraction", type=float, default=0.8,
                         help="Limit the amount of GPU usage tensorflow uses. Defaults to 0.8")
+    parser.add_argument("--gpu-allow-growth", action="store_true", help="set allow_growth flag in gpu options")
     parser.add_argument("--workers", type=int, default=1, help="Number of workers to use")
     parser.add_argument("--gpus", type=int, default=1, help="The number of GPUs to use. To select a specific GPU use CUDA_VISIBLE_DEVICES environment variable, e.g. CUDA_VISIBLE_DEVICES=0 python3 train_cctv_classifier.py ...")
     parser.add_argument("--trains-project", type=str, help="The project to use for the TRAINS server")
@@ -256,25 +257,26 @@ def main(args):
     from keras.backend.tensorflow_backend import set_session
     config = tf.ConfigProto()
     config.gpu_options.per_process_gpu_memory_fraction = args.gpu_fraction
+    config.gpu_options.allow_growth = args.gpu_allow_growth;
     set_session(tf.Session(config=config))
 
     # -------------------------
     # Initialise Optimizer
     # -------------------------
     optimizer_args = ast.literal_eval(args.optimizer_args)
-    optimizer_args['lr'] = args.lr  # The init_lr argument to ImageClassifier is what actually sets the optimizer learning rate
+    optimizer_args['lr'] = args.lr  # The init_lr argument to classification.Task is what actually sets the optimizer learning rate
 
 
     # -------------------------
     # Create Classifier Model
     # -------------------------
     if args.resume_from_ckpt:
-        classifier = ImageClassifier.load(args.resume_from_ckpt)
+        classifier = classification.Task.load(args.resume_from_ckpt)
         classifier.set_lr(args.lr) # update learning rate
     elif args.load_params_json:
-        classifier = loadImageClassifierByDict(args.load_params_json)
+        classifier = loadTaskByDict(args.load_params_json)
     else:
-        classifier = ImageClassifier(
+        classifier = classification.Task(
             backbone=args.backbone,
             output_activation=args.output_activation,
             pooling=args.pooling,
@@ -315,7 +317,7 @@ def main(args):
     val_pipeline = pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size, do_data_aug=False) if val_gen else None
     # If the
     if args.cache_val and val_gen:
-        print("CACHING VAL")
+        print("CACHING VAL", file = sys.stderr )
         val_data = gen_dump_data(gen=cache_pipeline(val_gen, num_classes), num_images=val_steps, verbose=True)
         tfpn = args.tfpn
         histogram_freq = args.histogram_freq
@@ -338,7 +340,8 @@ def main(args):
     # ------------------
 
     if args.embeddings:
-        print("CACHING EMBEDDING")
+        print("CACHING EMBEDDING", file = sys.stderr )
+        from abyss_deep_learning.keras.tensorboard import produce_embeddings_tsv
         assert args.gpus == 1, 'Due to a bug, if calculating embeddings, only 1 gpu can be used'
         embeddings_data = gen_dump_data(gen=cache_pipeline(val_gen, num_classes),
                                         num_images=int(np.floor(len(val_dataset) / args.batch_size)), verbose=True)
@@ -350,13 +353,24 @@ def main(args):
         embeddings_data = [None, None]
         embeddings_freq = 0
 
-    callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=args.save_model_interval),  # A callback to save the model
-                ImprovedTensorBoard(log_dir=log_dir, batch_size=args.batch_size, write_graph=True, embeddings_freq=embeddings_freq, embeddings_metadata=os.path.join(log_dir,'metadata.tsv'), embeddings_data=embeddings_data[0], embeddings_layer_names=['global_average_pooling2d_1'], num_classes=num_classes, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size) if (val_gen and not args.cache_val) else None, val_steps=val_steps, tfpn=tfpn, pr_curve=pr_curves, histogram_freq=histogram_freq),
-                #ImprovedTensorBoard(log_dir=log_dir, histogram_freq=3, batch_size=args.batch_size, write_graph=True, write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
-                ReduceLROnPlateau(monitor='val_loss', factor=0.5,
-                                  patience=25, min_lr=1e-8),
-                TerminateOnNaN()
-                ]
+    try:
+        from abyss_deep_learning.keras.tensorboard import ImprovedTensorBoard
+        improved_tensorboard = ImprovedTensorBoard(log_dir=log_dir, batch_size=args.batch_size, write_graph=True, embeddings_freq=embeddings_freq, embeddings_metadata=os.path.join(log_dir,'metadata.tsv'), embeddings_data=embeddings_data[0], embeddings_layer_names=['global_average_pooling2d_1'], num_classes=num_classes, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=args.batch_size) if (val_gen and not args.cache_val) else None, val_steps=val_steps, tfpn=tfpn, pr_curve=pr_curves, histogram_freq=histogram_freq)
+    except:
+        improved_tensorboard = None
+        warnings.warn( "failed to import tensorboard; running without it" )
+    if improved_tensorboard is None:
+        callbacks = [ SaveModelCallback( classifier.save, model_dir, save_interval = args.save_model_interval )  # A callback to save the model
+                    , ReduceLROnPlateau( monitor = 'val_loss', factor = 0.5, patience = 25, min_lr = 1e-8 )
+                    , TerminateOnNaN() ]
+    else:
+        callbacks = [SaveModelCallback(classifier.save, model_dir, save_interval=args.save_model_interval),  # A callback to save the model
+                    improved_tensorboard,
+                    #ImprovedTensorBoard(log_dir=log_dir, histogram_freq=3, batch_size=args.batch_size, write_graph=True, write_grads=True, num_classes=num_classes, pr_curve=False, val_generator=pipeline(val_gen, num_classes=num_classes, batch_size=1) if (val_gen and not args.cache_val) else None, val_steps=val_steps),
+                    ReduceLROnPlateau(monitor='val_loss', factor=0.5,
+                                    patience=25, min_lr=1e-8),
+                    TerminateOnNaN()
+                    ]
     if args.early_stopping_patience:
         callbacks.append(EarlyStopping(monitor='val_loss', min_delta=1e-4, patience=args.early_stopping_patience, verbose=1, mode='auto', baseline=None, restore_best_weights=True))
     if task:
