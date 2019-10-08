@@ -114,6 +114,10 @@ class Task( tasks.Base, ClassifierMixin ):
         proba = self.predict_proba(x, batch_size=batch_size, verbose=verbose, steps=steps)
         classes = proba.argmax(axis=-1) if proba.shape[-1] > 1 else (proba > 0.5).astype('int32')
         return self.classes_[classes]
+    
+    @staticmethod
+    def load(filepath):
+        return Base._load( filepath, Task )
 
 def sequential_process(images):
     # images = np.array([

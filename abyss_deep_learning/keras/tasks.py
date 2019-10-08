@@ -33,50 +33,7 @@ from keras.utils import multi_gpu_model
 
 from abyss_deep_learning.utils import cat_to_onehot, warn_on_call
 
-class Persistence:
-    def save(self, filepath):
-        """Save a model, its state and its hyperparameters to file.
-
-        Args:
-            filepath (TYPE): Description
-            include_optimizer (bool, optional): Description
-        """
-        from keras.engine.saving import save_weights_to_hdf5_group#, _serialize_model
-        from json import dumps
-        import h5py
-        self.save_model_.save_weights(filepath)
-        with h5py.File(filepath, 'a') as f:
-            topology = f.create_dataset("topology", data=self.save_model_.to_json())
-            topology.attrs['format'] = 'json'
-            parameters = f.create_dataset("parameters", data=dumps(self.get_params()))
-            parameters.attrs['format'] = 'json'
-        (dirname, filename) = os.path.split(filepath)
-        with open(os.path.join(dirname, "model-definition.json"), 'w') as f: f.write(self.save_model_.to_json())
-
-    def load(self, filepath):
-        raise NotImplementedError("Persistence::load(): has not been overridden for this class; please define your own load()")
-
-    @staticmethod
-    def _load_model(filepath, model_class):
-        """Load a model, its state and its hyperparameters from file.
-
-        Args:
-            filepath (TYPE): Path to model to load
-        """
-        from keras.utils.io_utils import h5dict
-        from keras.engine.saving import load_weights_from_hdf5_group_by_name#, _deserialize_model
-        from json import loads
-        from keras.models import model_from_json
-
-        f = h5dict(filepath, mode='r')
-        parameters = loads(str(f['parameters']))
-        model = model_class(**parameters)
-        model._maybe_create_model()
-        model.model_.load_weights(filepath, by_name=True)
-        f.close()
-        return model
-
-class Base( BaseEstimator, Persistence ):
+class Base( BaseEstimator ):
     """generic task class that can use multiple backends hiding some fiddly implementation details"""
     
     def __init__( self
@@ -113,6 +70,10 @@ class Base( BaseEstimator, Persistence ):
     
     @staticmethod
     def from_dict( params ):
+        return Task( model_from_blah( backbone = params['backbone'] ) if 'backbone' in params else model_from_blah( model_definition = params['model_definition'] )
+                    , ... )
+        
+        
         return Task( backbone = params['backbone']
                    , output_activation = params['output_activation']
                    , input_shape = params['input_shape']
@@ -492,12 +453,42 @@ class Base( BaseEstimator, Persistence ):
         """
         raise NotImplementedError("not implemented: please implement your own predict() method")
 
+    def save(self, filepath):
+        """Save a model, its state and its hyperparameters to file.
+
+        Args:
+            filepath (TYPE): Description
+            include_optimizer (bool, optional): Description
+        """
+        from keras.engine.saving import save_weights_to_hdf5_group#, _serialize_model
+        from json import dumps
+        import h5py
+        self.save_model_.save_weights(filepath)
+        with h5py.File(filepath, 'a') as f:
+            topology = f.create_dataset("topology", data=self.save_model_.to_json())
+            topology.attrs['format'] = 'json'
+            parameters = f.create_dataset("parameters", data=dumps(self.get_params()))
+            parameters.attrs['format'] = 'json'
+        (dirname, filename) = os.path.split(filepath)
+        with open(os.path.join(dirname, "model-definition.json"), 'w') as f: f.write(self.save_model_.to_json())
+
     @staticmethod
-    def load(filepath):
+    def _load(filepath, task_class):
         """Load a model, its state and its hyperparameters from file.
 
         Args:
             filepath (TYPE): Path to model to load
         """
+        from keras.utils.io_utils import h5dict
+        from keras.engine.saving import load_weights_from_hdf5_group_by_name#, _deserialize_model
+        from json import loads
+        from keras.models import model_from_json
 
-        return Persistence._load_model(filepath, Task)
+        f = h5dict(filepath, mode='r')
+        parameters = loads(str(f['parameters']))
+        task = task_class(**parameters)
+        task._maybe_create_model()
+        task.model_.load_weights(filepath, by_name=True)
+        f.close()
+        return task
+
