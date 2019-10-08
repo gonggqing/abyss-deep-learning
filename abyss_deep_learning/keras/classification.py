@@ -35,53 +35,6 @@ from abyss_deep_learning.keras import tasks
 
 from abyss_deep_learning.utils import cat_to_onehot, warn_on_call
 
-class ModelPersistence: # todo: refactor
-    def save(self, filepath):
-        """Save a model, its state and its hyperparameters to file.
-
-        Args:
-            filepath (TYPE): Description
-            include_optimizer (bool, optional): Description
-        """
-        from keras.engine.saving import save_weights_to_hdf5_group#, _serialize_model
-        from json import dumps
-        import h5py
-
-        self.save_model_.save_weights(filepath)
-        with h5py.File(filepath, 'a') as f:
-            topology = f.create_dataset("topology", data=self.save_model_.to_json())
-            topology.attrs['format'] = 'json'
-            parameters = f.create_dataset("parameters", data=dumps(self.get_params()))
-            parameters.attrs['format'] = 'json'
-
-        # also explicitly save the model definition
-        (dirname, filename) = os.path.split(filepath)
-        with open(os.path.join(dirname, "model-definition.json"), 'w') as f:
-            f.write(self.save_model_.to_json())
-
-    def load(self, filepath):
-        raise NotImplementedError("ModelPersistence::load has not been overridden for this class.")
-
-    @staticmethod
-    def _load_model(filepath, model_class):
-        """Load a model, its state and its hyperparameters from file.
-
-        Args:
-            filepath (TYPE): Path to model to load
-        """
-        from keras.utils.io_utils import h5dict
-        from keras.engine.saving import load_weights_from_hdf5_group_by_name#, _deserialize_model
-        from json import loads
-        from keras.models import model_from_json
-
-        f = h5dict(filepath, mode='r')
-        parameters = loads(str(f['parameters']))
-        model = model_class(**parameters)
-        model._maybe_create_model()
-        model.model_.load_weights(filepath, by_name=True)
-        f.close()
-        return model
-
 class Task( tasks.Base, ClassifierMixin ):
     """image classifier with user-defined backend"""
 
@@ -103,6 +56,7 @@ class Task( tasks.Base, ClassifierMixin ):
         K.clear_session()
 
         # Load the model with imagenet weights, they will be re-initialized later weights=None
+        # todo! move to something like keras.models.Classification or alike (certainly do better design and naming)
         config = dict(
             include_top=False,
             weights=self.init_weights,

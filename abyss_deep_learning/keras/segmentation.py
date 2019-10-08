@@ -1,5 +1,5 @@
 '''
-Utilities and generators for classification tasks.
+Utilities and generators for segmentation tasks.
 Generators expect yield type to be (image, masks) and not in a batch.
 Masks may be either categorical or binary.
 '''
@@ -11,6 +11,8 @@ from skimage.morphology import remove_small_holes
 
 from skimage.color import label2rgb
 from abyss_deep_learning.utils import instance_to_categorical
+
+from abyss_deep_learning.keras import tasks
 
 ####### Methods ######
 
