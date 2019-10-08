@@ -12,7 +12,6 @@ from operator import itemgetter
 from typing import List, Tuple, Union
 
 import numpy as np
-import pandas as pd
 from PIL import Image
 from abyss_deep_learning.datasets.coco_utilities import coco_is_valid
 from abyss_deep_learning.metrics import poly_intersection_area
@@ -154,8 +153,8 @@ def main(args: argparse.Namespace) -> int:
     try:
         coco, status = args.func(args)
     except AttributeError as e:
+        logging.error(e)
         get_args(['--help'])
-        logging.exception(e)
     else:
         if coco is None:
             logging.warning("no output coco, not necessarily an error")
@@ -801,13 +800,14 @@ def to_mask(args: argparse.Namespace) -> Tuple[None, int]:
 
 
 def intersections(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
+    output_fields = ['image/path', 'image/id', 'first/id', 'first/category_id', 'first/area',
+                     'second/id', 'second/category_id', 'second/area', 'intersection/area']
     if args.output_fields:
-        if args.partitions:
-            print("image/path,first/partition_id,second/partition_id,intersection/area,first/area")
-        elif args.output_non_intersecting is not None:
-            print(f"image/path,image/id,{args.output_non_intersecting}/id,{args.output_non_intersecting}/category_id,{args.output_non_intersecting}/area")
+        if args.output_non_intersecting is not None:
+            print(
+                f"image/path,image/id,{args.output_non_intersecting}/id,{args.output_non_intersecting}/category_id,{args.output_non_intersecting}/area")
         else:
-            print(args.output_fields)
+            print(",".join(output_fields))
         return None, 0
 
     from abyss_deep_learning.utils import MyCOCO
@@ -845,15 +845,29 @@ def intersections(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
 
         if args.partitions:
             shape = int(float(first_img_entry['height'])), int(float(first_img_entry['width']))
-            first = annotations_to_mask(first_coco.loadAnns(first_coco.getAnnIds(imgIds=first_img_entry['id'])), shape)
-            second = annotations_to_mask(second_coco.loadAnns(second_coco.getAnnIds(imgIds=second_img_entry['id'])),
+            first_anns = first_coco.loadAnns(first_coco.getAnnIds(imgIds=first_img_entry['id']))
+            first = annotations_to_mask(first_anns, shape)
+            second_anns = second_coco.loadAnns(second_coco.getAnnIds(imgIds=second_img_entry['id']))
+            second = annotations_to_mask(second_anns,
                                          shape)
-            first_area = pd.DataFrame(np.vstack(np.unique(first, return_counts=True)).transpose()[:, :],
-                                      columns=['first', 'area'])
+            first_categories = pd.DataFrame(
+                [[ann['id'], ann['category_id']] for ann in first_anns], columns=['first/id', 'first/category_id']
+            )
+            second_categories = pd.DataFrame(
+                [[ann['id'], ann['category_id']] for ann in second_anns], columns=['second/id', 'second/category_id']
+            )
+            first_areas = pd.DataFrame(np.vstack(np.unique(first, return_counts=True)).transpose()[:, :],
+                                       columns=['first/id', 'first/area'])
+            second_areas = pd.DataFrame(np.vstack(np.unique(second, return_counts=True)).transpose()[:, :],
+                                        columns=['second/id', 'second/area'])
             intersection_counts = pd.DataFrame(partition_intersections(first, second)[:, :],
-                                               columns=['first', 'second', 'count'])
-            df = intersection_counts.merge(first_area, on='first')
-            df.insert(0, 'path', first_img_entry['path'])
+                                               columns=['first/id', 'second/id', 'intersection/area'])
+            first_df = pd.merge(first_areas, first_categories, on='first/id')
+            second_df = pd.merge(second_areas, second_categories, on='second/id')
+            df = pd.merge(intersection_counts, first_df, on='first/id').merge(second_df, on='second/id')
+            df['image/path'] = first_img_entry['path']
+            df['image/id'] = first_img_entry['id']
+            df = df.reindex(columns=output_fields)
             df.to_csv(sys.stdout, header=False, index=False)
         else:
             first_ann_entries, first_polys = get_img_polys(first_coco, first_img_entry['id'])
@@ -1326,11 +1340,7 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
     )
     parser_intersections.add_argument(
         '--output-fields',
-        action='store_const',
-        const="image/path,image/id,"
-              "first/id,first/category_id,first/area,"
-              "second/id,second/category_id,second/area,"
-              "intersection/area",
+        action='store_true',
         help="Print output CSV fields to stdout and exit",
     )
     parser_intersections.add_argument(
