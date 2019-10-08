@@ -152,19 +152,13 @@ def main(args: argparse.Namespace) -> int:
     )
 
     try:
-        if args.output_fields:
-            print(args.output_fields, file=sys.stdout)
-            return 0
-    except AttributeError:
-        pass
-
-    try:
         coco, status = args.func(args)
-    except AttributeError:
+    except AttributeError as e:
         get_args(['--help'])
+        logging.exception(e)
     else:
         if coco is None:
-            logging.warning("No output coco, not necessarily an error")
+            logging.warning("no output coco, not necessarily an error")
         elif coco is True:
             pass
         else:
@@ -807,6 +801,15 @@ def to_mask(args: argparse.Namespace) -> Tuple[None, int]:
 
 
 def intersections(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
+    if args.output_fields:
+        if args.partitions:
+            print("image/path,first/partition_id,second/partition_id,intersection/area,first/area")
+        elif args.output_non_intersecting is not None:
+            print(f"image/path,image/id,{args.output_non_intersecting}/id,{args.output_non_intersecting}/category_id,{args.output_non_intersecting}/area")
+        else:
+            print(args.output_fields)
+        return None, 0
+
     from abyss_deep_learning.utils import MyCOCO
     from abyss_deep_learning.utils import annotations_to_mask
 
@@ -910,6 +913,16 @@ def intersections(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
 
 
 def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
+    if args.output_fields:
+        print(args.output_fields)
+        return None, 0
+
+    import numpy as np
+    import pandas as pd
+
+    from abyss_deep_learning.utils import MyCOCO, polygon_area
+    from abyss_deep_learning.metrics import poly_intersection_area
+
     if args.intersections is None:
         first_coco = None
         second_coco = None
@@ -1309,7 +1322,7 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
     )
     parser_intersections.add_argument(
         '--first', '--covered',
-        help="First JSON, TODO: Add better help"
+        help="First COCO"
     )
     parser_intersections.add_argument(
         '--output-fields',
@@ -1323,16 +1336,16 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
     parser_intersections.add_argument(
         '--output-non-intersecting',
         choices=['first', 'second'],
-        help="Output non-intersecting polygons from either first or second JSON",
+        help="Output non-intersecting polygons from either first or second JSON. Not supported with --partitions",
     )
     parser_intersections.add_argument(
         '--second', '--covering',
-        help="JSON file to match intersecting polygons with",
+        help="Second COCO",
     )
     parser_intersections.add_argument(
         '--partitions',
         action='store_true',
-        help="Print output csv of intersecting polygons on annotation id"
+        help="Print output csv of intersecting polygons on annotation id"  # TODO: consider adding as separate command?
     )
 
     parser_non_max_suppression = subparsers.add_parser(
