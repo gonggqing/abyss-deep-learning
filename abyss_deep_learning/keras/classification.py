@@ -38,23 +38,10 @@ from abyss_deep_learning.utils import cat_to_onehot, warn_on_call
 class Task( tasks.Base, ClassifierMixin ):
     """image classifier with user-defined backend"""
 
-    def _maybe_create_model(self, force=False):
-        """Create the model if it has not already been created
-
-        Raises:
-            ValueError: If backbone is invalid.
-        """
-        # from keras_applications.xception import Xception#, preprocess_input
+    def _create_model( self ):
         from keras.applications.xception import Xception
         from keras.models import Model
         from keras.layers import Dense
-
-        if not force and hasattr(self, "model_"):
-            return
-
-        self.model_ = None
-        K.clear_session()
-
         # Load the model with imagenet weights, they will be re-initialized later weights=None
         # todo! move to something like keras.models.Classification or alike (certainly do better design and naming)
         config = dict(
@@ -62,22 +49,16 @@ class Task( tasks.Base, ClassifierMixin ):
             weights=self.init_weights,
             input_shape=self.input_shape,
             pooling=self.pooling)
-
         if self.backbone == 'xception':
-                model = Xception(
-                        include_top=config['include_top'],
-                        weights=config['weights'],
-                        input_shape=config['input_shape'],
-                        pooling=config['pooling'])
+            model = Xception( include_top = config['include_top']
+                            , weights = config['weights']
+                            , input_shape = config['input_shape']
+                            , pooling = config['pooling'] )
         else:
-            raise ValueError(
-                "Task::__init__(): Invalid backbone '{}'".format(self.backbone))
-
-        # Add the classification head
+            raise ValueError( "expected valid backbone; got: '{}'".format( self.backbone ) )
         model = Model(
             model.inputs,
             Dense(self.classes, activation=self.output_activation, name='logits')(model.outputs[0]))
-
         self.model_ = model
         self.classes_ = np.arange(self.classes) # Sklearn API recomendation
         self.set_trainable(self.trainable)

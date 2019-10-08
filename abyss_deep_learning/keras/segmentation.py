@@ -142,6 +142,97 @@ def random_crop_gen(gen, output_shape, decimation=30, max_crops=10):
             i += 1
             yield image_c, mask_c
 
+class Task( tasks.Base ):
+    """image segmentation with user-defined backend"""
+
+    # todo: debug hack for now
+    def _maybe_create_model( self, force = False ):
+        """Create the model if it has not already been created
+
+        Raises:
+            ValueError: If backbone is invalid.
+        """
+        # from keras_applications.xception import Xception#, preprocess_input
+        from keras.applications.xception import Xception
+        from keras.models import Model
+        from keras.layers import Dense
+
+        if not force and hasattr( self, "model_" ): return
+        self.model_ = None
+        K.clear_session()
+
+        # Load the model with imagenet weights, they will be re-initialized later weights=None
+        # todo! move to something like keras.models.Classification or alike (certainly do better design and naming)
+        config = dict(
+            include_top=False,
+            weights=self.init_weights,
+            input_shape=self.input_shape,
+            pooling=self.pooling)
+
+        if self.backbone == 'xception':
+                model = Xception(
+                        include_top=config['include_top'],
+                        weights=config['weights'],
+                        input_shape=config['input_shape'],
+                        pooling=config['pooling'])
+        else:
+            raise ValueError(
+                "Task::__init__(): Invalid backbone '{}'".format(self.backbone))
+
+        # Add the classification head
+        model = Model(
+            model.inputs,
+            Dense(self.classes, activation=self.output_activation, name='logits')(model.outputs[0]))
+
+        self.model_ = model
+        self.classes_ = np.arange(self.classes) # Sklearn API recomendation
+        self.set_trainable(self.trainable)
+        if self.init_weights != 'imagenet':
+            self.set_weights(self.init_weights)
+        if self.l12_reg:
+            self.add_regularisation(self.l12_reg[0], self.l12_reg[1])
+
+    def predict(self, x, batch_size=32, verbose=0, steps=None):
+        """Returns the class predictions for the given data.
+        # Arguments
+            x: array-like, shape `(n_samples, n_features)`
+                Test samples where `n_samples` is the number of samples
+                and `n_features` is the number of features.
+            **kwargs: dictionary arguments
+                Legal arguments are the arguments
+                of `Sequential.predict_classes`.
+        # Returns
+            preds: array-like, shape `(n_samples,)`
+                Class predictions.
+
+        Args:
+            x (TYPE): Description
+            batch_size (int, optional): Description
+            verbose (int, optional): Description
+            steps (None, optional): Description
+
+        Returns:
+            TYPE: Description
+        """
+        raise NotImplementedError( "todo!!!" )
+        proba = self.predict_proba(x, batch_size=batch_size, verbose=verbose, steps=steps)
+        classes = proba.argmax(axis=-1) if proba.shape[-1] > 1 else (proba > 0.5).astype('int32')
+        return self.classes_[classes]
+    
+    def score( self, X, y, sample_weight = None )
+        '''returns the mean accuracy on the given test data and labels
+
+           parameters:
+               X: array-like, shape = (n_samples, n_features); test samples
+               y: array-like, shape = (n_samples) or (n_samples, n_outputs); true labels
+               sample_weight: array-like, shape = [n_samples], optional; sample weights
+
+           returns
+               score : float; mean accuracy of self.predict(X) wrt. y
+        '''
+        raise NotImplementedError( "todo!!!" )
+    
+
 
 #### TODO: Move cropping from below into new augmentation_gen
 # def augmentation_gen(gen, aug_config, enable=True):

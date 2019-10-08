@@ -228,6 +228,12 @@ class Base( BaseEstimator, ModelPersistence ):
         Raises:
             ValueError: If backbone is invalid.
         """
+        if not force and hasattr( self, "model_" ) and not self.model_ is None: return
+        self.model_ = None
+        K.clear_session()
+        self._create_model()
+        
+    def _create_model():
         raise NotImplementedError("not implemented: please implement your own _maybe_create_model() method")
 
     def  set_lr(self, lr):
@@ -482,7 +488,7 @@ class Base( BaseEstimator, ModelPersistence ):
         return self.model_.predict(x, batch_size=batch_size, verbose=verbose, steps=steps)
 
     def predict(self, x, batch_size=32, verbose=0, steps=None):
-        """Returns the class predictions for the given data.
+        """Returns predictions for the given data.
         # Arguments
             x: array-like, shape `(n_samples, n_features)`
                 Test samples where `n_samples` is the number of samples
@@ -503,9 +509,6 @@ class Base( BaseEstimator, ModelPersistence ):
         Returns:
             TYPE: Description
         """
-        #proba = self.predict_proba(x, batch_size=batch_size, verbose=verbose, steps=steps)
-        #classes = proba.argmax(axis=-1) if proba.shape[-1] > 1 else (proba > 0.5).astype('int32')
-        #return self.classes_[classes]
         raise NotImplementedError("not implemented: please implement your own predict() method")
 
     @staticmethod
