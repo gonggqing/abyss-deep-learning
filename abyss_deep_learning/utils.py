@@ -388,6 +388,20 @@ def polygon_to_mask(polygon_: List[Union[int, float]], value: float = 1) -> np.a
     return draw_polygon(x, y, grid, value)
 
 
+def partition_intersections(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """
+
+    Args:
+        a: MxN numpy array
+        b: MxN numpy array
+
+    Returns:
+        unique intersections between a and b along with their counts
+    """
+    assert a.shape == b.shape, f"expected a.shape == b.shape, got {a.shape} != {b.shape}"
+    return np.vstack(np.unique(np.vstack((a.flatten(), b.flatten())), return_counts=True, axis=1)).transpose()
+
+
 CocoAnnotationEntry = Dict[str, Union[str, int, float, List[List[Union[int, float]]]]]
 
 
