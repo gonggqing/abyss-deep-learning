@@ -33,7 +33,7 @@ from keras.utils import multi_gpu_model
 
 from abyss_deep_learning.utils import cat_to_onehot, warn_on_call
 
-class ModelPersistence:
+class Persistence:
     def save(self, filepath):
         """Save a model, its state and its hyperparameters to file.
 
@@ -54,7 +54,7 @@ class ModelPersistence:
         with open(os.path.join(dirname, "model-definition.json"), 'w') as f: f.write(self.save_model_.to_json())
 
     def load(self, filepath):
-        raise NotImplementedError("ModelPersistence::load(): has not been overridden for this class; please define your own load()")
+        raise NotImplementedError("Persistence::load(): has not been overridden for this class; please define your own load()")
 
     @staticmethod
     def _load_model(filepath, model_class):
@@ -76,7 +76,7 @@ class ModelPersistence:
         f.close()
         return model
 
-class Base( BaseEstimator, ModelPersistence ):
+class Base( BaseEstimator, Persistence ):
     """generic task class that can use multiple backends hiding some fiddly implementation details"""
     
     def __init__( self
@@ -500,4 +500,4 @@ class Base( BaseEstimator, ModelPersistence ):
             filepath (TYPE): Path to model to load
         """
 
-        return ModelPersistence._load_model(filepath, Task)
+        return Persistence._load_model(filepath, Task)
