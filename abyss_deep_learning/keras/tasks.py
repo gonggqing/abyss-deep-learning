@@ -1,6 +1,6 @@
 '''
-generic sklearn stuff
-todo: should it be called keras.sklearn?
+generic classes for task-related stuff
+specifics should go to abyss_deep_learning.keras.classification, abyss_deep_learning.keras.segmentation, etc
 '''
 
 # todo: remove unnecessary imports
@@ -32,7 +32,6 @@ import keras.regularizers
 from keras.utils import multi_gpu_model
 
 from abyss_deep_learning.utils import cat_to_onehot, warn_on_call
-
 
 class ModelPersistence:
     def save(self, filepath):
@@ -77,18 +76,16 @@ class ModelPersistence:
         f.close()
         return model
 
-class Task( BaseEstimator, ClassifierMixin, ModelPersistence ):
-    """A generic task class that can use multiple backends, complete with persistence
-    functionality, and hides some fiddly implementation details
-    """
+class Base( BaseEstimator, ModelPersistence ):
+    """generic task class that can use multiple backends hiding some fiddly implementation details"""
     
     def __init__( self
                 , backbone
                 , output_activation
                 , input_shape
                 , pooling = 'avg'
-                , classes
-                , init_weights
+                , classes = 2
+                , init_weights = ''
                 , init_epoch = 0
                 , init_lr = 1e-3
                 , trainable = True
@@ -223,7 +220,7 @@ class Task( BaseEstimator, ClassifierMixin, ModelPersistence ):
             # Load weights from a list of np.ndarrays, to support sklearn model serialization
             model.set_weights(weights)
         else:
-            raise ValueError("Task::set_weights(): Invalid weights.")
+            raise ValueError("invalid weights")
 
     def _maybe_create_model(self, force=False):
         """Create the model if it has not already been created
@@ -296,20 +293,16 @@ class Task( BaseEstimator, ClassifierMixin, ModelPersistence ):
         #     super().set_trainable(train_layers)
         if isinstance(trainable, bool):
             # Make all layers trainable or non trainable
-            for layer in self.model_.layers:
-                layer.trainable = trainable
+            for layer in self.model_.layers: layer.trainable = trainable
         elif isinstance(trainable, dict):
             # Use a dictionary to map layer names to trainable flags
             for layer in self.model_.layers:
-                if layer.name in trainable:
-                    layer.trainable = trainable[layer.name]
+                if layer.name in trainable: layer.trainable = trainable[layer.name]
         elif isinstance(trainable, list):
             # Use a list to map layer index to trainable flags
-            for layer, do_train in zip(self.model_.layers, trainable):
-                layer.trainable = do_train
+            for layer, do_train in zip(self.model_.layers, trainable): layer.trainable = do_train
         else:
-            raise ValueError(
-                "Task::set_trainable(): Invalid argument type (accepts bool, dict and list).")
+            raise ValueError( "expected bool, dict, or list; got: " + str( type( trainable ) ) )
         self.trainable = trainable
 
     def _maybe_compile(self):
@@ -322,19 +315,14 @@ class Task( BaseEstimator, ClassifierMixin, ModelPersistence ):
         if not self.model_._is_compiled:
             # Don't compile models that are not trainable (predict only)
             if self.trainable:
-                if self.loss is None:
-                    raise ValueError(
-                        "Task::fit(): Trying to compile a model without a loss function.")
+                if self.loss is None: raise ValueError( "Task::fit(): trying to compile a model without a loss function")
                 self.save_model_= self.model_
-                if self.gpus and self.gpus > 1:
-                    self.model_ = multi_gpu_model(self.model_, self.gpus)
+                if self.gpus and self.gpus > 1: self.model_ = multi_gpu_model(self.model_, self.gpus)
                 opt = self.create_optimizer(self.optimizer, self.optimizer_args)
                 self.model_.compile(opt, loss=self.loss, metrics=self.metrics)
                 self.set_lr(self.init_lr)
             else:
-                warnings.warn(
-                    "Trying to compile a model that has no trainable layers.",
-                    category=UserWarning)
+                warnings.warn( "trying to compile a model that has no trainable layers", category=UserWarning)
 
     def recompile(self):
         '''Temporarily saves the model weights and config, deletes the model and restores it.
