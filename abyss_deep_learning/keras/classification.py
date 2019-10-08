@@ -67,6 +67,28 @@ class Task( tasks.Base, ClassifierMixin ):
         if self.l12_reg:
             self.add_regularisation(self.l12_reg[0], self.l12_reg[1])
 
+    def predict_proba(self, x, batch_size=32, verbose=0, steps=None):
+        """Returns the class predictions scores for the given data.
+        # Arguments
+            x: array-like, shape `(n_samples, n_features)`
+                Test samples where `n_samples` is the number of samples
+                and `n_features` is the number of features.
+        # Returns
+            scores: array-like, shape `(n_samples, n_classes)`
+                Class prediction scores.
+
+        Args:
+            x (TYPE): Description
+            batch_size (int, optional): Description
+            verbose (int, optional): Description
+            steps (None, optional): Description
+
+        Returns:
+            TYPE: Description
+        """
+        check_is_fitted(self, "model_")
+        return self.model_.predict(x, batch_size=batch_size, verbose=verbose, steps=steps)
+
     def predict(self, x, batch_size=32, verbose=0, steps=None):
         """Returns the class predictions for the given data.
         # Arguments
