@@ -581,10 +581,10 @@ class MyCOCO(COCO):
 
     class Verbose:
         @staticmethod
-        def write(line: str):
-            line = line.strip()
-            if line:
-                logging.info(line)
+        def write(sentence: str):
+            sentence = sentence.strip()
+            if sentence:
+                logging.info(sentence)
 
     def __init__(self, buffer: Union[str, TextIOWrapper] = None):
         if isinstance(buffer, str) or buffer is None:
