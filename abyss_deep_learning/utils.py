@@ -580,6 +580,8 @@ class MyCOCO(COCO):
     """ Create COCO object by reading from file path or from stdin """
 
     class Verbose:
+        """Intercept stdin print to stderr"""
+
         @staticmethod
         def write(sentence: str):
             sentence = sentence.strip()
@@ -596,11 +598,9 @@ class MyCOCO(COCO):
                 self.dataset = json.loads(json_string)
                 self.createIndex()
             else:
-                logging.error("Expecting input from stdin: received empty characters {}".format(repr(json_string)))
-                sys.exit(1)
+                raise ValueError(f"Expecting input from stdin: received empty characters {repr(json_string)}")
         else:
-            logging.error("Unknown data type {}, exiting".format(type(buffer)))
-            sys.exit(1)
+            raise TypeError(f"Unknown data type {type(buffer)}, expecting file name or input file from stdin")
 
     @property
     def info(self):
