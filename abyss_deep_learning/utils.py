@@ -476,7 +476,7 @@ def connect_holes(contours: CocoAnnotationEntry, shape: Tuple[int, int]):
         main_point_idx, sub_point_idx = np.unravel_index(np.argmin(distances), distances.shape)  # get index of shortest line connecting point in main contour to a contour in sub_contours
         pt2 = tuple(sub_contours[sub_point_idx])
         pt1 = tuple(main_contour[main_point_idx])
-        cv2.line(mask, pt1, pt2, 0, 1)
+        cv2.line(mask, pt1, pt2, color=0, thickness=1, lineType=cv2.LINE_4)
     return cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
 
