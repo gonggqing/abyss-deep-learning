@@ -1112,6 +1112,32 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
     return None, 0
 
 
+def convert(args: argparse.Namespace) -> Tuple[Union[None, MyCOCO], int]:
+    from abyss_deep_learning.utils import connect_holes
+
+    if args.old:
+        logging.warning(f"{args.old} was passed in to --old, currently --old is not implemented")
+
+    if args.new:
+        logging.warning(f"{args.new} was passed in to --new, currently --new is not implemented")
+
+    coco = None
+    if args.coco:
+        coco = MyCOCO(args.coco)  # todo: remove pycoco dependency
+    else:
+        coco = MyCOCO(sys.stdin)  # todo: remove pycoco dependency
+
+    for img_entry in coco.images:
+        shape = img_entry['height'], img_entry['width']
+        ann_entries = coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id']))
+        for ann in ann_entries:
+            contours, _ = connect_holes(ann, shape)
+            assert len(contours) == 1, f"expected single annotation to be returned from connect_holes, got {len(contours)} annotations"
+            ann['segmentation'] = list(contours[0].flatten())
+
+    return coco, 0
+
+
 def get_img_polys(coco: COCO, img_id: int) -> Tuple[dict, np.array]:
     ann_entries = coco.loadAnns(coco.getAnnIds(imgIds=img_id))
     polygons = [
@@ -1327,6 +1353,14 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
              "use precomputed intersections file from coco-calc intersections to calculate coverage",
     )
 
+    parser_convert = subparsers.add_parser('convert', description="Convert to and from COCO formats",
+                                           formatter_class=argparse.RawDescriptionHelpFormatter,
+                                           parents=parents, help="Convert to and from COCO formats"
+                                           )
+    parser_convert.add_argument('--old', choices=[], help="COCO format to convert from. TODO")
+    parser_convert.add_argument('--new', choices=[], help="COCO format to convert to. TODO")
+    parser_convert.add_argument('--coco', type=str, help="pass COCO filepath in as command line argument")
+
     parser_intersections = subparsers.add_parser(
         'intersections',
         description=_INTERSECT_DESCRIPTION,
@@ -1437,6 +1471,7 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
     parser_repath.set_defaults(func=repath)
     parser_resize.set_defaults(func=resize)
     parser_simplify.set_defaults(func=simplify)
+    parser_convert.set_defaults(func=convert)
     return parser.parse_args(flags)
 
 
