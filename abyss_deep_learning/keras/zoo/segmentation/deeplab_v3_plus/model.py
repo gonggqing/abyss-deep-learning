@@ -40,29 +40,28 @@ https://github.com/JonathanCMitchell/mobilenet_v2_keras
     Classification, Detection and Segmentation](https://arxiv.org/abs/1801.04381)
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import division, print_function, absolute_import
 
 import tensorflow as tf
-
-from tensorflow.python.keras.models import Model
-from tensorflow.python.keras import layers
-from tensorflow.python.keras.layers import Input
-from tensorflow.python.keras.layers import Lambda
-from tensorflow.python.keras.layers import Activation
-from tensorflow.python.keras.layers import Concatenate
-from tensorflow.python.keras.layers import Add
-from tensorflow.python.keras.layers import Dropout
-from tensorflow.python.keras.layers import BatchNormalization
-from tensorflow.python.keras.layers import Conv2D
-from tensorflow.python.keras.layers import DepthwiseConv2D
-from tensorflow.python.keras.layers import ZeroPadding2D
-from tensorflow.python.keras.layers import GlobalAveragePooling2D
-from tensorflow.python.keras.utils.layer_utils import get_source_inputs
-from tensorflow.python.keras.utils.data_utils import get_file
 from tensorflow.python.keras import backend as K
+from tensorflow.python.keras import layers
+from tensorflow.python.keras.layers import (
+    Add,
+    Input,
+    Conv2D,
+    Lambda,
+    Dropout,
+    Activation,
+    Concatenate,
+    ZeroPadding2D,
+    DepthwiseConv2D,
+    BatchNormalization,
+    GlobalAveragePooling2D
+)
+from tensorflow.python.keras.models import Model
 from tensorflow.python.keras.activations import relu
+from tensorflow.python.keras.utils.data_utils import get_file
+from tensorflow.python.keras.utils.layer_utils import get_source_inputs
 from tensorflow.python.keras.applications.imagenet_utils import preprocess_input
 
 WEIGHTS_PATH_X = "https://github.com/bonlime/keras-deeplab-v3-plus/releases/download/1.1/deeplabv3_xception_tf_dim_ordering_tf_kernels.h5"
@@ -197,7 +196,7 @@ def _make_divisible(v, divisor, min_value=None):
 
 
 def _inverted_res_block(inputs, expansion, stride, alpha, filters, block_id, skip_connection, rate=1):
-    in_channels = inputs.shape[-1]  # inputs._keras_shape[-1]
+    in_channels = inputs.shape.as_list()[-1]  # inputs._keras_shape[-1]
     pointwise_conv_filters = int(filters * alpha)
     pointwise_filters = _make_divisible(pointwise_conv_filters, 8)
     x = inputs
