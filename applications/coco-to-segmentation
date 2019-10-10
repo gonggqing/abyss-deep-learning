@@ -100,7 +100,6 @@ def main(args: argparse.Namespace):
         for annotation_id in image_id_to_ann_id[image_entry['id']]:
             annotation = coco['annotations'][annotation_id]
             for segmentation in annotation.get('segmentation', [[]]):
-
                 segmentation = [int(round(i)) for i in segmentation]
 
                 # truncate 0 for bounding box out of bounds
