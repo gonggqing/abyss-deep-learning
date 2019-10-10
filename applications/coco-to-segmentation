@@ -116,6 +116,8 @@ def main(args: argparse.Namespace):
                 if len(row) == len(column) == 0:
                     logging.warning("empty segmentation list {}".format(segmentation))
                     continue
+                if args.mask_id == 'annotation_id':
+                    args.mask_id = 'id'
                 img[polygon(row, column)] = annotation[args.mask_id]
                 try:
                     img[polygon_perimeter(row, column)] = annotation[args.mask_id]
