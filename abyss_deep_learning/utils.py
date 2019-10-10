@@ -15,7 +15,8 @@ import numpy as np
 import pandas as pd
 from pycocotools import mask as maskUtils
 from pycocotools.coco import COCO
-from skimage.draw import polygon, polygon_perimeter, line
+from scipy.spatial.distance import cdist
+from skimage.draw import polygon, polygon_perimeter
 from skimage.measure import find_contours, approximate_polygon
 
 
@@ -405,24 +406,131 @@ def partition_intersections(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 CocoAnnotationEntry = Dict[str, Union[str, int, float, List[List[Union[int, float]]]]]
 
 
-def annotations_to_mask(anns: List[CocoAnnotationEntry], shape: Tuple[int, int]) -> np.ndarray:
-    """
-    Converts coco annotation to mask file using opencv drawContours
+def annotations_to_mask(anns: List[CocoAnnotationEntry], shape: Tuple[int, int], id_type: str) -> np.ndarray:
+    """Converts coco annotation to mask file using opencv drawContours
 
     Args:
         anns: list of annotation entries in COCO format
         shape: height x width of original image
+        id_type: one of ['id', 'category_id'] to use as value of annotation in mask
 
     Returns:
         mask of filled in annotation id of each annotation entry
     """
+    if id_type not in {'id', 'category_id'}:
+        raise ValueError(f"expecting id_type to be one of ['id', 'category_id'], received {id_type}")
+
+    if len(shape) != 2:
+        raise ValueError(f"expecting shape format to be of (height, width), received tuple of len={len(shape)}")
+
     from cv2 import drawContours
-    mask = np.zeros(shape, dtype=np.int32)  # TODO: Check with Toby if this should be np.uint8 or np.int32, depending on value of pixel if taken from annotation id, category id, or id of annotation in list entry
+    mask = np.zeros(shape, dtype=np.int32)
     for ann in anns:
         # reshape segmentation
         contours = [np.reshape(segm, (len(segm) // 2, 1, 2)) for segm in ann['segmentation']]
-        # hierarchy may not be needed??? TODO: requires extensive testing with COCO format
-        drawContours(image=mask, contours=contours, contourIdx=-1, color=ann.get('id', 0), thickness=-1)
+        drawContours(image=mask, contours=contours, contourIdx=-1, color=ann.get(id_type, -1), thickness=-1)
+    return mask
+
+
+def nearest_matching_pixel(mask: np.ndarray, start: np.ndarray, value: int = 0) -> np.ndarray:
+    """Find the nearest pixel co-ordinate of value=value to the start co-ordinate.
+
+    Args:
+        mask: MxN segmentation mask
+        start: [y, x] of start pixel
+        value: value to match closest pixel to start pixel
+
+    Returns:
+        [y, x] co-ordinate of closest match pixel
+    """
+    if not isinstance(value, int):
+        raise TypeError(f"expected value to be of type int, received {type(value)}")
+    matching_coords = np.argwhere(mask == value).astype(np.uint16)
+    return matching_coords[np.square(matching_coords - start).sum(axis=1).argmin()]
+
+
+def connect_holes(contours: CocoAnnotationEntry, shape: Tuple[int, int]):
+    """Connect holes for COCO annotation entry that uses annotation contours produced from cv2.findContours with
+    parameters cv2.RETR_CCOMP and cv2.CHAIN_APPROX_SIMPLE
+
+    Args:
+        contours: COCO 'segmentation' key in annotation entry
+        shape: image shape
+
+    Returns:
+        contours, hierarchy called from connected masks using cv2.findContours with parameter cv2.RETR_LIST and
+        cv2.CHAIN_APPROX_SIMPLE
+    """
+    fmt = np.uint8
+    mask = np.zeros(shape, dtype=fmt)
+    contours = [np.reshape(contour, (len(contour) // 2, 2)) for contour in contours]
+    cv2.drawContours(mask, contours, -1, np.iinfo(fmt).max, -1)
+    for i, main_contour in enumerate(contours):
+        if i == len(contours) - 1:
+            break
+        # prev_contours = contours[:i]
+        next_contours = contours[i + 1:]
+        # sub_contours = np.vstack((*prev_contours, *next_contours))
+        sub_contours = np.vstack(next_contours)  # todo: change to merge both prev and next contours, this doesn't connect just shortest paths
+        distances = cdist(main_contour, sub_contours)  # calculate distance between point in main contour against every other contour
+        main_point_idx, sub_point_idx = np.unravel_index(np.argmin(distances), distances.shape)  # get index of shortest line connecting point in main contour to a contour in sub_contours
+        pt2 = tuple(sub_contours[sub_point_idx])
+        pt1 = tuple(main_contour[main_point_idx])
+        cv2.line(mask, pt1, pt2, color=0, thickness=1, lineType=cv2.LINE_4)
+    return cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+
+
+def connect_holes_deprecated(mask: np.ndarray, value: int) -> np.ndarray:
+    """Connect contours that have child contours
+
+    Args:
+        mask: segmentation mask of dtype=np.uint8
+        value: to keep on binary mask from original mask
+
+    Returns:
+        mask with connected contours by drawing shortest line from one pixel to the child contours
+    """
+    if not isinstance(value, int):
+        raise TypeError(f"expected value to be of type int, received {type(value)}")
+
+    # todo pad mask to handle contours on edge of mask
+    # refactor
+    mask = cv2.threshold(mask, value - 1, value, cv2.THRESH_BINARY)
+    mask_copy = np.array(mask)
+    contours, hierarchy = cv2.findContours(mask, mode=cv2.RETR_CCOMP, method=cv2.CHAIN_APPROX_SIMPLE)
+    hierarchy = hierarchy.squeeze()
+    contour_level = hierarchy[0]
+    while contour_level[0] != -1:
+        if contour_level[2] != -1:
+            child_level = hierarchy[contour_level[2]]  # first 'hole'
+            idx = np.argwhere(np.all(hierarchy == child_level, axis=1)).item()
+            cv2.drawContours(mask_copy, contours, contourIdx=idx, color=np.iinfo(value).max, thickness=-1)
+            x1, y1 = contours[idx][0].squeeze()  # array([x, y])
+            y2, x2 = nearest_matching_pixel(mask_copy, np.array((y1, x1)))
+            mask = cv2.line(mask, (x1, y1), (x2, y2), color=0, thickness=1)
+            while child_level[0] != -1:
+                child_level = hierarchy[child_level[0]]  # next 'holes'
+                idx = np.argwhere(np.all(hierarchy == child_level, axis=1)).item()
+                cv2.drawContours(mask_copy, contours, contourIdx=idx, color=np.iinfo(value).max, thickness=-1)
+                x1, y1 = contours[idx][0].squeeze()  # array([x, y])
+                y2, x2 = nearest_matching_pixel(mask_copy, np.array((y1, x1)))
+                mask = cv2.line(mask, (x1, y1), (x2, y2), color=0, thickness=1)
+        contour_level = hierarchy[contour_level[0]]
+
+    if contour_level[2] != -1:
+        child_level = hierarchy[contour_level[2]]  # first 'hole'
+        idx = np.argwhere(np.all(hierarchy == child_level, axis=1)).item()
+        cv2.drawContours(mask_copy, contours, contourIdx=idx, color=np.iinfo(value).max, thickness=-1)
+        x1, y1 = contours[idx][0].squeeze()  # array([x, y])
+        y2, x2 = nearest_matching_pixel(mask_copy, np.array((y1, x1)))
+        mask = cv2.line(mask, (x1, y1), (x2, y2), color=0, thickness=1)
+        while child_level[0] != -1:
+            child_level = hierarchy[child_level[0]]  # next 'holes'
+            idx = np.argwhere(np.all(hierarchy == child_level, axis=1)).item()
+            cv2.drawContours(mask_copy, contours, contourIdx=idx, color=np.iinfo(value).max, thickness=-1)
+            x1, y1 = contours[idx][0].squeeze()  # array([x, y])
+            y2, x2 = nearest_matching_pixel(mask_copy, np.array((y1, x1)))
+            mask = cv2.line(mask, (x1, y1), (x2, y2), color=0, thickness=1)
     return mask
 
 
@@ -580,11 +688,13 @@ class MyCOCO(COCO):
     """ Create COCO object by reading from file path or from stdin """
 
     class Verbose:
+        """Intercept stdin print to stderr"""
+
         @staticmethod
-        def write(line: str):
-            line = line.strip()
-            if line:
-                logging.info(line)
+        def write(sentence: str):
+            sentence = sentence.strip()
+            if sentence:
+                logging.info(sentence)
 
     def __init__(self, buffer: Union[str, TextIOWrapper] = None):
         if isinstance(buffer, str) or buffer is None:
@@ -596,11 +706,9 @@ class MyCOCO(COCO):
                 self.dataset = json.loads(json_string)
                 self.createIndex()
             else:
-                logging.error("Expecting input from stdin: received empty characters {}".format(repr(json_string)))
-                sys.exit(1)
+                raise ValueError(f"Expecting input from stdin: received empty characters {repr(json_string)}")
         else:
-            logging.error("Unknown data type {}, exiting".format(type(buffer)))
-            sys.exit(1)
+            raise TypeError(f"Unknown data type {type(buffer)}, expecting file name or input file from stdin")
 
     @property
     def info(self):

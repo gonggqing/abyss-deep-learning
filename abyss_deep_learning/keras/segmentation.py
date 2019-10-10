@@ -103,7 +103,7 @@ def fill_mask_gen(gen, min_size=50):
         min_size (int, optional): Minimum hole size to fill.
 
     Yields:
-        tuple: A keras compatible input tuple with the targets modified.
+        tuple: A keras compatible input tuple with tzzhe targets modified.
     '''
     for rgb, mask in gen:
         for cat_idx in range(1, mask.shape[-1]):
