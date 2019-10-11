@@ -20,6 +20,18 @@ from skimage.draw import polygon, polygon_perimeter
 from skimage.measure import find_contours, approximate_polygon
 
 
+def append_docstring(other_func):
+    """Decorator to append another functions docstring a function.
+
+    Args:
+        other_func (callable): The function to copy the docstring from.
+    """
+    def dec(func):
+        func.__doc__ = func.__doc__ + "\n\n" + other_func.__doc__
+        return func
+    return dec
+
+
 def cv2_to_Pil(image):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     return PIL.Image.fromarray(image)

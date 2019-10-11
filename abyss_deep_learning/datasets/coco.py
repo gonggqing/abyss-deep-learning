@@ -9,7 +9,7 @@ import os
 import random
 import sys
 
-from pycocotools import mask as maskUtils
+# from pycocotools import mask as maskUtils
 from pycocotools.coco import COCO
 from skimage.io import imread
 from sklearn.utils.class_weight import compute_class_weight
@@ -19,7 +19,9 @@ from abyss_deep_learning.base.datasets import DatasetTaskBase, DatasetTypeBase
 from abyss_deep_learning.datasets.translators import AnnotationTranslator
 
 
-######################## Abstract Classes with COCO data format ########################
+""" Abstract Classes with COCO data format """
+
+
 class CocoInterface(object):
     @property
     def coco(self):
@@ -47,13 +49,15 @@ class CocoDataset(CocoInterface):
                         self._coco.dataset = json_dict
                         self._coco.createIndex()
                     else:
-                        raise SyntaxError("Invalid json data format - JSON not in COCO format")
+                        raise SyntaxError(
+                            "Invalid json data format - JSON not in COCO format")
                 except json.decoder.JSONDecodeError:
-                    raise SyntaxError("Invalid json data format - JSON malformed")
-
+                    raise SyntaxError(
+                        "Invalid json data format - JSON malformed")
 
         CocoInterface.__init__(self, self.coco, **kwargs)
-        self.data_ids = kwargs.pop('data_ids', [image['id'] for image in self.coco.imgs.values()])
+        self.data_ids = kwargs.pop(
+            'data_ids', [image['id'] for image in self.coco.imgs.values()])
 
     def split(self, ratios):
         with redirect_stdout(sys.stderr):
@@ -71,7 +75,8 @@ class CocoDataset(CocoInterface):
         last_index = 0
 
         for i, sn in enumerate(sample_nums):
-            dss[i].imgs = {img['id']: img for img in shuffled_imgs[last_index:last_index + sn]}
+            dss[i].imgs = {
+                img['id']: img for img in shuffled_imgs[last_index:last_index + sn]}
             last_index += sn
 
             im_ids = dss[i].getImgIds()
@@ -82,7 +87,9 @@ class CocoDataset(CocoInterface):
         return dss
 
 
-########### COCO Dataset Types #################
+""" COCO Dataset Types """
+
+
 def _noop(*args):
     return args if len(args) > 1 else args[0]
 
@@ -122,8 +129,10 @@ class ImageDatatype(CocoInterface, DatasetTypeBase):
         if 'path' in self.coco.imgs[image_id]:
             path = self.coco.imgs[image_id]['path']
         else:
-            assert self.image_dir, "Dataset image dir must be set as no path is provided in database."
-            path = os.path.join(self.image_dir, self.coco.imgs[image_id]['file_name'])
+            assert self.image_dir,\
+                "Dataset image dir must be set as no path is provided in database."
+            path = os.path.join(
+                self.image_dir, self.coco.imgs[image_id]['file_name'])
 
         return self._preprocess_data(imread(path, plugin='imageio'))
 
@@ -142,7 +151,8 @@ class ImageDatatype(CocoInterface, DatasetTypeBase):
             yield self.load_data(data_id, **kwargs)
 
 
-########### COCO Task Types #################
+""" COCO Task Types """
+
 
 class ClassificationTask(CocoInterface, DatasetTaskBase):
     def __init__(self, coco, translator=None, use_captions=False, **kwargs):
@@ -221,16 +231,20 @@ class ClassificationTask(CocoInterface, DatasetTaskBase):
                 caption
                 for captions in targets
                 for caption in captions]
-            self.stats['images_per_class'] = dict(sorted(Counter(targets).items(), key=lambda x: x[0]))
-            class_weights = compute_class_weight('balanced', list(self.captions), targets)
-            class_weights = {i: float(np.round(v, 3)) for i, v in enumerate(class_weights)}
+            self.stats['images_per_class'] = dict(
+                sorted(Counter(targets).items(), key=lambda x: x[0]))
+            class_weights = compute_class_weight(
+                'balanced', list(self.captions), targets)
+            class_weights = {i: float(np.round(v, 3))
+                             for i, v in enumerate(class_weights)}
             self.stats['class_weights'] = class_weights
             a = np.array(list(class_weights.values()))
             self.stats['trivial_accuracy'] = np.mean(a / np.max(a))
 
     @property
     def class_weights(self):
-        '''Returns the class weights that will balance the backprop update over the class distribution.'''
+        '''Returns the class weights that balance the backprop update over the
+         class distribution.'''
         if not self.stats:
             self._calc_class_stats()
         return self.stats['class_weights']
@@ -252,14 +266,17 @@ class SemanticSegmentationTask(CocoInterface, DatasetTaskBase):
         """
         Segmentation arguments:
             coco (pycocotools.COCO): The COCO object to read the targes from
-            translator (AnnotationTranslator, optional): An instance of an abyss_deep_learning.datasets.translators.AnnotationTranslator
-            num_classes (int, optional): The number of classes to generate data for; if None then infer from coco.cats
+            translator (AnnotationTranslator, optional):
+                An instance of an abyss_deep_learning.datasets.translators.AnnotationTranslator
+            num_classes (int, optional):
+                The number of classes to generate data for; if None then infer from coco.cats
             cached (bool, optional): Whether to cache the entire dataset into memory.
         """
         CocoInterface.__init__(self, coco, **kwargs)
         assert isinstance(translator, (AnnotationTranslator, type(None)))
         self.translator = translator or AnnotationTranslator()
-        self.num_classes = num_classes if num_classes else len(self.coco.cats) + 1
+        self.num_classes = num_classes if num_classes else len(
+            self.coco.cats) + 1
         self.stats = dict()
         self._targets = dict()
 
@@ -280,12 +297,14 @@ class SemanticSegmentationTask(CocoInterface, DatasetTaskBase):
         anns = [self.translator.translate(ann) for ann in self.coco.loadAnns(
             self.coco.getAnnIds([data_id])) if self.translator.filter(ann)]
         if anns:
-            masks = np.array([self.coco.annToMask(ann) for ann in anns]).transpose((1, 2, 0))
+            masks = np.array([self.coco.annToMask(ann)
+                              for ann in anns]).transpose((1, 2, 0))
             class_ids = np.array([ann['category_id'] for ann in anns])
             return self._preprocess_targets(
                 SemanticSegmentationTask._pack_masks(
                     masks, class_ids, self.num_classes, dtype=self.dtype_image))
-        masks = np.zeros((img['height'], img['width'], self.num_classes), dtype=self.dtype_image)
+        masks = np.zeros((img['height'], img['width'],
+                          self.num_classes), dtype=self.dtype_image)
         masks[..., 0] = 1
         return self._preprocess_targets(masks)
 
@@ -306,7 +325,8 @@ class SemanticSegmentationTask(CocoInterface, DatasetTaskBase):
     @staticmethod
     def _pack_masks(masks, mask_classes, num_classes, dtype=np.uint8):
         '''Pack a list of instance masks into a categorical mask.
-        Expects masks to be shape [height, width, num_instances] and mask_classes to be [num_instances].'''
+        Expects masks to be shape [height, width, num_instances] and mask_classes
+        to be [num_instances].'''
         num_shapes = len(mask_classes)
         shape = masks.shape
         packed = np.zeros(shape[0:2] + (num_classes,), dtype=dtype)
@@ -320,7 +340,8 @@ class SemanticSegmentationTask(CocoInterface, DatasetTaskBase):
 
     @property
     def class_weights(self):
-        '''Returns the class weights that will balance the backprop update over the class distribution.'''
+        '''Returns the class weights that balance the backprop update over the
+        class distribution.'''
         return self.stats['class_weights']
 
     def print_class_stats(self):
@@ -331,7 +352,8 @@ class SemanticSegmentationTask(CocoInterface, DatasetTaskBase):
         print(" ", self.class_weights)
 
 
-#### COCO Realisations ########
+""" COCO Realisations """
+
 
 class ImageClassificationDataset(CocoDataset, ImageDatatype, ClassificationTask):
     # TODO:
