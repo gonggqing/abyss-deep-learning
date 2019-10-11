@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import warnings
+from bisect import bisect_left
 from collections import Counter
 from contextlib import redirect_stdout
 from io import TextIOWrapper
@@ -464,18 +465,39 @@ def connect_holes(contours: CocoAnnotationEntry, shape: Tuple[int, int]):
     fmt = np.uint8
     mask = np.zeros(shape, dtype=fmt)
     contours = [np.reshape(contour, (len(contour) // 2, 2)) for contour in contours]
-    cv2.drawContours(mask, contours, -1, np.iinfo(fmt).max, -1)
+    cv2.drawContours(mask, contours, contourIdx=-1, color=np.iinfo(fmt).max, thickness=cv2.FILLED)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    mask[:, :] = 0
+    cv2.drawContours(mask, contours, contourIdx=-1, color=np.iinfo(fmt).max, thickness=cv2.FILLED)
+
+    contours = [contour.squeeze() for contour in contours]
+    num_contours = len(contours)
+    connected_contour_ids = {i: set(range(num_contours)) for i in range(num_contours)}  # dict to set mapping of available contour ids to connect with
     for i, main_contour in enumerate(contours):
         if i == len(contours) - 1:
             break
-        # prev_contours = contours[:i]
-        next_contours = contours[i + 1:]
-        # sub_contours = np.vstack((*prev_contours, *next_contours))
-        sub_contours = np.vstack(next_contours)  # todo: change to merge both prev and next contours, this doesn't connect just shortest paths
+        prev_contours = [contour for id_, contour in enumerate(contours[:i]) if id_ in connected_contour_ids[i]]
+        next_contours = [contour for id_, contour in enumerate(contours[i + 1:], i + 1) if id_ in connected_contour_ids[i]]
+        sub_contours = np.vstack((*prev_contours, *next_contours))
+        # sub_contours = np.vstack(next_contours)  # todo: change to merge both prev and next contours, this doesn't connect just shortest paths
         distances = cdist(main_contour, sub_contours)  # calculate distance between point in main contour against every other contour
         main_point_idx, sub_point_idx = np.unravel_index(np.argmin(distances), distances.shape)  # get index of shortest line connecting point in main contour to a contour in sub_contours
-        pt2 = tuple(sub_contours[sub_point_idx])
         pt1 = tuple(main_contour[main_point_idx])
+        pt2 = tuple(sub_contours[sub_point_idx])
+        for id_, contour in enumerate(contours):
+            if any((contour[:] == pt2).all(1)):
+                connected_contour_ids[id_].remove(i)
+                break
+        # if sub_point_idx < sum([len(x) for x in prev_contours]):
+        #     for idx, contour in enumerate(prev_contours):
+        #         if any((contour[:] == pt2).all(1)):
+        #             other_contour_id = idx
+        # else:
+        #     for idx, contour in enumerate(next_contours):
+        #         if any((contour[:] == pt2).all(1)):
+        #             other_contour_id = idx + len(prev_contours) + 1  # +1 to account of main contour
+        #     # index is within len(prev_contours) + len(next_contours)
         cv2.line(mask, pt1, pt2, color=0, thickness=1, lineType=cv2.LINE_4)
     return cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 

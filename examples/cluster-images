@@ -5,13 +5,11 @@ import sys
 
 import numpy as np
 import PIL.Image
-import keras
 import tensorflow as tf
-#from keras_applications.xception import Xception
 from pycocotools.coco import COCO
 from tensorflow.contrib.tensorboard.plugins import projector
+from abyss_deep_learning.keras.tensorboard import produce_embeddings_tsv
 import json
-#import abyss_deep_learning.keras.zoo.segmentation.deeplab_v3_plus as dlv3
 
 from abyss_deep_learning.utils import imread
 
@@ -49,15 +47,16 @@ def save_embeddings(log_dir, features, labels=None, sprite=None, sprite_shape=No
     metadata = os.path.join(log_dir, 'metadata.tsv')
     features = tf.Variable(features, name='features')
 
-    if labels is not None:
-        with open(metadata, 'w') as metadata_file:
-            for row in labels:
-                metadata_file.write('%d\n' % row)
+    produce_embeddings_tsv(os.path.join(log_dir, 'metadata.tsv'), headers=['label'], labels=labels)
+
+    #if labels is not None:
+    #    with open(metadata, 'w') as metadata_file:
+    #        for row in labels:
+    #            metadata_file.write('%d\n' % row)
     if sprite is not None:
         PIL.Image.fromarray(sprite).save(os.path.join(log_dir, 'sprite.png'))
     with tf.Session() as sess:
         saver = tf.train.Saver([features])
-
         sess.run(features.initializer)
         saver.save(sess, os.path.join(log_dir, 'features.ckpt'))
 
@@ -73,24 +72,6 @@ def save_embeddings(log_dir, features, labels=None, sprite=None, sprite_shape=No
             embedding.sprite.single_image_dim.extend(sprite_shape)
         # Saves a config file that TensorBoard will read during startup.
         projector.visualize_embeddings(tf.summary.FileWriter(log_dir), config)
-
-
-def procuce_embeddings_tsv(path, headers, labels):
-    """Produce the tab separated values required for visualizing the classes on the embeddings.
-
-    Args:
-        path (str):
-            The path to save the tsv to. Should match the embeddings_metadata argument to TensorBoard.
-        headers (dict of strings): The header to write to the tsv. Ignored if only 1 column in labels.
-        labels (np.ndarray): The labels to write. Number of columns has to match headers.
-    """
-    assert labels.shape[1] == len(headers), \
-        "labels.shape[1] is {:d} but len(headers) is {:d}".format(labels.shape[1], len(headers))
-    with open(path, 'w') as file:
-        if labels.shape[1] > 1:
-            file.write("\t".join(headers) + "\n")
-        for label in labels:
-            file.write("\t".join([str(i) for i in label]) + "\n")
 
 def say(*args):
     print(*args, file=sys.stderr)
@@ -119,22 +100,23 @@ def main(args):
     say("Loading model...")
     model = tf.keras.models.load_model(args.model_weights, custom_objects = {'tf': tf})
     say("Model loaded!")
-    say('test complete')
-    exit(1)
 
-    # cls = Xception(
-    #     include_top=False, weights='imagenet',
-    #     input_shape=args.image_size + (3, ), pooling='avg')
-    say("Predicting")
-    logits = model.predict(images)
-    say("Saving embeddings")
-    save_embeddings(
-        args.tensorboard_dir, logits,
-        labels=None, sprite=images_to_sprite(thumbs), sprite_shape=args.thumb_size)
-    save_embeddings(
-        args.tensorboard_dir, logits,
-        labels=None, sprite=images_to_sprite(thumbs), sprite_shape=args.thumb_size)
+    layer_name = 'decoder_conv1_pointwise_BN'
+    if layer_name is not None:
+        output = model.get_layer(layer_name).output
+        #output = tf.keras.layers.Lambda( lambda x : tf.math.reduce_mean(tf.math.reduce_mean(x, axis=1), axis=1) ) # get the average embedding feature
+        model = tf.keras.models.Model(inputs=model.input,
+                                  outputs=output)
+    say("Predicting...")
+    features = model.predict(images)
+    features = np.mean( np.mean(features, axis=1), axis=1 )
 
+    say("Saving embeddings...")
+    save_embeddings(
+        args.tensorboard_dir, features,
+        labels=np.zeros((len(images),1)), sprite=images_to_sprite(thumbs), sprite_shape=args.thumb_size)
+
+    say('Done!')
 
 def get_args(cmd_line=None):
     '''Get args from the command line args'''
@@ -144,7 +126,6 @@ def get_args(cmd_line=None):
         "tensorboard_dir", help="Where to write the tensorboard embeddings")
     parser.add_argument("images", nargs='+', help="images, videos or COCO JSONs to cluster")
     parser.add_argument("model_weights", help="path to model weights file, saved in keras .h5 format")
-    #parser.add_argument("model_definition", help="path to model definition file")
     parser.add_argument(
         "--image-size", help="CSV height, width to load and resize each image to feed into the network", default=None)
     parser.add_argument(
