@@ -7,9 +7,11 @@ import numpy as np
 import PIL.Image
 import keras
 import tensorflow as tf
-from keras_applications.xception import Xception
+#from keras_applications.xception import Xception
 from pycocotools.coco import COCO
 from tensorflow.contrib.tensorboard.plugins import projector
+import json
+#import abyss_deep_learning.keras.zoo.segmentation.deeplab_v3_plus as dlv3
 
 from abyss_deep_learning.utils import imread
 
@@ -95,25 +97,40 @@ def say(*args):
 
 def main(args):
     say("Loading COCO")
-    coco = COCO(args.image_paths[0])
+    coco = COCO(args.images[0])
     say("Loading images")
-    images = np.array([
-        imread(
-            os.path.join(args.image_dir, image["file_name"]),
-            output_size=args.image_size, dtype=np.uint8)
-        for image in coco.loadImgs(coco.getImgIds())], dtype=np.uint8)
+    if args.image_size is None:
+        images = np.array([
+            imread(
+                image["path"],
+                size=args.image_size, dtype=np.uint8)
+            for image in coco.loadImgs(coco.getImgIds())], dtype=np.uint8)
+    else:
+        images = np.array([
+            imread(
+                image["path"], dtype=np.uint8)
+            for image in coco.loadImgs(coco.getImgIds())], dtype=np.uint8)
     say("Creating tumbnails of {:d} images".format(len(images)))
     thumbs = np.array([
         np.array(PIL.Image.fromarray(image).resize(args.thumb_size))
         for image in images], dtype=np.uint8)
     images = images.astype(np.float32) / 127.5 - 1
-    say("Making CNN")
-    cls = Xception(
-        include_top=False, weights='imagenet',
-        input_shape=args.image_size + (3, ), pooling='avg')
+
+    say("Loading model...")
+    model = tf.keras.models.load_model(args.model_weights, custom_objects = {'tf': tf})
+    say("Model loaded!")
+    say('test complete')
+    exit(1)
+
+    # cls = Xception(
+    #     include_top=False, weights='imagenet',
+    #     input_shape=args.image_size + (3, ), pooling='avg')
     say("Predicting")
-    logits = cls.predict(images)
+    logits = model.predict(images)
     say("Saving embeddings")
+    save_embeddings(
+        args.tensorboard_dir, logits,
+        labels=None, sprite=images_to_sprite(thumbs), sprite_shape=args.thumb_size)
     save_embeddings(
         args.tensorboard_dir, logits,
         labels=None, sprite=images_to_sprite(thumbs), sprite_shape=args.thumb_size)
@@ -125,15 +142,18 @@ def get_args(cmd_line=None):
         description="Cluster images using various algorithms and display the results on the TensorBoard Projector")
     parser.add_argument(
         "tensorboard_dir", help="Where to write the tensorboard embeddings")
-    parser.add_argument("image_paths", nargs='+', help="images, videos or COCO JSONs to cluster")
+    parser.add_argument("images", nargs='+', help="images, videos or COCO JSONs to cluster")
+    parser.add_argument("model_weights", help="path to model weights file, saved in keras .h5 format")
+    #parser.add_argument("model_definition", help="path to model definition file")
     parser.add_argument(
-        "--image-size", help="CSV height, width to load and resize each image to feed into the network", default='224,224')
+        "--image-size", help="CSV height, width to load and resize each image to feed into the network", default=None)
     parser.add_argument(
-        "--thumb-size", help="CSV height, width for the TensorBoard thumbnails")
+        "--thumb-size", default='256,256', help="CSV height, width for the TensorBoard thumbnails")
     parser.add_argument(
         "--image-dir", help="The directory to relatively path the images with (COCO only)")
     args = parser.parse_args(args=cmd_line)
-    args.image_size = tuple(int(i) for i in args.image_size.split(','))
+    if args.image_size is not None:
+        args.image_size = tuple(int(i) for i in args.image_size.split(','))
     args.thumb_size = tuple(int(i) for i in args.thumb_size.split(',')) \
         if args.thumb_size else tuple(i // 2 for i in args.image_size)
     return args
