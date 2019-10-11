@@ -80,16 +80,10 @@ def main(args):
     say("Loading COCO")
     coco = COCO(args.images[0])
     say("Loading images")
-    if args.image_size is None:
-        images = np.array([
+    images = np.array([
             imread(
                 image["path"],
                 size=args.image_size, dtype=np.uint8)
-            for image in coco.loadImgs(coco.getImgIds())], dtype=np.uint8)
-    else:
-        images = np.array([
-            imread(
-                image["path"], dtype=np.uint8)
             for image in coco.loadImgs(coco.getImgIds())], dtype=np.uint8)
     say("Creating tumbnails of {:d} images".format(len(images)))
     thumbs = np.array([
@@ -98,18 +92,22 @@ def main(args):
     images = images.astype(np.float32) / 127.5 - 1
 
     say("Loading model...")
-    model = tf.keras.models.load_model(args.model_weights, custom_objects = {'tf': tf})
+    if args.model_definition is not None:
+        model = tf.keras.models.model_from_json(open(args.model_definition).read(),custom_objects = {'tf': tf})
+        model.load_weights(args.model_weights)
+    else:
+        model = tf.keras.models.load_model(args.model_weights, custom_objects = {'tf': tf})
+
     say("Model loaded!")
 
     layer_name = 'decoder_conv1_pointwise_BN'
     if layer_name is not None:
         output = model.get_layer(layer_name).output
-        #output = tf.keras.layers.Lambda( lambda x : tf.math.reduce_mean(tf.math.reduce_mean(x, axis=1), axis=1) ) # get the average embedding feature
         model = tf.keras.models.Model(inputs=model.input,
                                   outputs=output)
     say("Predicting...")
     features = model.predict(images)
-    features = np.mean( np.mean(features, axis=1), axis=1 )
+    features = np.mean( np.mean(features, axis=1), axis=1 ) # compute the mean embedding vector across all pixels
 
     say("Saving embeddings...")
     save_embeddings(
@@ -132,6 +130,9 @@ def get_args(cmd_line=None):
         "--thumb-size", default='256,256', help="CSV height, width for the TensorBoard thumbnails")
     parser.add_argument(
         "--image-dir", help="The directory to relatively path the images with (COCO only)")
+    parser.add_argument(
+        "--model-definition", help="The model definition .json")
+
     args = parser.parse_args(args=cmd_line)
     if args.image_size is not None:
         args.image_size = tuple(int(i) for i in args.image_size.split(','))
