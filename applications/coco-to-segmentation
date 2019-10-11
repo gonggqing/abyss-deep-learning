@@ -92,11 +92,18 @@ def main(args: argparse.Namespace):
         except OSError:
             logging.error("Directory name {} exists, please use --permissive to overwrite".format(dir_name))
             return 1
-        img = load_entry(image_entry)
+        if args.background:
+            background = args.background
+        else:
+            background = 0 if args.mask_id == 'category_id' else -1
+        img = load_entry(image_entry, background)
         if not image_entry['id'] in image_id_to_ann_id:
-            logging.info("image {} with id: {} does not have annotations; skipped".format(image_entry['path'],
-                                                                                          image_entry['id']))
-            continue
+            if args.no_skip:
+                image_id_to_ann_id[image_entry['id']] = []
+            else:
+                logging.info("image {} with id: {} does not have annotations; skipped".format(image_entry['path'],
+                                                                                              image_entry['id']))
+                continue
         for annotation_id in image_id_to_ann_id[image_entry['id']]:
             annotation = coco['annotations'][annotation_id]
             for segmentation in annotation.get('segmentation', [[]]):
@@ -152,11 +159,12 @@ def save_as_png(img: Image.Image, dir_name: str):
     return path
 
 
-def load_entry(image_entry: dict) -> Union[np.ndarray, None]:
+def load_entry(image_entry: dict, background) -> Union[np.ndarray, None]:
     """
 
     Args:
         image_entry: Dictionary style image entry in COCO format
+        background: value to fill background with
 
     Returns:
         np.ndarray representation of image normalized from 0 to 1. If file extension is not valid, returns None
@@ -173,7 +181,7 @@ def load_entry(image_entry: dict) -> Union[np.ndarray, None]:
                 "Could not generate a mask file as neither image could be found nor height and width were provided")
             return None
     finally:
-        return np.zeros((height, width), dtype=np.uint8)
+        return np.full((height, width), background, dtype=np.int32)
 
 
 def normalize(arr: np.ndarray, max_val: Number = None) -> np.ndarray:
@@ -208,8 +216,12 @@ def get_args() -> argparse.Namespace:
                         help="Keep original annotations in the output coco")
     parser.add_argument('-p', '--permissive', action='store_true',
                         help="Permissive option to potentially overwrite mask file in a directory if it already exists for an image")
+    parser.add_argument('-bg','--background', type=int,
+                        help='value to use as background')
     parser.add_argument('--mask-id', choices=['category_id','annotation_id'], default="category_id",
                         help="ID value to write in mask, either category_id or annotation_id")
+    parser.add_argument('--no-skip', action='store_true',
+                        help="Do not skip empty images")
     logging_group = parser.add_mutually_exclusive_group()
     logging_group.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, dest='loglevel',
                                help="Verbose output to stderr")
