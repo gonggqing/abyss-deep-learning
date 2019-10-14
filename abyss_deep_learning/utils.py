@@ -17,7 +17,7 @@ import pandas as pd
 from pycocotools import mask as maskUtils
 from pycocotools.coco import COCO
 from scipy.spatial.distance import cdist
-from skimage.draw import polygon, polygon_perimeter
+from skimage.draw import polygon, polygon_perimeter, line
 from skimage.measure import find_contours, approximate_polygon
 
 
