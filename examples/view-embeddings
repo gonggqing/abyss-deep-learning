@@ -76,9 +76,40 @@ def save_embeddings(log_dir, features, labels=None, sprite=None, sprite_shape=No
 def say(*args):
     print(*args, file=sys.stderr)
 
+def image_arg_to_coco(image_arg):
+    """Gets the image argument and converts it to a COCO format dataset.
+    The image argument can either be a coco file, or a sequence of images.
+
+    Args:
+        image_arg (list): The image arguments
+
+    Returns:
+        COCO: The coco dataset
+
+    """
+    if image_arg[0].endswith('.json'):
+        coco = COCO(image_arg[0])
+    else:
+        image_list = []
+        for ipath in image_arg:
+            with PIL.Image.open(filepath) as img:
+                width, height = img.size
+            image = {
+                'filename': os.path.basename(ipath),
+                'path': ipath,
+                'height': height,
+                'width': width
+            }
+            image_list.append(image)
+        dataset = {'images': image_list}
+        coco = COCO()
+        coco.dataset = dataset
+        coco.createIndex()
+    return coco
+
 def main(args):
     say("Loading COCO")
-    coco = COCO(args.images[0])
+    coco = image_arg_to_coco(args.images)
     say("Loading images")
     images = np.array([
             imread(
@@ -100,7 +131,7 @@ def main(args):
 
     say("Model loaded!")
 
-    layer_name = 'decoder_conv1_pointwise_BN'
+    layer_name = args.layer_name
     if layer_name is not None:
         output = model.get_layer(layer_name).output
         model = tf.keras.models.Model(inputs=model.input,
@@ -116,14 +147,15 @@ def main(args):
 
     say('Done!')
 
+    say("To view embeddings, launch tensorboard with the command 'tensorboard --logdir %s'" %args.tensorboard_dir)
+
 def get_args(cmd_line=None):
     '''Get args from the command line args'''
     parser = argparse.ArgumentParser(
         description="Cluster images using various algorithms and display the results on the TensorBoard Projector")
     parser.add_argument(
         "tensorboard_dir", help="Where to write the tensorboard embeddings")
-    parser.add_argument("images", nargs='+', help="images, videos or COCO JSONs to cluster")
-    parser.add_argument("model_weights", help="path to model weights file, saved in keras .h5 format")
+    parser.add_argument("images", nargs='+', help="images or a COCO JSON to cluster")
     parser.add_argument(
         "--image-size", help="CSV height, width to load and resize each image to feed into the network", default=None)
     parser.add_argument(
@@ -132,7 +164,8 @@ def get_args(cmd_line=None):
         "--image-dir", help="The directory to relatively path the images with (COCO only)")
     parser.add_argument(
         "--model-definition", help="The model definition .json")
-
+    parser.add_argument("--model-weights", help="path to model weights file, saved in keras .h5 format", required=True)
+    parser.add_argument("--layer-name", help="The layer to calculate the embeddings on, e.g. 'decoder_conv1_pointwise_BN'", required=True)
     args = parser.parse_args(args=cmd_line)
     if args.image_size is not None:
         args.image_size = tuple(int(i) for i in args.image_size.split(','))
