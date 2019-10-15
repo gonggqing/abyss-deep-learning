@@ -1,0 +1,401 @@
+#!/usr/bin/env python3.6
+"""Train a segmentation network on COCO JSON datasets.
+Images are loaded as RGB uint8, optionally augmented, then converted to
+tensorflow standard format (float32 in range [-1:1]) before being fed to
+the network.
+
+Attributes:
+    CONFIG_INSTALL_PATH (str): Description
+
+"""
+
+import os
+import sys
+import json
+import logging
+import argparse
+
+import abyss_deep_learning.imgaug as abyss_imgaug
+import abyss_deep_learning.keras.zoo.segmentation.deeplab_v3_plus.util as deeplab_util
+from abyss_deep_learning.keras.utils import lambda_gen
+from abyss_deep_learning.datasets.coco import ImageSemanticSegmentationDataset
+
+import tensorflow as tf
+from imgaug.augmentables.segmaps import SegmentationMapsOnImage
+
+
+# CONFIG_INSTALL_PATH = "/usr/local/etc/abyss/ml/segmentation/training/config.default.json"
+
+CONFIG_INSTALL_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(sys.argv[0])),
+    "etc/abyss/ml/segmentation/training/config.json")
+
+
+def xpath_get(dictionary, path):
+    elem = dictionary
+    for x in path.strip("/").split("/"):
+        elem = elem.get(x)
+    return elem
+
+
+def xpath_set(dictionary, path, value):
+    elem = dictionary
+    parts = path.strip("/").split("/")
+    for x in parts:
+        child = elem.get(x)
+        if not isinstance(child, dict):  # Leaf
+            if x != parts[-1]:  # If leaf element is not leaf path, create
+                elem[x] = dict()
+                elem = elem[x]
+                continue
+            elem[x] = value
+            return
+        elem = child
+
+
+class AnnotationClassMapper:
+    """Maps category to classes given an explicit mapping.
+
+    Attributes:
+        category_to_class_map (dict): Mapping from category_id to class_id
+    """
+
+    def __init__(self, category_to_class_map):
+        self.category_to_class_map = category_to_class_map
+
+    def filter(self, annotation):
+        return True
+
+    def translate(self, annotation):
+        output = dict(annotation)
+        output['category_id'] = self.category_to_class_map[annotation['category_id']]
+        return output
+
+
+def get_args(cmd_line=None):
+    """Construct arguments from command line.
+
+    Returns:
+        argparse.namespace: The arguments for this application
+
+    Args:
+        cmd_line (str, optional): Command line string to use instead of
+            reading from sys.argv.
+    """
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=f"""
+        Train a segmentation network.
+        Configurations are specified in three ways, which override eachother:
+        * A default configuration file ({CONFIG_INSTALL_PATH}).
+        * An optional configuration file (specified by --config).
+        * Optional command line arguments.
+        The final configuration used is then saved in the output directory as
+        `config.train.json`.
+
+        Usage:
+
+        # Train a model, initializing new heads (defined in config.json:/model).
+            train_segmenter.py config.json \\
+            --training-dataset coco.train_set_A.json \\
+            --validation-dataset coco.val.json \\
+
+        # Continue training a model (given the same config.json, and model.h5)
+            train_segmenter.py config.json \\
+            --training-dataset coco.train_set_B.json \\
+            --training-weights model.h5 \\
+            --validation-dataset coco.val.json \\
+            """)
+    # Note: Arguments which should be structured under xpath for CLI override
+    #       must separate levels using double underscores in the `dest` argument.
+    # Example: (training__learning_rate -> /training/learning_rate)
+    parser.add_argument(
+        '--config',
+        help="Specifies the path to the config JSON for the model.")
+    parser.add_argument(
+        "--output-dir", default=".",
+        help="The directory to place the training outputs.")
+    parser.add_argument(
+        '--training-dataset', type=str, dest="training__dataset",
+        help="Path to the coco dataset")
+    parser.add_argument(
+        "--model-weights", type=str, dest="model__weights",
+        help=("Load a standard pretrained model (`pascal_voc` (21 classes), `cityscapes` (19))."
+              "Weights overridden by --training-weights if specified."))
+    parser.add_argument(
+        "--training-weights", type=str, dest="training__weights",
+        help=("Path to model weights to load."))
+    parser.add_argument(
+        "--training-learning_rate", dest="training__learning_rate",
+        help="The training learning rate.", type=float)
+    parser.add_argument(
+        "--validation-dataset", type=str, dest="validation__dataset",
+        help="Path to the validation coco dataset")
+    parser.add_argument(
+        '--verbose', '-v',
+        action='store_const', const=logging.INFO,
+        dest='loglevel', help="verbose output to stderr")
+    args = parser.parse_args(cmd_line)
+    return args
+
+
+def get_class_mapping(dataset, categories_config=None):
+    """Return a class map for the given dataset and categories
+        json mapping.
+
+    Args:
+        dataset (adl.datasets.coco.CocoInterface): The dataset
+            to perform the mapping on.
+        categories_config (dict): The categories configuration
+            dict mapping `coco name` to `class id`.
+
+    Returns:
+        AnnotationClassMapper: Dataset translator to provide to
+            the dataset.
+    """
+    category_map = {  # Maps category name to category_id
+        category['name']: category['id']
+        for category in dataset.coco.cats.values()
+    }
+
+    category_to_class_map = {
+        category_map[pair['name']]: pair['id']
+        for pair in categories_config
+    }
+    logging.info('category_to_class_map')
+    logging.info(category_to_class_map)
+    return AnnotationClassMapper(category_to_class_map)
+
+
+def setup_dataset(coco_path, model_config, process_config, categories_config):
+    """Set up a COCO dataset given the model, process (train/val),
+        and categories configuration.
+
+    Args:
+        coco_path (str): Description
+        model_config (dict): Model configuration dict.
+        process_config (dict): Training or validation configuration dict.
+        categories_config (dict): Categories configuration dict.
+
+    Returns:
+        adl.datasets.coco.CocoInterface: The adl.datasets COCO dataset.
+        tf.data.Dataset: The tf.keras compatible dataset.
+    """
+    def hack_dataset(generator):
+        """A hack to get generators to work with tf.keras datasets.
+
+        Args:
+            generator: A generator yielding (input, targets) tuples.
+
+        Returns:
+            tf.keras.datasets.Dataset: A tf.keras compatible dataset.
+        """
+        def wrap_callable():
+            return generator
+        return wrap_callable
+
+    def preprocess_inputs(image, targets):
+        """Preprocess RGB uint8 inputs: apply augmentation and convert image
+        in to tf image format [-1:1] float32.
+
+        Args:
+            image (np.array): The input image
+            targets (np.array): The input targets
+
+        Returns:
+            image: The image to send to the network.
+            targets: The targets to send to the network.
+        """
+        nonlocal augmentation
+        if augmentation is not None:
+            image, targets = augmentation(
+                image=image,
+                segmentation_maps=SegmentationMapsOnImage(targets, image.shape))
+            targets = targets.get_arr()
+            # TODO: Support higher depth images (move from PIL to ???)
+            return image.astype('float32') / 127.5 - 1, targets
+        return image, targets
+
+    augmentation = None
+    if process_config['augmentation']:
+        augmentation = abyss_imgaug.sequential_from_dicts(
+            process_config['augmentation'])
+        logging.info("Using augmentation:")
+        logging.info([i for i in augmentation])
+    output_shapes = (
+        model_config['input_shape'],
+        model_config['input_shape'][:-1] + (model_config['classes'],))
+    dataset = ImageSemanticSegmentationDataset(
+        coco_path, num_classes=model_config['classes'])
+    if categories_config is not None:
+        translator = get_class_mapping(dataset, categories_config)
+        dataset.translator = translator
+
+    generator = dataset.generator(endless=True)
+    generator = lambda_gen(generator, func=preprocess_inputs)
+    generator = tf.data.Dataset.from_generator(
+        hack_dataset(generator),
+        output_types=(tf.float32, tf.float32),
+        output_shapes=output_shapes)\
+        .prefetch(2 * process_config['batch_size'])\
+        .batch(process_config['batch_size'])
+    return dataset, generator
+
+
+def load_config(args):
+    """Load the default configuration, and update it with the config file.
+
+    Args:
+        args (argparse.namespace): The arguments to the application.
+
+    Returns:
+        dict: The configuration dict.
+
+    No Longer Raises:
+        ValueError: Bad model type.
+    """
+
+    # First, load the installed config
+    try:
+        with open(CONFIG_INSTALL_PATH, 'r') as file:
+            config = json.load(file)
+    except OSError:
+        logging.error(f"Couldn't find installed config file: {CONFIG_INSTALL_PATH}.")
+        raise
+
+    # Second, override with user config if present.
+    if args.config:
+        logging.info(f"Loading user config: {args.config}")
+        with open(args.config, 'r') as file:
+            user_config = json.load(file)
+            for section in ['model', 'training', 'validation']:  # dicts
+                config[section].update(user_config[section])
+            for section in ['categories']:  # lists
+                config[section] = list(user_config[section])
+            # config['model'].update(user_config['model'])
+            # config['training'].update(user_config['training'])
+            # if 'validation' in user_config:
+            #     config['validation'] = list(user_config['validation'])
+            # if 'categories' in user_config:
+            #     config['categories'] = list(user_config['categories'])
+    # Third, override with command line arguments
+    for key, value in args.__dict__.items():
+        xpath_key = "/" + key.replace("__", "/")
+        try:
+            xpath_set(config, xpath_key, value)
+        except KeyError:
+            logging.error(f"CLI override failed: {xpath_key} = {value}")
+
+    # Fix config types, needed for deeplab.
+    config['model']['input_shape'] = tuple(config['model']['input_shape'])
+    return config
+
+
+def setup_model_util(config):
+    """Given the application config, set up the model utilities module.
+
+    Args:
+        config (dict): Application configuration.
+
+    Returns:
+        module: The abyss.keras.zoo model utilities module.
+
+    Raises:
+        ValueError: If an unknown model is given.
+    """
+    # Setup model utilities
+    return {
+        "deeplab": deeplab_util,
+    }[config['model']['type']]
+    raise ValueError(f"Unknown model type `{config['model']['type']}`")
+
+
+def main(args):
+    """Train a segmentation network given the program args.
+
+    Args:
+        args (argparse.Namespace): Program args from get_args()
+
+    Returns:
+        int: Error code. 0 if no errors occurred.
+    """
+    logging.basicConfig(
+        format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        level=args.loglevel)
+    logging.info('--verbose enabled')
+    logging.info(args)
+
+    # Load config and model utils
+    config = load_config(args)
+    with open(os.path.join(args.output_dir, "config.used.json"), "w") as file:
+        file.write(
+            json.dumps(
+                config, sort_keys=True,
+                indent=4, separators=(', ', ': ')))
+    model_util = setup_model_util(config)
+
+    # Set up dataset
+    training_dataset, gen_train = setup_dataset(
+        args.training__dataset, config['model'], config['training'], config['categories'])
+    validation_steps, gen_val = config['validation']['steps'], None
+
+    if args.validation__dataset:
+        logging.info("Using validation.")
+        validation_dataset, gen_val = setup_dataset(
+            args.validation__dataset, config['model'], config['validation'], config['categories'])
+        if validation_steps is None:
+            validation_steps = len(
+                validation_dataset.data_ids) // config['validation']['batch_size']
+    steps_per_epoch = len(
+        training_dataset.data_ids) // config['training']['batch_size']
+
+    # TODO? Set batch norm policy (unsure yet as to whether this is required)
+    # for layer in model.layers:
+    #     if type(layer).__name__.startswith('BatchNormalization'):
+    #         layer.trainable = layer.trainable and config['training']['train_batch_norm']
+
+    # Set up training
+    if config['training']['new_heads']:
+        logging.info("Creating new head.")
+        model_args = dict(config['model'])
+        del model_args['type']
+        model = model_util.make_model(**model_args)
+    else:
+        logging.info("Loading model.")
+        # TODO? Support for tensorflow version < 1.14 (load model from json+h5)
+        model = tf.keras.models.load_model(args.training__weights)
+    callbacks = [
+        tf.keras.callbacks.TensorBoard(args.output_dir, write_graph=False),
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=os.path.join(args.output_dir, 'model_{epoch:03d}_{val_loss:.3f}.h5'),
+            save_best_only=True, save_weights_only=False, verbose=1),
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=os.path.join(args.output_dir, 'weights_{epoch:03d}_{val_loss:.3f}.h5'),
+            save_best_only=True, save_weights_only=True, verbose=1)
+    ]
+
+    with open(os.path.join(args.output_dir, "model_def.json"), 'w') as file:
+        file.write(model.to_json())
+
+    # Start training
+    optimizer = tf.keras.optimizers.deserialize(config['training']['optimizer'])
+    model.compile(
+        optimizer=optimizer,
+        loss=config['training']['loss'],
+        metrics=['categorical_accuracy'])
+
+    model.fit(
+        gen_train,
+        steps_per_epoch=steps_per_epoch,
+        validation_data=gen_val,
+        validation_steps=validation_steps,
+        epochs=config['training']['epochs'],
+        callbacks=callbacks,
+        initial_epoch=0,
+        verbose=1)
+    return 0
+
+
+if __name__ == '__main__':
+    exit(main(get_args()))

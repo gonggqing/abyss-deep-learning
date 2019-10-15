@@ -1,0 +1,52 @@
+{
+  "model": {
+    "type": "deeplab",
+    "activation": "softmax",
+    "alpha": 1,
+    "backbone": "xception",
+    "classes": 21,
+    "input_shape": [512, 512, 3],
+    "input_tensor": null,
+    "OS": 16,
+    "weights": "pascal_voc"
+  },
+  "training": {
+    "new_heads": true,
+    "batch_size": 2,
+    "dataset": null,
+    "epochs": 10,
+    "loss": "categorical_crossentropy",
+    "optimizer": {
+      "class_name": "Nadam",
+      "config": {
+        "name": "Nadam",
+        "learning_rate": 1e-3,
+        "decay": 0.004,
+        "beta_1": 0.9,
+        "beta_2": 0.999,
+        "epsilon": 1e-07
+      }
+    },
+    "augmentation": [
+      {
+        "enabled": true,
+        "type": "Fliplr",
+        "params": {
+          "p": 0.5
+        }
+      }
+    ]
+  },
+  "validation": {
+    "dataset": null,
+    "batch_size": 1,
+    "steps": null,
+    "augmentation": []
+  },
+  "categories": [
+    {
+      "name": "background",
+      "id": 0
+    }
+  ]
+}
