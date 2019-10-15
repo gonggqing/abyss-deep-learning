@@ -10,6 +10,7 @@ from pycocotools.coco import COCO
 from tensorflow.contrib.tensorboard.plugins import projector
 from abyss_deep_learning.keras.tensorboard import produce_embeddings_tsv
 import json
+import pandas as pd
 
 from abyss_deep_learning.utils import imread
 
@@ -42,12 +43,15 @@ def images_to_sprite(data):
     data = (data * 255).astype(np.uint8)
     return data
 
+def save_metadata_to_tsv(save_path, meta_df):
+    meta_df.to_csv(save_path, sep='\t', index=False)
 
-def save_embeddings(log_dir, features, labels=None, sprite=None, sprite_shape=None):
-    metadata = os.path.join(log_dir, 'metadata.tsv')
+def save_embeddings(log_dir, features, metadata=None, labels=None, sprite=None, sprite_shape=None):
+    metadata_path = os.path.join(log_dir, 'metadata.tsv')
     features = tf.Variable(features, name='features')
-
-    produce_embeddings_tsv(os.path.join(log_dir, 'metadata.tsv'), headers=['label'], labels=labels)
+    if metadata is not None:
+        save_metadata_to_tsv(metadata_path, metadata)
+    # produce_embeddings_tsv(os.path.join(log_dir, 'metadata.tsv'), headers=['label'], labels=labels)
 
     #if labels is not None:
     #    with open(metadata, 'w') as metadata_file:
@@ -66,7 +70,7 @@ def save_embeddings(log_dir, features, labels=None, sprite=None, sprite_shape=No
         embedding.tensor_name = features.name
         if labels is not None:
             # Link this tensor to its metadata file (e.g. labels).
-            embedding.metadata_path = metadata
+            embedding.metadata_path = metadata_path
         if sprite is not None:
             embedding.sprite.image_path = os.path.join(log_dir, 'sprite.png')
             embedding.sprite.single_image_dim.extend(sprite_shape)
@@ -91,32 +95,92 @@ def image_arg_to_coco(image_arg):
         coco = COCO(image_arg[0])
     else:
         image_list = []
-        for ipath in image_arg:
-            with PIL.Image.open(filepath) as img:
+        for n,ipath in enumerate(image_arg):
+            with PIL.Image.open(ipath) as img:
                 width, height = img.size
             image = {
                 'filename': os.path.basename(ipath),
                 'path': ipath,
                 'height': height,
-                'width': width
+                'width': width,
+                'id': n
             }
             image_list.append(image)
-        dataset = {'images': image_list}
+        dataset = {'images': image_list, 'categories': [], 'annotations': []}
         coco = COCO()
         coco.dataset = dataset
         coco.createIndex()
     return coco
 
+def get_data_from_coco(coco, args):
+    img_list = []
+    hots = []
+    img_ids = []
+    paths = []
+
+
+    for image in coco.loadImgs(coco.getImgIds()):
+        img = imread(image['path'], size=args.image_size, dtype=np.uint8)
+        # TODO revise - use category map?
+        hot = np.zeros([len(coco.getCatIds())])
+        for ann in coco.loadAnns(coco.getAnnIds(imgIds=[image['id']])):
+            hot[ann['category_id']] = 1
+
+        img_list.append(img)
+        hots.append(hot)
+        img_ids.append(image['id'])
+        paths.append(image['path'])
+
+    data = {
+        'imgs': img_list,
+        'ImgIds': img_ids,
+        'Path': paths
+    }
+
+
+    hots = np.asarray(hots)
+    cid_to_name = {cat['id']:cat['name'] for cat in coco.loadCats(coco.getCatIds())}
+    for k,v in cid_to_name.items():
+        data[v] = hots[:, k]
+
+
+    return data
+
+def create_metadata_df(data, args):
+    meta = data
+    del meta['imgs']
+    meta['FileName'] = [os.path.basename(path) for path in data['Path']]
+    del meta['Path']
+
+    meta_df = pd.DataFrame.from_dict(meta)
+
+    meta_df = add_additional_metadata(meta_df, args)
+    return meta_df
+
+def add_additional_metadata(meta_df, args):
+    if not args.metadata_csv:
+        return meta_df
+    add_df = pd.read_csv(args.metadata_csv)
+
+    # Gets the spherical name from the full filename
+    def index_column_from_row(row):
+        return "_".join(row['FileName'].split('.')[0].split('_')[:-1])
+
+    # Set the spherical name
+    meta_df.loc[:, 'filename_index'] = meta_df.apply(index_column_from_row, axis=1)
+
+    output_df = meta_df.merge(add_df, left_on='filename_index', right_on='SphericalName', how='left')
+
+    return output_df
+
+
 def main(args):
     say("Loading COCO")
     coco = image_arg_to_coco(args.images)
     say("Loading images")
-    images = np.array([
-            imread(
-                image["path"],
-                size=args.image_size, dtype=np.uint8)
-            for image in coco.loadImgs(coco.getImgIds())], dtype=np.uint8)
-    say("Creating tumbnails of {:d} images".format(len(images)))
+    data = get_data_from_coco(coco, args)
+    images = np.array(data['imgs'], dtype=np.uint8)
+    say("Creating thumbnails of {:d} images".format(len(images)))
     thumbs = np.array([
         np.array(PIL.Image.fromarray(image).resize(args.thumb_size))
         for image in images], dtype=np.uint8)
@@ -138,11 +202,18 @@ def main(args):
                                   outputs=output)
     say("Predicting...")
     features = model.predict(images)
-    features = np.mean( np.mean(features, axis=1), axis=1 ) # compute the mean embedding vector across all pixels
+    if args.pooling == 'avg':
+        features = np.mean( np.mean(features, axis=1), axis=1 ) # compute the mean embedding vector across all pixels
+    elif args.pooling == 'max':
+        features = np.max( np.max(features, axis=1), axis=1 ) # compute the max embedding vector across all pixels
+    else:
+        raise ValueError("Only avg,max pooling methods are supported")
+
 
     say("Saving embeddings...")
+    os.makedirs(args.tensorboard_dir, exist_ok=True)
     save_embeddings(
-        args.tensorboard_dir, features,
+        args.tensorboard_dir, features, metadata=create_metadata_df(data, args),
         labels=np.zeros((len(images),1)), sprite=images_to_sprite(thumbs), sprite_shape=args.thumb_size)
 
     say('Done!')
@@ -166,6 +237,8 @@ def get_args(cmd_line=None):
         "--model-definition", help="The model definition .json")
     parser.add_argument("--model-weights", help="path to model weights file, saved in keras .h5 format", required=True)
     parser.add_argument("--layer-name", help="The layer to calculate the embeddings on, e.g. 'decoder_conv1_pointwise_BN'", required=True)
+    parser.add_argument("--pooling", help="The type of pooling to use, options are {avg,max}", default="avg")
+    parser.add_argument("--metadata-csv", help="Additional metadata contained in a .csv file, indexed by filename")
     args = parser.parse_args(args=cmd_line)
     if args.image_size is not None:
         args.image_size = tuple(int(i) for i in args.image_size.split(','))
