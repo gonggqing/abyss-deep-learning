@@ -56,5 +56,5 @@ setup(
     data_files=[
         ('etc/abyss/ml/segmentation/training',
             ['etc/abyss/ml/segmentation/training/config.json']),
-    ],
+    ], requires=['numpy', 'pillow-simd', 'pandas', 'simplification', 'PyYAML', 'opencv-python', 'scipy', 'scikit-image']
 )
