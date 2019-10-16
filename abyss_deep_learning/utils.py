@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 import warnings
-from bisect import bisect_left
+
 from collections import Counter
 from contextlib import redirect_stdout
 from io import TextIOWrapper
@@ -463,7 +463,7 @@ def nearest_matching_pixel(mask: np.ndarray, start: np.ndarray, value: int = 0) 
     return matching_coords[np.square(matching_coords - start).sum(axis=1).argmin()]
 
 
-def connect_holes(contours: List[List[int]], shape: Tuple[int, int] = None):
+def flatten_holes(contours: List[List[int]], shape: Tuple[int, int] = None):
     """Connect holes for COCO annotation entry that uses annotation contours produced from cv2.findContours with
         parameters cv2.RETR_CCOMP and cv2.CHAIN_APPROX_SIMPLE
 
