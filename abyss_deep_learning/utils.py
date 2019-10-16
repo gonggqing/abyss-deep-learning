@@ -7,6 +7,7 @@ from bisect import bisect_left
 from collections import Counter
 from contextlib import redirect_stdout
 from io import TextIOWrapper
+from itertools import chain
 from numbers import Number
 from typing import Tuple, Union, List, Dict
 
@@ -27,9 +28,11 @@ def append_docstring(other_func):
     Args:
         other_func (callable): The function to copy the docstring from.
     """
+
     def dec(func):
         func.__doc__ = func.__doc__ + "\n\n" + other_func.__doc__
         return func
+
     return dec
 
 
@@ -460,56 +463,67 @@ def nearest_matching_pixel(mask: np.ndarray, start: np.ndarray, value: int = 0) 
     return matching_coords[np.square(matching_coords - start).sum(axis=1).argmin()]
 
 
-def connect_holes(contours: CocoAnnotationEntry, shape: Tuple[int, int]):
+def connect_holes(contours, shape):
     """Connect holes for COCO annotation entry that uses annotation contours produced from cv2.findContours with
-    parameters cv2.RETR_CCOMP and cv2.CHAIN_APPROX_SIMPLE
+        parameters cv2.RETR_CCOMP and cv2.CHAIN_APPROX_SIMPLE
 
-    Args:
-        contours: COCO 'segmentation' key in annotation entry
-        shape: image shape
+        Args:
+            contours: COCO 'segmentation' key in annotation entry
+            shape: image shape
 
-    Returns:
-        contours, hierarchy called from connected masks using cv2.findContours with parameter cv2.RETR_LIST and
-        cv2.CHAIN_APPROX_SIMPLE
-    """
+        Returns:
+            contours in COCO format of 'segmentation' field value
+        """
+    if len(contours) == 1:
+        return contours
+
+    contours = [np.reshape(contour, (len(contour) // 2, 2)) for contour in contours]
+
+    # this code block may be removed, just redrawing so that contour is in format of opencv
+    # ----------
     fmt = np.uint8
     mask = np.zeros(shape, dtype=fmt)
-    contours = [np.reshape(contour, (len(contour) // 2, 2)) for contour in contours]
-    cv2.drawContours(mask, contours, contourIdx=-1, color=np.iinfo(fmt).max, thickness=cv2.FILLED)
-
+    cv2.drawContours(mask, contours, contourIdx=-1, color=np.iinfo(fmt).max, thickness=cv2.FILLED, lineType=cv2.LINE_8)
     contours, _ = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
-    mask[:, :] = 0
-    cv2.drawContours(mask, contours, contourIdx=-1, color=np.iinfo(fmt).max, thickness=cv2.FILLED)
+    contours = [contour.squeeze() for contour in contours]  # remove single dimension entries
+    # ----------
 
-    contours = [contour.squeeze() for contour in contours]
-    num_contours = len(contours)
-    connected_contour_ids = {i: set(range(num_contours)) for i in range(num_contours)}  # dict to set mapping of available contour ids to connect with
-    for i, main_contour in enumerate(contours):
-        if i == len(contours) - 1:
-            break
-        prev_contours = [contour for id_, contour in enumerate(contours[:i]) if id_ in connected_contour_ids[i]]
-        next_contours = [contour for id_, contour in enumerate(contours[i + 1:], i + 1) if id_ in connected_contour_ids[i]]
-        sub_contours = np.vstack((*prev_contours, *next_contours))
-        # sub_contours = np.vstack(next_contours)  # todo: change to merge both prev and next contours, this doesn't connect just shortest paths
-        distances = cdist(main_contour, sub_contours)  # calculate distance between point in main contour against every other contour
-        main_point_idx, sub_point_idx = np.unravel_index(np.argmin(distances), distances.shape)  # get index of shortest line connecting point in main contour to a contour in sub_contours
-        pt1 = tuple(main_contour[main_point_idx])
-        pt2 = tuple(sub_contours[sub_point_idx])
-        for id_, contour in enumerate(contours):
-            if any((contour[:] == pt2).all(1)):
-                connected_contour_ids[id_].remove(i)
-                break
-        # if sub_point_idx < sum([len(x) for x in prev_contours]):
-        #     for idx, contour in enumerate(prev_contours):
-        #         if any((contour[:] == pt2).all(1)):
-        #             other_contour_id = idx
-        # else:
-        #     for idx, contour in enumerate(next_contours):
-        #         if any((contour[:] == pt2).all(1)):
-        #             other_contour_id = idx + len(prev_contours) + 1  # +1 to account of main contour
-        #     # index is within len(prev_contours) + len(next_contours)
-        cv2.line(mask, pt1, pt2, color=0, thickness=1, lineType=cv2.LINE_4)
-    return cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    parent_contour = contours[0].tolist()
+    child_contours = [contour.tolist() for contour in contours[1:]]
+    if len(child_contours) == 0:
+        return [list(chain.from_iterable(parent_contour))]
+
+    # combined multiple child contours into single contour to calculate cdist in one go
+    merged_child_contours = np.vstack(child_contours) if len(child_contours) > 1 else np.array(child_contours)[0]
+    distances = cdist(parent_contour, merged_child_contours)
+
+    cumsum = 0
+    lengths = []
+    for contour in child_contours:
+        cumsum += len(contour)
+        lengths.append(cumsum)
+
+    def last_index(list_, value):
+        for idx, ele in enumerate(reversed(list_)):
+            if ele == value:
+                return len(list_) - idx
+
+    prev_len = 0
+    out = parent_contour.copy()
+    for i, curr_len in enumerate(lengths):
+        sub_distances = distances[:, prev_len:curr_len]
+        parent_contour_idx, child_contour_idx = np.unravel_index(np.argmin(sub_distances), sub_distances.shape)
+        pt1 = parent_contour[parent_contour_idx]
+        child_contour = child_contours[i]
+        pt2 = child_contour[child_contour_idx]
+
+        main_split_idx = last_index(out, pt1)
+        child_split_idx = child_contour.index(pt2)
+
+        out = out[:main_split_idx] + child_contour[child_split_idx:len(child_contour)] + child_contour[:child_split_idx] + [pt2, pt1] + out[main_split_idx:len(out)]
+        prev_len = curr_len
+
+    return [list(chain.from_iterable(out))]
 
 
 def connect_holes_deprecated(mask: np.ndarray, value: int) -> np.ndarray:
