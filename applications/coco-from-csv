@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image
 from typing import Iterator
 import cv2
-
+from abyss_deep_learning.utils import flatten_holes
 
 __author__ = 'Kent Hu'
 __maintainer__ = 'Kent Hu'
@@ -233,7 +233,7 @@ def generate_from_contours(df, args):
                 'id': len(coco_json['annotations']),
                 'image_id': int(image_id),
                 "category_id": int(category_id),
-                "segmentation": segmentation,
+                "segmentation": flatten_holes(segmentation) if args.connect_holes else segmentation,
                 "bbox": [ int(min_xy[0]), int(min_xy[1]), int(wh[0]), int(wh[1]) ],
                 "area": area
             })
@@ -351,6 +351,7 @@ def get_args():
                         type=str,
                         help="Path to original COCO json or category mapping csv file of category and category ids; csv as <name>,<id>[,<supercategory>]")
     parser.add_argument('-s', '--image-size', type=str, help="<width>,<height> values to use to give to all images")
+    parser.add_argument('--flatten-holes', action='store_true', help="flatten 2-level hierarchy contour into single contour")
     parser.add_argument('-v', '--verbose', action='store_const', const=logging.INFO, help="More output to stderr")
     return parser.parse_args()
 
