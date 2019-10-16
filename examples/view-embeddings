@@ -238,19 +238,25 @@ def main(args):
     say("Predicting...")
     if args.from_cube_face:
         thumbs = []
+        cache_file_name = ''
         for image in tqdm(patches_coco.loadImgs(patches_coco.getImgIds())):
-            # we need to generate patches, sprites, metadata on the fly?
             # TODO: we are reading the same image mulitple times. Read once for all patches, and batch get patches.
             # also this is all done, slow and sequentially. Major speed ups available if done from generators.
-            crop_index = np.asarray([[int( image['path'].split('.')[-3]),
-                                      int( image['path'].split('.')[-3]) + int( args.image_size[0])],
-                                     [int( image['path'].split('.')[-2]),
-                                      int( image['path'].split('.')[-2]) + int( args.image_size[1])]])
+            cache_path = image['path'].split('.')
+            if cache_file_name is not image['filename']:
+                cache_file_name = image['filename']
+                img = imread(image['filename'], dtype=np.uint8)
+                # patches = np.lib.stride_tricks.as_strided(img, shape=(64,512,512), writeable=False)
 
-            img = imread(image['filename'], dtype=np.uint8)[crop_index[0,0]:crop_index[0,1],
-                                                            crop_index[1,0]:crop_index[1,1]]
-            thumbs.append(np.array(PIL.Image.fromarray(img).resize(args.thumb_size), dtype=np.uint8))
-            feature = model.predict(np.expand_dims(img, axis=0).astype(np.float32) / 127.5 - 1)
+            crop_index = np.asarray([[int( cache_path[-3]),
+                                       int( cache_path[-3]) + int( args.image_size[0])],
+                                      [int( cache_path[-2]),
+                                       int( cache_path[-2]) + int( args.image_size[1])]])
+
+            patch = img[crop_index[0,0] : crop_index[0,1],
+                        crop_index[1,0] : crop_index[1,1]]
+            thumbs.append(np.array(PIL.Image.fromarray(patch).resize(args.thumb_size), dtype=np.uint8))
+            feature = model.predict(np.expand_dims(patch, axis=0).astype(np.float32) / 127.5 - 1)
             try:
                 features = np.concatenate((features, feature), axis=0)
             except NameError:
@@ -280,7 +286,7 @@ def main(args):
 
     say('Done!')
 
-    say("To view embeddings, launch tensorboard from the %s directory with: '" %args.tensorboard_dir)
+    say("To view embeddings, launch tensorboard from the %s directory with: " %args.tensorboard_dir)
     say("tensorboard --logdir ./")
 
 def get_args(cmd_line=None):
