@@ -15,7 +15,8 @@ import numpy as np
 from PIL import Image
 from abyss_deep_learning.datasets.coco_utilities import coco_is_valid
 from abyss_deep_learning.metrics import poly_intersection_area
-from abyss_deep_learning.utils import polygon_area, imwrite, imread, do_overlap, MyCOCO, partition_intersections
+from abyss_deep_learning.utils import polygon_area, imwrite, imread, do_overlap, MyCOCO, partition_intersections, \
+    connect_holes
 from pycocotools.coco import COCO
 
 __author__ = 'Kent Hu, Vsevolod Vlaskine'
@@ -1113,10 +1114,6 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
 
 
 def convert(args: argparse.Namespace) -> Tuple[Union[None, MyCOCO], int]:
-    import matplotlib.pyplot as plt
-    import cv2
-    from abyss_deep_learning.utils import connect_holes
-
     if args.old:
         logging.warning(f"{args.old} was passed in to --old, currently --old is not implemented")
 
@@ -1129,36 +1126,18 @@ def convert(args: argparse.Namespace) -> Tuple[Union[None, MyCOCO], int]:
     else:
         coco = MyCOCO(sys.stdin)  # todo: remove pycoco dependency
 
-    count = 0
     for img_entry in coco.images:
         shape = img_entry['height'], img_entry['width']
         ann_entries = coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id']))
         for ann in ann_entries:
-            contours, _ = connect_holes(ann['segmentation'], shape)
-            # assert len(contours) == 1, f"expected single annotation to be returned from connect_holes, got {len(contours)} annotations"
-            if len(contours) > 1:
-                count += 1
-                logging.warning(f"could not collapse all holes for annotation {ann['id']} in image {ann['image_id']}")
-                logging.warning(f'got {len(contours)} contours back')
-                plt.imshow(cv2.drawContours(np.zeros(shape, dtype=np.uint8), contours, -1, 255, -1))
-                plt.show()
-                input()
-                logging.warning(f'collapsing again')
-                from abyss_deep_learning.utils import contours_hierarchy_to_anns
-                anns = contours_hierarchy_to_anns(contours, _)
-                contours, _ = connect_holes([a[0] for a in anns], shape)
-                logging.warning(f'got {len(contours)} contours back')
-                # logging.warning(contours)
-                # plt.imshow(cv2.drawContours(np.zeros(shape, dtype=np.uint8), contours, -1, 255, -1))
-                # plt.show()
-                # input()
-            ann['segmentation'] = [[int(x) for x in contours[0].flatten()]]
+            ann['segmentation'] = connect_holes(ann['segmentation'], shape)
 
-    logging.warning(f"could not collapse {count}/{len(coco.getAnnIds())} annotations")
+    # --out enabled for debugging with pycharm
     if args.out:
         with open(args.out, 'w') as f:
             json.dump(coco.dataset, f)
         return None, 0
+
     return coco, 0
 
 
