@@ -46,12 +46,6 @@ def main(args: argparse.Namespace):
     logging.basicConfig(format='%(filename)s: %(asctime)s.%(msecs)03d: %(levelname)s: %(lineno)s: %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S',
                         level=args.loglevel)
-    try:
-        if args.depth != 1:
-            raise NotImplementedError("--depth has not yet been implemented")
-    except NotImplementedError as e:
-        logging.warning(e)
-
     # Empty file check
     buffer = sys.stdin.read().strip()
     if buffer:
@@ -86,9 +80,9 @@ def main(args: argparse.Namespace):
     }
     for image_entry in coco.get('images', []):
         try:
-            # todo: use args.depth
             dir_name, _ = os.path.splitext(os.path.basename(str(image_entry[args.dirname])))
-            os.makedirs(dir_name, mode=0o755, exist_ok=args.permissive)
+            if args.save_as != 'stdout':
+                os.makedirs(dir_name, mode=0o755, exist_ok=args.permissive)
         except OSError:
             logging.error("Directory name {} exists, please use --permissive to overwrite".format(dir_name))
             return 1
@@ -137,12 +131,20 @@ def main(args: argparse.Namespace):
             bin_path = save_as_bin(img.astype(args.output_format), dir_name)
         if save_png:
             png_path = save_as_png(Image.fromarray(normalize(img, args.num_classes)), dir_name)
-        path = png_path if bin_path is None else bin_path
+
         entry = copy.deepcopy(image_entry)
-        entry['file_name'] = os.path.basename(path)
-        entry['path'] = path
-        output['images'].append(entry)
-    json.dump(output, sys.stdout, indent=4)
+
+        logging.info('write')
+        if args.save_as == 'stdout':
+            sys.stdout.buffer.write(img.astype(args.output_format).tobytes())
+        else:
+            path = png_path if bin_path is None else bin_path
+            entry['file_name'] = os.path.basename(path)
+            entry['path'] = path
+            output['images'].append(entry)
+
+    if not args.save_as == 'stdout':
+        json.dump(output, sys.stdout, indent=4)
     logging.shutdown()
     return 0
 
@@ -200,15 +202,13 @@ def normalize(arr: np.ndarray, max_val: Number = None) -> np.ndarray:
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--depth', type=int, default=1,
-                        help="TODO! depth to name output directories, e.g. --depth 1: 'a/b/c/d' -> 'd', --depth 3: 'a/b/c/d' -> 'b/c/d' etc")
-    parser.add_argument('--dirname', '--dir', choices=['id', 'file_name'], default='file_name',
+    parser.add_argument('--dirname', '--dir', choices=['id', 'file_name', 'path'], default='file_name',
                         help="Naming scheme for image directory. Default is %(default)s")
     parser.add_argument('-n', '--num-classes', type=int, required=True,
                         help="Number of possible classes that can be detected from the network (excluding background).")
     parser.add_argument('-i', '--input',
                         help="Pass COCO JSON as command line argument. If specified, does not read from stdin.")
-    parser.add_argument('-s', '--save-as', choices=['bin', 'png', 'both'], default='bin',
+    parser.add_argument('-s', '--save-as', choices=['bin', 'png', 'both', 'stdout'], default='bin',
                         help="File type to save mask as. Default is %(default)s")
     parser.add_argument('-f', '--output-format', type=str, choices=np.sctypeDict.keys(), default='uint32',
                         help="Specify output data type of bin file. Default is %(default)s")

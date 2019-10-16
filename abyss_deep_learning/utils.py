@@ -390,7 +390,6 @@ def x_y_to_polygon(x: np.array, y: np.array) -> np.array:
 def polygon_to_mask(polygon_: List[Union[int, float]], value: float = 1) -> np.array:
     """
     Generates a mask from polygon, defaults to 1, i.e. a binary mask
-    TODO: for efficeincy do min_x and min_y so the made grid is smaller
     """
     x = np.round(polygon_[::2]).astype(int)
     y = np.round(polygon_[1::2]).astype(int)
@@ -419,7 +418,7 @@ def partition_intersections(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 CocoAnnotationEntry = Dict[str, Union[str, int, float, List[List[Union[int, float]]]]]
 
 
-def annotations_to_mask(anns: List[CocoAnnotationEntry], shape: Tuple[int, int], id_type: str) -> np.ndarray:
+def annotations_to_mask(anns: List[CocoAnnotationEntry], shape: Tuple[int, int], id_type: str = 'id') -> np.ndarray:
     """Converts coco annotation to mask file using opencv drawContours
 
     Args:
@@ -436,12 +435,11 @@ def annotations_to_mask(anns: List[CocoAnnotationEntry], shape: Tuple[int, int],
     if len(shape) != 2:
         raise ValueError(f"expecting shape format to be of (height, width), received tuple of len={len(shape)}")
 
-    from cv2 import drawContours
     mask = np.zeros(shape, dtype=np.int32)
     for ann in anns:
         # reshape segmentation
         contours = [np.reshape(segm, (len(segm) // 2, 1, 2)) for segm in ann['segmentation']]
-        drawContours(image=mask, contours=contours, contourIdx=-1, color=ann.get(id_type, -1), thickness=-1)
+        cv2.drawContours(image=mask, contours=contours, contourIdx=-1, color=ann.get(id_type, -1), thickness=-1)
     return mask
 
 
