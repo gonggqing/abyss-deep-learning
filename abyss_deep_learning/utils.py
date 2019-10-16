@@ -442,7 +442,7 @@ def annotations_to_mask(anns: List[CocoAnnotationEntry], shape: Tuple[int, int],
     for ann in anns:
         # reshape segmentation
         contours = [np.reshape(segm, (len(segm) // 2, 1, 2)) for segm in ann['segmentation']]
-        cv2.drawContours(image=mask, contours=contours, contourIdx=-1, color=ann.get(id_type, -1), thickness=-1)
+        cv2.drawContours(image=mask, contours=contours, contourIdx=-1, color=ann.get(id_type, -1), thickness=cv2.FILLED, lineType=cv2.LINE_8)
     return mask
 
 
@@ -463,19 +463,24 @@ def nearest_matching_pixel(mask: np.ndarray, start: np.ndarray, value: int = 0) 
     return matching_coords[np.square(matching_coords - start).sum(axis=1).argmin()]
 
 
-def connect_holes(contours, shape):
+def connect_holes(contours: List[List[int]], shape: Tuple[int, int] = None):
     """Connect holes for COCO annotation entry that uses annotation contours produced from cv2.findContours with
         parameters cv2.RETR_CCOMP and cv2.CHAIN_APPROX_SIMPLE
 
         Args:
             contours: COCO 'segmentation' key in annotation entry
-            shape: image shape
+            shape: image shape (height, width)
 
         Returns:
             contours in COCO format of 'segmentation' field value
         """
     if len(contours) == 1:
         return contours
+
+    if shape is None:
+        max_x = max(contours[0][::2]) + 1
+        max_y = max(contours[0][1::2]) + 1
+        shape = int(max_y), int(max_x)
 
     contours = [np.reshape(contour, (len(contour) // 2, 2)) for contour in contours]
 
