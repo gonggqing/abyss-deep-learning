@@ -35,7 +35,16 @@
           "p": 0.5
         }
       }
-    ]
+    ],
+    "schedule": {
+      "base_lr": 2e-5,
+      "max_lr": 1e-3,
+      "epochs_per_cycle": 6,
+      "mode": "triangular2",
+      "gamma": 1.0,
+      "scale_fn": null,
+      "scale_mode": "cycle"
+    }
   },
   "validation": {
     "dataset": null,
