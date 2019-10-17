@@ -421,28 +421,39 @@ def partition_intersections(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 CocoAnnotationEntry = Dict[str, Union[str, int, float, List[List[Union[int, float]]]]]
 
 
-def annotations_to_mask(anns: List[CocoAnnotationEntry], shape: Tuple[int, int], id_type: str = 'id') -> np.ndarray:
+def annotations_to_mask(anns: List[CocoAnnotationEntry], shape: Tuple[int, int], id_type_string: str = 'annotation_id') -> np.ndarray:
     """Converts coco annotation to mask file using opencv drawContours
 
     Args:
         anns: list of annotation entries in COCO format
         shape: height x width of original image
-        id_type: one of ['id', 'category_id'] to use as value of annotation in mask
+        id_type: comma-separated or single string using ['annotation_id', 'category_id'] - value of annotation in mask,
+                    one channel for each comma-separated entry
 
     Returns:
-        mask of filled in annotation id of each annotation entry
+        (potentially multi-channel) mask of filled in id_type of each annotation entry
     """
-    if id_type not in {'id', 'category_id'}:
-        raise ValueError(f"expecting id_type to be one of ['id', 'category_id'], received {id_type}")
+    id_types = id_type_string.split(',')
+    for i, id_type in enumerate(id_types):
+        if id_type not in {'annotation_id', 'category_id'}:
+            raise ValueError(f"expecting id_type to be one of ['annotation_id', 'category_id'], received {id_type}")
+        if id_type == 'annotation_id':
+            id_types[i] = 'id'
 
     if len(shape) != 2:
         raise ValueError(f"expecting shape format to be of (height, width), received tuple of len={len(shape)}")
 
-    mask = np.zeros(shape, dtype=np.int32)
+    channels = []
+    for id_type in id_types:
+        bg = -1 if id_type == 'id' else 0  # In future, may let user specify background class
+        channels.append(np.full(shape, bg, dtype=np.int32))
+
     for ann in anns:
         # reshape segmentation
         contours = [np.reshape(segm, (len(segm) // 2, 1, 2)) for segm in ann['segmentation']]
-        cv2.drawContours(image=mask, contours=contours, contourIdx=-1, color=ann.get(id_type, -1), thickness=cv2.FILLED, lineType=cv2.LINE_8)
+        for channel in range(len(channels)):
+            cv2.drawContours(image=channels[channel], contours=contours, contourIdx=-1, color=ann.get(id_types[channel], 99), thickness=cv2.FILLED, lineType=cv2.LINE_8)
+    mask = np.dstack(channels)
     return mask
 
 
