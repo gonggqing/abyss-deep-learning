@@ -248,9 +248,6 @@ def load_config(args):
 
     Returns:
         dict: The configuration dict.
-
-    No Longer Raises:
-        ValueError: Bad model type.
     """
 
     # First, load the installed config
@@ -339,13 +336,13 @@ def main(args):
 
     # Set up dataset
     training_dataset, gen_train = setup_dataset(
-        args.training__dataset, config['model'], config['training'], config['categories'])
+        config['training']['dataset'], config['model'], config['training'], config['categories'])
     validation_steps, gen_val = config['validation']['steps'], None
 
     if args.validation__dataset:
         logging.info("Using validation.")
         validation_dataset, gen_val = setup_dataset(
-            args.validation__dataset, config['model'], config['validation'], config['categories'])
+            config['validation']['dataset'], config['model'], config['validation'], config['categories'])
         if validation_steps is None:
             validation_steps = len(
                 validation_dataset.data_ids) // config['validation']['batch_size']
@@ -378,10 +375,20 @@ def main(args):
     ]
     if 'schedule' in config['training'] and config['training']['schedule']:
         schedule_config = dict(config['training']['schedule'])
-        if 'epochs_per_cycle' in schedule_config:  # Set by epoch instead of steps
-            schedule_config['step_size'] = schedule_config['epochs_per_cycle'] * steps_per_epoch
-            del schedule_config['epochs_per_cycle']
-        callbacks.append(CyclicLR(**schedule_config))
+        schedule_type = schedule_config['type']
+        del schedule_config['type']
+        if schedule_type == 'cyclic':
+            if 'epochs_per_cycle' in schedule_config:  # Set by epoch instead of steps
+                schedule_config['step_size'] = schedule_config['epochs_per_cycle'] * steps_per_epoch
+                del schedule_config['epochs_per_cycle']
+            schedule = CyclicLR(**schedule_config)
+        elif schedule_type == 'power':
+            schedule = tf.keras.callbacks.LearningRateScheduler(
+                lambda epoch: (
+                    schedule_config['initial_lr']
+                    * schedule_config['base']
+                    ** (-epoch / schedule_config['period'])))
+        callbacks.append(schedule)
 
     with open(os.path.join(args.output_dir, "model_def.json"), 'w') as file:
         file.write(model.to_json())
