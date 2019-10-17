@@ -192,6 +192,8 @@ def add_additional_metadata(meta_df, args):
     if not args.metadata_csv:
         return meta_df
     add_df = pd.read_csv(args.metadata_csv)
+    add_df.loc[:, 'filename_index'] = add_df['# PhotoID'].apply(lambda x: x[:-4]) # quick and dirty
+
 
     # Gets the spherical name from the full filename
     def index_column_from_row(row):
@@ -200,14 +202,18 @@ def add_additional_metadata(meta_df, args):
     # Set the spherical name
     meta_df.loc[:, 'filename_index'] = meta_df.apply(index_column_from_row, axis=1)
 
-    output_df = meta_df.merge(add_df, left_on='filename_index', right_on='SphericalName', how='left')
+    output_df = meta_df.merge(add_df, left_on='filename_index', right_on='filename_index', how='left')
 
     return output_df
 
 
 def main(args):
     say("Loading COCO")
+    if args.images[0].endswith('.txt'):
+        args.images = [l.rstrip('\n') for l in open(args.images[0]).readlines()]
+
     coco = image_arg_to_coco(args.images, do_patches=False, patch_size=args.image_size)
+
     if args.from_cube_face:
         patches_coco = image_arg_to_coco(args.images, do_patches=True, patch_size=args.image_size)
     say("Loading model...")
@@ -237,16 +243,16 @@ def main(args):
 
     say("Predicting...")
     if args.from_cube_face:
-        thumbs = []
+        thumbs = np.zeros((len(patches_coco.loadImgs(patches_coco.getImgIds())),args.thumb_size[0],args.thumb_size[1],3))
+        features = np.zeros((len(patches_coco.loadImgs(patches_coco.getImgIds())), 256))
         cache_file_name = ''
+        cnt = 0
         for image in tqdm(patches_coco.loadImgs(patches_coco.getImgIds())):
-            # TODO: we are reading the same image mulitple times. Read once for all patches, and batch get patches.
-            # also this is all done, slow and sequentially. Major speed ups available if done from generators.
+            # TODO: Major speed ups available if done from generators.
             cache_path = image['path'].split('.')
             if cache_file_name is not image['filename']:
                 cache_file_name = image['filename']
                 img = imread(image['filename'], dtype=np.uint8)
-                # patches = np.lib.stride_tricks.as_strided(img, shape=(64,512,512), writeable=False)
 
             crop_index = np.asarray([[int( cache_path[-3]),
                                        int( cache_path[-3]) + int( args.image_size[0])],
@@ -255,21 +261,25 @@ def main(args):
 
             patch = img[crop_index[0,0] : crop_index[0,1],
                         crop_index[1,0] : crop_index[1,1]]
-            thumbs.append(np.array(PIL.Image.fromarray(patch).resize(args.thumb_size), dtype=np.uint8))
+            # thumbs.append(np.array(PIL.Image.fromarray(patch).resize(args.thumb_size), dtype=np.uint8))
+            thumbs[cnt ,:,:] = np.array(PIL.Image.fromarray(patch).resize(args.thumb_size), dtype=np.uint8)
             feature = model.predict(np.expand_dims(patch, axis=0).astype(np.float32) / 127.5 - 1)
-            try:
-                features = np.concatenate((features, feature), axis=0)
-            except NameError:
-                features = feature
+            if args.pooling == 'avg':
+                feature = np.mean(np.mean(feature, axis=1),
+                                   axis=1)  # compute the mean embedding vector across all pixels
+            elif args.pooling == 'max':
+                feature = np.max(np.max(feature, axis=1),
+                                  axis=1)  # compute the max embedding vector across all pixels
+            else:
+                raise ValueError("Only avg,max pooling methods are supported")
+
+            features[cnt,:] = feature
+            cnt = cnt + 1
+
     else:
         features = model.predict(images)
 
-    if args.pooling == 'avg':
-        features = np.mean( np.mean(features, axis=1), axis=1) # compute the mean embedding vector across all pixels
-    elif args.pooling == 'max':
-        features = np.max( np.max(features, axis=1), axis=1 ) # compute the max embedding vector across all pixels
-    else:
-        raise ValueError("Only avg,max pooling methods are supported")
+
 
     if args.save_embeddings_to_csv:
         say('Saving embeddings to csv...')
