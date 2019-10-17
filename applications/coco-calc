@@ -12,11 +12,15 @@ from operator import itemgetter
 from typing import List, Tuple, Union
 
 import numpy as np
+import pandas as pd
 from PIL import Image
+from pycocotools.coco import COCO
+
+import abyss_deep_learning
 from abyss_deep_learning.datasets.coco_utilities import coco_is_valid
 from abyss_deep_learning.metrics import poly_intersection_area
-from abyss_deep_learning.utils import polygon_area, imwrite, imread, do_overlap, MyCOCO, partition_intersections
-from pycocotools.coco import COCO
+from abyss_deep_learning.utils import polygon_area, imwrite, imread, do_overlap, MyCOCO, partition_intersections, \
+    annotations_to_mask
 
 __author__ = 'Kent Hu, Vsevolod Vlaskine'
 
@@ -260,7 +264,7 @@ def crop(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                 cropped_ann['image_id'] = cropped_entry['id']
                 if cropped_bbox is None or cropped_poly is None:
                     continue
-                cropped_ann['area'] = polygon_area(np.array(cropped_poly[::2]), np.array(cropped_poly[1::2]))
+                cropped_ann['area'] = polygon_area(cropped_poly)
                 anns_out.append(cropped_ann)
             if args.apply_to_images:
                 imwrite(cropped, out_path)
@@ -625,13 +629,13 @@ def non_max_suppression_impl(boxes, overlap_thresh):
     return boxes[pick], pick
 
 
-def groupbyUnsorted(input, key=lambda x: x):
+def group_by_unsorted(input_, key=lambda x: x):
     yielded = set()
-    keys = [key(element) for element in input]
+    keys = [key(element) for element in input_]
     for i, wantedKey in enumerate(keys):
         if wantedKey not in yielded:
             yield (wantedKey,
-                   (input[j] for j in range(i, len(input)) if keys[j] == wantedKey))
+                   (input_[j] for j in range(i, len(input_)) if keys[j] == wantedKey))
         yielded.add(wantedKey)
 
 
@@ -648,7 +652,7 @@ def non_max_suppression(args: argparse.Namespace) -> Tuple[Union[COCO, None], in
         # if it ever makes sense to ignore category
         # group_on = lambda x: x['image_id']
 
-        for key, group in groupbyUnsorted(ann, group_on):
+        for key, group in group_by_unsorted(ann, group_on):
             g = list(group)
             boxes = np.empty((len(g), 4))
             for i, image_annotation in enumerate(g):
@@ -755,11 +759,6 @@ def assign_from_sorted(coco: COCO, args: argparse.Namespace) -> Tuple[Union[COCO
 
 
 def to_mask(args: argparse.Namespace) -> Tuple[None, int]:
-    from abyss_deep_learning.utils import annotations_to_mask
-    from abyss_deep_learning.utils import MyCOCO
-
-    import numpy as np
-
     first_coco = None
     second_coco = None
 
@@ -809,12 +808,6 @@ def intersections(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
         else:
             print(",".join(output_fields))
         return None, 0
-
-    from abyss_deep_learning.utils import MyCOCO
-    from abyss_deep_learning.utils import annotations_to_mask
-
-    import pandas as pd
-    import numpy as np
 
     first_coco = None
     second_coco = None
@@ -930,12 +923,6 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
     if args.output_fields:
         print(args.output_fields)
         return None, 0
-
-    import numpy as np
-    import pandas as pd
-
-    from abyss_deep_learning.utils import MyCOCO, polygon_area
-    from abyss_deep_learning.metrics import poly_intersection_area
 
     if args.intersections is None:
         first_coco = None
@@ -1112,53 +1099,24 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
     return None, 0
 
 
-def convert(args: argparse.Namespace) -> Tuple[Union[None, MyCOCO], int]:
-    import matplotlib.pyplot as plt
-    import cv2
-    from abyss_deep_learning.utils import connect_holes
-
-    if args.old:
-        logging.warning(f"{args.old} was passed in to --old, currently --old is not implemented")
-
-    if args.new:
-        logging.warning(f"{args.new} was passed in to --new, currently --new is not implemented")
-
-    coco = None
+def flatten_holes(args: argparse.Namespace) -> Tuple[Union[None, MyCOCO], int]:
     if args.coco:
         coco = MyCOCO(args.coco)  # todo: remove pycoco dependency
     else:
         coco = MyCOCO(sys.stdin)  # todo: remove pycoco dependency
 
-    count = 0
     for img_entry in coco.images:
         shape = img_entry['height'], img_entry['width']
         ann_entries = coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id']))
         for ann in ann_entries:
-            contours, _ = connect_holes(ann['segmentation'], shape)
-            # assert len(contours) == 1, f"expected single annotation to be returned from connect_holes, got {len(contours)} annotations"
-            if len(contours) > 1:
-                count += 1
-                logging.warning(f"could not collapse all holes for annotation {ann['id']} in image {ann['image_id']}")
-                logging.warning(f'got {len(contours)} contours back')
-                plt.imshow(cv2.drawContours(np.zeros(shape, dtype=np.uint8), contours, -1, 255, -1))
-                plt.show()
-                input()
-                logging.warning(f'collapsing again')
-                from abyss_deep_learning.utils import contours_hierarchy_to_anns
-                anns = contours_hierarchy_to_anns(contours, _)
-                contours, _ = connect_holes([a[0] for a in anns], shape)
-                logging.warning(f'got {len(contours)} contours back')
-                # logging.warning(contours)
-                # plt.imshow(cv2.drawContours(np.zeros(shape, dtype=np.uint8), contours, -1, 255, -1))
-                # plt.show()
-                # input()
-            ann['segmentation'] = [[int(x) for x in contours[0].flatten()]]
+            ann['segmentation'] = abyss_deep_learning.utils.flatten_holes(ann['segmentation'], shape)
 
-    logging.warning(f"could not collapse {count}/{len(coco.getAnnIds())} annotations")
+    # --out enabled for debugging with pycharm
     if args.out:
         with open(args.out, 'w') as f:
             json.dump(coco.dataset, f)
         return None, 0
+
     return coco, 0
 
 
@@ -1377,14 +1335,13 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
              "use precomputed intersections file from coco-calc intersections to calculate coverage",
     )
 
-    parser_convert = subparsers.add_parser('convert', description="Convert to and from COCO formats",
-                                           formatter_class=argparse.RawDescriptionHelpFormatter,
-                                           parents=parents, help="Convert to and from COCO formats"
-                                           )
-    parser_convert.add_argument('--old', choices=[], help="COCO format to convert from. TODO")
-    parser_convert.add_argument('--new', choices=[], help="COCO format to convert to. TODO")
-    parser_convert.add_argument('--coco', type=str, help="pass COCO filepath in as command line argument")
-    parser_convert.add_argument('--out', type=str, help="output file to dump to")
+    parser_flatten_holes = subparsers.add_parser('flatten-holes',
+                                                 description="Flatten holes of parent contours found using opencv",
+                                                 formatter_class=argparse.RawDescriptionHelpFormatter,
+                                                 parents=parents, help="Flatten contour holes into one contour"
+                                                 )
+    parser_flatten_holes.add_argument('--coco', type=str, help="pass COCO filepath in as command line argument")
+    parser_flatten_holes.add_argument('--out', type=str, help="output file to dump to")
 
     parser_intersections = subparsers.add_parser(
         'intersections',
@@ -1496,7 +1453,7 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
     parser_repath.set_defaults(func=repath)
     parser_resize.set_defaults(func=resize)
     parser_simplify.set_defaults(func=simplify)
-    parser_convert.set_defaults(func=convert)
+    parser_flatten_holes.set_defaults(func=flatten_holes)
     return parser.parse_args(flags)
 
 
