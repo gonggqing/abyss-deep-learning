@@ -111,8 +111,8 @@ def get_args(cmd_line=None):
         '--config',
         help="Specifies the path to the config JSON for the model.")
     parser.add_argument(
-        "--output-dir", default=".",
-        help="The directory to place the training outputs.")
+        "--model-dir", default="model",
+        help="The directory to place the models.")
     parser.add_argument(
         '--training-dataset', type=str, dest="training__dataset",
         help="Path to the coco dataset")
@@ -327,7 +327,7 @@ def main(args):
 
     # Load config and model utils
     config = load_config(args)
-    with open(os.path.join(args.output_dir, "config.used.json"), "w") as file:
+    with open("config.trained.json", "w") as file:
         file.write(
             json.dumps(
                 config, sort_keys=True,
@@ -365,13 +365,14 @@ def main(args):
         # TODO? Support for tensorflow version < 1.14 (load model from json+h5)
         model = tf.keras.models.load_model(args.training__weights)
     callbacks = [
-        tf.keras.callbacks.TensorBoard(args.output_dir, write_graph=False),
+        tf.keras.callbacks.TensorBoard('.', write_graph=False),
         tf.keras.callbacks.ModelCheckpoint(
-            filepath=os.path.join(args.output_dir, 'model_{epoch:03d}_{val_loss:.3f}.h5'),
+            filepath=os.path.join(args.model_dir, 'model_{epoch:03d}_{val_loss:.3f}.h5'),
             save_best_only=True, save_weights_only=False, verbose=1),
         tf.keras.callbacks.ModelCheckpoint(
-            filepath=os.path.join(args.output_dir, 'weights_{epoch:03d}_{val_loss:.3f}.h5'),
-            save_best_only=True, save_weights_only=True, verbose=1)
+            filepath=os.path.join(args.model_dir, 'weights_{epoch:03d}_{val_loss:.3f}.h5'),
+            save_best_only=True, save_weights_only=True, verbose=1),
+        tf.keras.callbacks.TerminateOnNaN()
     ]
     if 'schedule' in config['training'] and config['training']['schedule']:
         schedule_config = dict(config['training']['schedule'])
@@ -390,7 +391,7 @@ def main(args):
                     ** (-epoch / schedule_config['period'])))
         callbacks.append(schedule)
 
-    with open(os.path.join(args.output_dir, "model_def.json"), 'w') as file:
+    with open(os.path.join(args.model_dir, "model_def.json"), 'w') as file:
         file.write(model.to_json())
 
     # Start training
