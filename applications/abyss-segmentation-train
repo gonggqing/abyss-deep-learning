@@ -339,7 +339,7 @@ def main(args):
         config['training']['dataset'], config['model'], config['training'], config['categories'])
     validation_steps, gen_val = config['validation']['steps'], None
 
-    if args.validation__dataset:
+    if 'validation' in config:
         logging.info("Using validation.")
         validation_dataset, gen_val = setup_dataset(
             config['validation']['dataset'], config['model'], config['validation'], config['categories'])
