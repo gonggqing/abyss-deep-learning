@@ -16,11 +16,11 @@ import pandas as pd
 from PIL import Image
 from pycocotools.coco import COCO
 
+from abyss.bedrock.imaging.mask import mask_intersections
 import abyss_deep_learning
 from abyss_deep_learning.datasets.coco_utilities import coco_is_valid
 from abyss_deep_learning.metrics import poly_intersection_area
-from abyss_deep_learning.utils import polygon_area, imwrite, imread, do_overlap, MyCOCO, partition_intersections, \
-    annotations_to_mask
+from abyss_deep_learning.utils import polygon_area, imwrite, imread, do_overlap, MyCOCO, annotations_to_mask
 
 __author__ = 'Kent Hu, Vsevolod Vlaskine'
 
@@ -839,29 +839,14 @@ def intersections(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
         if args.partitions:
             shape = int(float(first_img_entry['height'])), int(float(first_img_entry['width']))
             first_anns = first_coco.loadAnns(first_coco.getAnnIds(imgIds=first_img_entry['id']))
-            first = annotations_to_mask(first_anns, shape)
+            first = annotations_to_mask(first_anns, shape, id_type_string="annotation_id,category_id")
             second_anns = second_coco.loadAnns(second_coco.getAnnIds(imgIds=second_img_entry['id']))
-            second = annotations_to_mask(second_anns,
-                                         shape)
-            first_categories = pd.DataFrame(
-                [[ann['id'], ann['category_id']] for ann in first_anns], columns=['first/id', 'first/category_id']
-            )
-            second_categories = pd.DataFrame(
-                [[ann['id'], ann['category_id']] for ann in second_anns], columns=['second/id', 'second/category_id']
-            )
-            first_areas = pd.DataFrame(np.vstack(np.unique(first, return_counts=True)).transpose()[:, :],
-                                       columns=['first/id', 'first/area'])
-            second_areas = pd.DataFrame(np.vstack(np.unique(second, return_counts=True)).transpose()[:, :],
-                                        columns=['second/id', 'second/area'])
-            intersection_counts = pd.DataFrame(partition_intersections(first, second)[:, :],
-                                               columns=['first/id', 'second/id', 'intersection/area'])
-            first_df = pd.merge(first_areas, first_categories, on='first/id')
-            second_df = pd.merge(second_areas, second_categories, on='second/id')
-            df = pd.merge(intersection_counts, first_df, on='first/id').merge(second_df, on='second/id')
-            df['image/path'] = first_img_entry['path']
-            df['image/id'] = first_img_entry['id']
-            df = df.reindex(columns=output_fields)
-            df.to_csv(sys.stdout, header=False, index=False)
+            second = annotations_to_mask(second_anns, shape, id_type_string="annotation_id,category_id")
+
+            intersection_results = mask_intersections(first, second, w=shape[0], h=shape[1],
+                                                      a_channels=2, b_channels=2, a_0_bg=-1, b_0_bg=-1)
+            csv_list = [first_img_entry['path'], first_img_entry['id']] + intersection_results
+            print(','.join(map(str, csv_list)))
         else:
             first_ann_entries, first_polys = get_img_polys(first_coco, first_img_entry['id'])
             second_ann_entries, second_polys = get_img_polys(second_coco, second_img_entry['id'])
