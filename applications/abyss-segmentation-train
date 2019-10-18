@@ -9,18 +9,19 @@ Attributes:
 
 """
 
-import os
-import sys
+import argparse
 import json
 import logging
-import argparse
+import os
+import sys
 
 import abyss_deep_learning.imgaug as abyss_imgaug
 import abyss_deep_learning.keras.zoo.segmentation.deeplab_v3_plus.util as deeplab_util
-from abyss_deep_learning.keras.utils import lambda_gen
-from abyss_deep_learning.datasets.coco import ImageSemanticSegmentationDataset
-
+import extra_keras_metrics
+import numpy as np
 import tensorflow as tf
+from abyss_deep_learning.datasets.coco import ImageSemanticSegmentationDataset
+from abyss_deep_learning.keras.utils import lambda_gen
 from imgaug.augmentables.segmaps import SegmentationMapsOnImage
 from keras_contrib.callbacks import CyclicLR
 
@@ -49,6 +50,15 @@ def xpath_set(dictionary, path, value):
             elem[x] = value
             return
         elem = child
+
+
+class ScalarLogger(tf.keras.callbacks.Callback):
+    def __init__(self, scalar_tensor, name):
+        self.tensor = scalar_tensor
+        self.name = name
+
+    def on_epoch_end(self, epoch, logs):
+        logs[self.name] = tf.keras.backend.get_value(self.tensor)
 
 
 class AnnotationClassMapper:
@@ -129,6 +139,10 @@ def get_args(cmd_line=None):
     parser.add_argument(
         "--validation-dataset", type=str, dest="validation__dataset",
         help="Path to the validation coco dataset")
+    parser.add_argument("--seed", default=0, type=int, help="Random seed (0 default)")
+    parser.add_argument(
+        '--parallel', '-P', default=1, type=int,
+        help='Number of GPUs to use')
     parser.add_argument(
         '--verbose', '-v',
         action='store_const', const=logging.INFO,
@@ -165,7 +179,7 @@ def get_class_mapping(dataset, categories_config=None):
     return AnnotationClassMapper(category_to_class_map)
 
 
-def setup_dataset(coco_path, model_config, process_config, categories_config):
+def setup_dataset(coco_path, model_config, process_config, categories_config, args):
     """Set up a COCO dataset given the model, process (train/val),
         and categories configuration.
 
@@ -235,7 +249,7 @@ def setup_dataset(coco_path, model_config, process_config, categories_config):
         hack_dataset(generator),
         output_types=(tf.float32, tf.float32),
         output_shapes=output_shapes)\
-        .prefetch(2 * process_config['batch_size'])\
+        .prefetch(2 * args.parallel * process_config['batch_size'])\
         .batch(process_config['batch_size'])
     return dataset, generator
 
@@ -269,12 +283,6 @@ def load_config(args):
                 config[section].update(user_config[section])
             for section in ['categories']:  # lists
                 config[section] = list(user_config[section])
-            # config['model'].update(user_config['model'])
-            # config['training'].update(user_config['training'])
-            # if 'validation' in user_config:
-            #     config['validation'] = list(user_config['validation'])
-            # if 'categories' in user_config:
-            #     config['categories'] = list(user_config['categories'])
     # Third, override with command line arguments
     for key, value in args.__dict__.items():
         if value is None:
@@ -318,6 +326,9 @@ def main(args):
     Returns:
         int: Error code. 0 if no errors occurred.
     """
+    np.random.seed(args.seed)
+    tf.random.set_random_seed(args.seed)
+
     logging.basicConfig(
         format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
@@ -336,23 +347,20 @@ def main(args):
 
     # Set up dataset
     training_dataset, gen_train = setup_dataset(
-        config['training']['dataset'], config['model'], config['training'], config['categories'])
+        config['training']['dataset'], config['model'],
+        config['training'], config['categories'], args)
     validation_steps, gen_val = config['validation']['steps'], None
 
     if 'validation' in config:
         logging.info("Using validation.")
         validation_dataset, gen_val = setup_dataset(
-            config['validation']['dataset'], config['model'], config['validation'], config['categories'])
+            config['validation']['dataset'], config['model'],
+            config['validation'], config['categories'], args)
         if validation_steps is None:
-            validation_steps = len(
-                validation_dataset.data_ids) // config['validation']['batch_size']
-    steps_per_epoch = len(
-        training_dataset.data_ids) // config['training']['batch_size']
-
-    # TODO? Set batch norm policy (unsure yet as to whether this is required)
-    # for layer in model.layers:
-    #     if type(layer).__name__.startswith('BatchNormalization'):
-    #         layer.trainable = layer.trainable and config['training']['train_batch_norm']
+            validation_steps = len(validation_dataset.data_ids) \
+                // config['validation']['batch_size'] // args.parallel
+    steps_per_epoch = len(training_dataset.data_ids) \
+        // config['training']['batch_size'] // args.parallel
 
     # Set up training
     if config['training']['new_heads']:
@@ -364,7 +372,39 @@ def main(args):
         logging.info("Loading model.")
         # TODO? Support for tensorflow version < 1.14 (load model from json+h5)
         model = tf.keras.models.load_model(args.training__weights)
+
+    # Start training
+    optimizer = tf.keras.optimizers.deserialize(config['training']['optimizer'])
+
+    for layer in model.layers:
+        if type(layer).__name__.startswith('BatchNormalization'):
+            layer.trainable = layer.trainable and config['training']['train_batch_norm']
+
+    freeze = config['training']['freeze'] if 'freeze' in config['training'] else None
+    if freeze:
+        layer_names = [layer.name for layer in model.layers]
+        if freeze not in layer_names:
+            logging.error(f"Error freezing model layers: could not find layer {freeze}")
+        layer_index = layer_names.index(freeze)
+        logging.info(f"Freezing layers before {freeze} ({layer_index})")
+        for layer in model.layers[:layer_index]:
+            logging.info(f"Freezing layer: {layer.name}")
+            layer.trainable = False
+
+    if args.parallel > 1:
+        logging.info(f"Distributing across {args.parallel} GPUs")
+        model = tf.keras.utils.multi_gpu_model(model, args.parallel)
+
+    model.compile(
+        optimizer=optimizer,
+        loss=config['training']['loss'],
+        metrics=[
+            'categorical_accuracy',
+            extra_keras_metrics.precision,
+            extra_keras_metrics.recall])
+
     callbacks = [
+        ScalarLogger(model.optimizer.lr, "learning_rate"),
         tf.keras.callbacks.TensorBoard('.', write_graph=False),
         tf.keras.callbacks.ModelCheckpoint(
             filepath=os.path.join(args.model_dir, 'model_{epoch:03d}_{val_loss:.3f}.h5'),
@@ -394,12 +434,6 @@ def main(args):
     with open(os.path.join(args.model_dir, "model_def.json"), 'w') as file:
         file.write(model.to_json())
 
-    # Start training
-    optimizer = tf.keras.optimizers.deserialize(config['training']['optimizer'])
-    model.compile(
-        optimizer=optimizer,
-        loss=config['training']['loss'],
-        metrics=['categorical_accuracy'])
 
     model.fit(
         gen_train,

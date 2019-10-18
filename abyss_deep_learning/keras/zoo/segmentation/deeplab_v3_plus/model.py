@@ -58,6 +58,7 @@ from tensorflow.python.keras.layers import (
     BatchNormalization,
     GlobalAveragePooling2D
 )
+from tensorflow.python.keras.regularizers import l1_l2
 from tensorflow.python.keras.models import Model
 from tensorflow.python.keras.activations import relu
 from tensorflow.python.keras.utils.data_utils import get_file
@@ -70,7 +71,7 @@ WEIGHTS_PATH_X_CS = "https://github.com/bonlime/keras-deeplab-v3-plus/releases/d
 WEIGHTS_PATH_MOBILE_CS = "https://github.com/bonlime/keras-deeplab-v3-plus/releases/download/1.2/deeplabv3_mobilenetv2_tf_dim_ordering_tf_kernels_cityscapes.h5"
 
 
-def SepConv_BN(x, filters, prefix, stride=1, kernel_size=3, rate=1, depth_activation=False, epsilon=1e-3):
+def SepConv_BN(x, filters, prefix, stride=1, kernel_size=3, rate=1, depth_activation=False, epsilon=1e-3, regularizer_l1=0.0, regularizer_l2=0.0):
     """ SepConv with BN between depthwise & pointwise. Optionally add activation after BN
         Implements right "same" padding for even kernel sizes
         Args:
@@ -96,13 +97,17 @@ def SepConv_BN(x, filters, prefix, stride=1, kernel_size=3, rate=1, depth_activa
 
     if not depth_activation:
         x = Activation('relu')(x)
-    x = DepthwiseConv2D((kernel_size, kernel_size), strides=(stride, stride), dilation_rate=(rate, rate),
-                        padding=depth_padding, use_bias=False, name=prefix + '_depthwise')(x)
+    x = DepthwiseConv2D(
+        (kernel_size, kernel_size), strides=(
+            stride, stride), dilation_rate=(rate, rate),
+        padding=depth_padding, use_bias=False, name=prefix + '_depthwise',
+        kernel_regularizer=l1_l2(regularizer_l1, regularizer_l2))(x)
     x = BatchNormalization(name=prefix + '_depthwise_BN', epsilon=epsilon)(x)
     if depth_activation:
         x = Activation('relu')(x)
     x = Conv2D(filters, (1, 1), padding='same',
-               use_bias=False, name=prefix + '_pointwise')(x)
+               use_bias=False, name=prefix + '_pointwise',
+               kernel_regularizer=l1_l2(regularizer_l1, regularizer_l2))(x)
     x = BatchNormalization(name=prefix + '_pointwise_BN', epsilon=epsilon)(x)
     if depth_activation:
         x = Activation('relu')(x)
@@ -110,7 +115,7 @@ def SepConv_BN(x, filters, prefix, stride=1, kernel_size=3, rate=1, depth_activa
     return x
 
 
-def _conv2d_same(x, filters, prefix, stride=1, kernel_size=3, rate=1):
+def _conv2d_same(x, filters, prefix, stride=1, kernel_size=3, rate=1, regularizer_l1=0.0, regularizer_l2=0.0):
     """Implements right 'same' padding for even kernel sizes
         Without this there is a 1 pixel drift when stride = 2
         Args:
@@ -127,6 +132,7 @@ def _conv2d_same(x, filters, prefix, stride=1, kernel_size=3, rate=1):
                       strides=(stride, stride),
                       padding='same', use_bias=False,
                       dilation_rate=(rate, rate),
+                      kernel_regularizer=l1_l2(regularizer_l1, regularizer_l2),
                       name=prefix)(x)
     else:
         kernel_size_effective = kernel_size + (kernel_size - 1) * (rate - 1)
@@ -139,11 +145,13 @@ def _conv2d_same(x, filters, prefix, stride=1, kernel_size=3, rate=1):
                       strides=(stride, stride),
                       padding='valid', use_bias=False,
                       dilation_rate=(rate, rate),
+                      kernel_regularizer=l1_l2(regularizer_l1, regularizer_l2),
                       name=prefix)(x)
 
 
 def _xception_block(inputs, depth_list, prefix, skip_connection_type, stride,
-                    rate=1, depth_activation=False, return_skip=False):
+                    rate=1, depth_activation=False, return_skip=False,
+                    regularizer_l1=0.0, regularizer_l2=0.0):
     """ Basic building block of modified Xception network
         Args:
             inputs: input tensor
@@ -162,13 +170,17 @@ def _xception_block(inputs, depth_list, prefix, skip_connection_type, stride,
                               prefix + '_separable_conv{}'.format(i + 1),
                               stride=stride if i == 2 else 1,
                               rate=rate,
-                              depth_activation=depth_activation)
+                              depth_activation=depth_activation,
+                              regularizer_l1=regularizer_l1,
+                              regularizer_l2=regularizer_l2)
         if i == 1:
             skip = residual
     if skip_connection_type == 'conv':
         shortcut = _conv2d_same(inputs, depth_list[-1], prefix + '_shortcut',
                                 kernel_size=1,
-                                stride=stride)
+                                stride=stride,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
         shortcut = BatchNormalization(name=prefix + '_shortcut_BN')(shortcut)
         outputs = layers.add([residual, shortcut])
     elif skip_connection_type == 'sum':
@@ -195,7 +207,7 @@ def _make_divisible(v, divisor, min_value=None):
     return new_v
 
 
-def _inverted_res_block(inputs, expansion, stride, alpha, filters, block_id, skip_connection, rate=1):
+def _inverted_res_block(inputs, expansion, stride, alpha, filters, block_id, skip_connection, rate=1, regularizer_l1=0.0, regularizer_l2=0.0):
     in_channels = inputs.shape.as_list()[-1]  # inputs._keras_shape[-1]
     pointwise_conv_filters = int(filters * alpha)
     pointwise_filters = _make_divisible(pointwise_conv_filters, 8)
@@ -206,6 +218,7 @@ def _inverted_res_block(inputs, expansion, stride, alpha, filters, block_id, ski
 
         x = Conv2D(expansion * in_channels, kernel_size=1, padding='same',
                    use_bias=False, activation=None,
+                   kernel_regularizer=l1_l2(regularizer_l1, regularizer_l2),
                    name=prefix + 'expand')(x)
         x = BatchNormalization(epsilon=1e-3, momentum=0.999,
                                name=prefix + 'expand_BN')(x)
@@ -215,6 +228,8 @@ def _inverted_res_block(inputs, expansion, stride, alpha, filters, block_id, ski
     # Depthwise
     x = DepthwiseConv2D(kernel_size=3, strides=stride, activation=None,
                         use_bias=False, padding='same', dilation_rate=(rate, rate),
+                        kernel_regularizer=l1_l2(
+                            regularizer_l1, regularizer_l2),
                         name=prefix + 'depthwise')(x)
     x = BatchNormalization(epsilon=1e-3, momentum=0.999,
                            name=prefix + 'depthwise_BN')(x)
@@ -224,6 +239,7 @@ def _inverted_res_block(inputs, expansion, stride, alpha, filters, block_id, ski
     # Project
     x = Conv2D(pointwise_filters,
                kernel_size=1, padding='same', use_bias=False, activation=None,
+               kernel_regularizer=l1_l2(regularizer_l1, regularizer_l2),
                name=prefix + 'project')(x)
     x = BatchNormalization(epsilon=1e-3, momentum=0.999,
                            name=prefix + 'project_BN')(x)
@@ -238,7 +254,7 @@ def _inverted_res_block(inputs, expansion, stride, alpha, filters, block_id, ski
 
 
 def Deeplabv3(weights='pascal_voc', input_tensor=None, input_shape=(512, 512, 3), classes=21, backbone='mobilenetv2',
-              OS=16, alpha=1., activation=None):
+              OS=16, alpha=1., activation=None, regularizer_l1=0.0, regularizer_l2=1e-4):
     """ Instantiates the Deeplabv3+ architecture
 
     Optionally loads weights pre-trained
@@ -304,35 +320,51 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, input_shape=(512, 512, 3)
             atrous_rates = (6, 12, 18)
 
         x = Conv2D(32, (3, 3), strides=(2, 2),
-                   name='entry_flow_conv1_1', use_bias=False, padding='same')(img_input)
+                   name='entry_flow_conv1_1', use_bias=False,
+                   kernel_regularizer=l1_l2(regularizer_l1, regularizer_l2),
+                   padding='same')(img_input)
         x = BatchNormalization(name='entry_flow_conv1_1_BN')(x)
         x = Activation('relu')(x)
 
-        x = _conv2d_same(x, 64, 'entry_flow_conv1_2', kernel_size=3, stride=1)
+        x = _conv2d_same(x, 64, 'entry_flow_conv1_2', kernel_size=3, stride=1,
+                         regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
         x = BatchNormalization(name='entry_flow_conv1_2_BN')(x)
         x = Activation('relu')(x)
 
         x = _xception_block(x, [128, 128, 128], 'entry_flow_block1',
                             skip_connection_type='conv', stride=2,
-                            depth_activation=False)
+                            depth_activation=False,
+                            regularizer_l1=regularizer_l1,
+                            regularizer_l2=regularizer_l2)
         x, skip1 = _xception_block(x, [256, 256, 256], 'entry_flow_block2',
                                    skip_connection_type='conv', stride=2,
-                                   depth_activation=False, return_skip=True)
+                                   depth_activation=False, return_skip=True,
+                                   regularizer_l1=regularizer_l1,
+                                   regularizer_l2=regularizer_l2)
 
         x = _xception_block(x, [728, 728, 728], 'entry_flow_block3',
                             skip_connection_type='conv', stride=entry_block3_stride,
-                            depth_activation=False)
+                            depth_activation=False,
+                            regularizer_l1=regularizer_l1,
+                            regularizer_l2=regularizer_l2)
         for i in range(16):
             x = _xception_block(x, [728, 728, 728], 'middle_flow_unit_{}'.format(i + 1),
                                 skip_connection_type='sum', stride=1, rate=middle_block_rate,
-                                depth_activation=False)
+                                depth_activation=False,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
 
         x = _xception_block(x, [728, 1024, 1024], 'exit_flow_block1',
                             skip_connection_type='conv', stride=1, rate=exit_block_rates[0],
-                            depth_activation=False)
+                            depth_activation=False,
+                            regularizer_l1=regularizer_l1,
+                            regularizer_l2=regularizer_l2)
         x = _xception_block(x, [1536, 1536, 2048], 'exit_flow_block2',
                             skip_connection_type='none', stride=1, rate=exit_block_rates[1],
-                            depth_activation=True)
+                            depth_activation=True,
+                            regularizer_l1=regularizer_l1,
+                            regularizer_l2=regularizer_l2)
 
     else:
         OS = 8
@@ -340,52 +372,88 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, input_shape=(512, 512, 3)
         x = Conv2D(first_block_filters,
                    kernel_size=3,
                    strides=(2, 2), padding='same',
-                   use_bias=False, name='Conv')(img_input)
+                   use_bias=False,
+                   kernel_regularizer=l1_l2(regularizer_l1, regularizer_l2),
+                   name='Conv')(img_input)
         x = BatchNormalization(
             epsilon=1e-3, momentum=0.999, name='Conv_BN')(x)
         x = Activation(relu6, name='Conv_Relu6')(x)
 
         x = _inverted_res_block(x, filters=16, alpha=alpha, stride=1,
-                                expansion=1, block_id=0, skip_connection=False)
+                                expansion=1, block_id=0, skip_connection=False,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
 
         x = _inverted_res_block(x, filters=24, alpha=alpha, stride=2,
-                                expansion=6, block_id=1, skip_connection=False)
+                                expansion=6, block_id=1, skip_connection=False,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
         x = _inverted_res_block(x, filters=24, alpha=alpha, stride=1,
-                                expansion=6, block_id=2, skip_connection=True)
+                                expansion=6, block_id=2, skip_connection=True,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
 
         x = _inverted_res_block(x, filters=32, alpha=alpha, stride=2,
-                                expansion=6, block_id=3, skip_connection=False)
+                                expansion=6, block_id=3, skip_connection=False,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
         x = _inverted_res_block(x, filters=32, alpha=alpha, stride=1,
-                                expansion=6, block_id=4, skip_connection=True)
+                                expansion=6, block_id=4, skip_connection=True,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
         x = _inverted_res_block(x, filters=32, alpha=alpha, stride=1,
-                                expansion=6, block_id=5, skip_connection=True)
+                                expansion=6, block_id=5, skip_connection=True,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
 
         # stride in block 6 changed from 2 -> 1, so we need to use rate = 2
         x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1,  # 1!
-                                expansion=6, block_id=6, skip_connection=False)
+                                expansion=6, block_id=6, skip_connection=False,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
         x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=7, skip_connection=True)
+                                expansion=6, block_id=7, skip_connection=True,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
         x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=8, skip_connection=True)
+                                expansion=6, block_id=8, skip_connection=True,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
         x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=9, skip_connection=True)
+                                expansion=6, block_id=9, skip_connection=True,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
 
         x = _inverted_res_block(x, filters=96, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=10, skip_connection=False)
+                                expansion=6, block_id=10, skip_connection=False,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
         x = _inverted_res_block(x, filters=96, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=11, skip_connection=True)
+                                expansion=6, block_id=11, skip_connection=True,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
         x = _inverted_res_block(x, filters=96, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=12, skip_connection=True)
+                                expansion=6, block_id=12, skip_connection=True,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
 
         x = _inverted_res_block(x, filters=160, alpha=alpha, stride=1, rate=2,  # 1!
-                                expansion=6, block_id=13, skip_connection=False)
+                                expansion=6, block_id=13, skip_connection=False,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
         x = _inverted_res_block(x, filters=160, alpha=alpha, stride=1, rate=4,
-                                expansion=6, block_id=14, skip_connection=True)
+                                expansion=6, block_id=14, skip_connection=True,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
         x = _inverted_res_block(x, filters=160, alpha=alpha, stride=1, rate=4,
-                                expansion=6, block_id=15, skip_connection=True)
+                                expansion=6, block_id=15, skip_connection=True,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
 
         x = _inverted_res_block(x, filters=320, alpha=alpha, stride=1, rate=4,
-                                expansion=6, block_id=16, skip_connection=False)
+                                expansion=6, block_id=16, skip_connection=False,
+                                regularizer_l1=regularizer_l1,
+                                regularizer_l2=regularizer_l2)
 
     # end of feature extractor
 
@@ -398,14 +466,18 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, input_shape=(512, 512, 3)
     b4 = Lambda(lambda x: K.expand_dims(x, 1))(b4)
     b4 = Lambda(lambda x: K.expand_dims(x, 1))(b4)
     b4 = Conv2D(256, (1, 1), padding='same',
-                use_bias=False, name='image_pooling')(b4)
+                use_bias=False,
+                kernel_regularizer=l1_l2(regularizer_l1, regularizer_l2),
+                name='image_pooling')(b4)
     b4 = BatchNormalization(name='image_pooling_BN', epsilon=1e-5)(b4)
     b4 = Activation('relu')(b4)
     # upsample. have to use compat because of the option align_corners
     size_before = tf.keras.backend.int_shape(x)
-    b4 = Lambda(lambda x: tf.compat.v1.image.resize(x, size_before[1:3], align_corners=True))(b4)
+    b4 = Lambda(lambda x: tf.compat.v1.image.resize(
+        x, size_before[1:3], align_corners=True))(b4)
     # simple 1x1
-    b0 = Conv2D(256, (1, 1), padding='same', use_bias=False, name='aspp0')(x)
+    b0 = Conv2D(256, (1, 1), padding='same', use_bias=False, name='aspp0',
+                kernel_regularizer=l1_l2(regularizer_l1, regularizer_l2))(x)
     b0 = BatchNormalization(name='aspp0_BN', epsilon=1e-5)(b0)
     b0 = Activation('relu', name='aspp0_activation')(b0)
 
@@ -413,13 +485,16 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, input_shape=(512, 512, 3)
     if backbone == 'xception':
         # rate = 6 (12)
         b1 = SepConv_BN(x, 256, 'aspp1',
-                        rate=atrous_rates[0], depth_activation=True, epsilon=1e-5)
+                        rate=atrous_rates[0], depth_activation=True, epsilon=1e-5,
+                        regularizer_l1=regularizer_l1, regularizer_l2=regularizer_l2)
         # rate = 12 (24)
         b2 = SepConv_BN(x, 256, 'aspp2',
-                        rate=atrous_rates[1], depth_activation=True, epsilon=1e-5)
+                        rate=atrous_rates[1], depth_activation=True, epsilon=1e-5,
+                        regularizer_l1=regularizer_l1, regularizer_l2=regularizer_l2)
         # rate = 18 (36)
         b3 = SepConv_BN(x, 256, 'aspp3',
-                        rate=atrous_rates[2], depth_activation=True, epsilon=1e-5)
+                        rate=atrous_rates[2], depth_activation=True, epsilon=1e-5,
+                        regularizer_l1=regularizer_l1, regularizer_l2=regularizer_l2)
 
         # concatenate ASPP branches & project
         x = Concatenate()([b4, b0, b1, b2, b3])
@@ -438,19 +513,24 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, input_shape=(512, 512, 3)
         # x4 (x2) block
         size_before2 = tf.keras.backend.int_shape(x)
         x = Lambda(lambda xx: tf.compat.v1.image.resize(xx,
-                                                        size_before2[1:3] * tf.constant(OS // 4),
+                                                        size_before2[1:3] *
+                                                        tf.constant(OS // 4),
                                                         align_corners=True))(x)
 
-        dec_skip1 = Conv2D(48, (1, 1), padding='same',
-                           use_bias=False, name='feature_projection0')(skip1)
+        dec_skip1 = Conv2D(
+            48, (1, 1), padding='same',
+            kernel_regularizer=l1_l2(regularizer_l1, regularizer_l2),
+            use_bias=False, name='feature_projection0')(skip1)
         dec_skip1 = BatchNormalization(
             name='feature_projection0_BN', epsilon=1e-5)(dec_skip1)
         dec_skip1 = Activation('relu')(dec_skip1)
         x = Concatenate()([x, dec_skip1])
         x = SepConv_BN(x, 256, 'decoder_conv0',
-                       depth_activation=True, epsilon=1e-5)
+                       depth_activation=True, epsilon=1e-5,
+                       regularizer_l1=regularizer_l1, regularizer_l2=regularizer_l2)
         x = SepConv_BN(x, 256, 'decoder_conv1',
-                       depth_activation=True, epsilon=1e-5)
+                       depth_activation=True, epsilon=1e-5,
+                       regularizer_l1=regularizer_l1, regularizer_l2=regularizer_l2)
 
     # you can use it with arbitary number of classes
     if (weights == 'pascal_voc' and classes == 21) or (weights == 'cityscapes' and classes == 19):
@@ -458,7 +538,9 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, input_shape=(512, 512, 3)
     else:
         last_layer_name = 'custom_logits_semantic'
 
-    x = Conv2D(classes, (1, 1), padding='same', name=last_layer_name)(x)
+    x = Conv2D(
+        classes, (1, 1), padding='same', name=last_layer_name,
+        kernel_regularizer=l1_l2(regularizer_l1, regularizer_l2))(x)
     size_before3 = tf.keras.backend.int_shape(img_input)
     x = Lambda(lambda xx: tf.compat.v1.image.resize(xx,
                                                     size_before3[1:3], align_corners=True))(x)
@@ -498,6 +580,7 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, input_shape=(512, 512, 3)
                                     cache_subdir='models')
         model.load_weights(weights_path, by_name=True)
     return model
+
 
 def preprocess_input(x):
     """Preprocesses a numpy array encoding a batch of images.

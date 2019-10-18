@@ -8,11 +8,15 @@
     "input_shape": [512, 512, 3],
     "input_tensor": null,
     "OS": 16,
-    "weights": "pascal_voc"
+    "weights": "pascal_voc",
+    "regularizer_l1": 0.0,
+    "regularizer_l2": 1e-4
   },
   "training": {
+    "freeze": "custom_logits_semantic",
     "new_heads": true,
     "batch_size": 2,
+    "train_batch_norm": false,
     "dataset": null,
     "epochs": 10,
     "loss": "categorical_crossentropy",
