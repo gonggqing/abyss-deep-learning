@@ -406,6 +406,9 @@ def polygon_to_mask(polygon_: List[Union[int, float]], value: float = 1) -> np.a
 
 def partition_intersections(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """
+    Single channel
+    Made redundant(?) by multichannel abyss-bedrock/python/imaging/mask.py:
+        from abyss.bedrock.imaging.mask import mask_intersections
 
     Args:
         a: MxN numpy array
