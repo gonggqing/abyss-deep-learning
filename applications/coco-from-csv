@@ -233,7 +233,7 @@ def generate_from_contours(df, args):
                 'id': len(coco_json['annotations']),
                 'image_id': int(image_id),
                 "category_id": int(category_id),
-                "segmentation": flatten_holes(segmentation) if args.connect_holes else segmentation,
+                "segmentation": flatten_holes(segmentation) if args.flatten_holes else segmentation,
                 "bbox": [ int(min_xy[0]), int(min_xy[1]), int(wh[0]), int(wh[1]) ],
                 "area": area
             })
