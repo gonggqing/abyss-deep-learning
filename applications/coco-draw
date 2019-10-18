@@ -30,10 +30,7 @@ JSON_SAMPLE = """
 """
 
 
-
 def main(args=None):
-    
-
     if args.sample_colors:
         print(JSON_SAMPLE)
         return
@@ -48,12 +45,9 @@ def main(args=None):
         [0,255,255]*10
     ]
 
-
     active_color_pallette = default_color_pallette
     for category in coco_file['categories']:
         category_dict[category['id']] = category['name']
-
-
 
     # Colours loops over the category ids and override the colour pallette for a given category id
     if args.colors:
@@ -100,7 +94,6 @@ def main(args=None):
                     labels.append([seg_ann[0],annotation['category_id']-1])
                     if len(seg_ann) > 0:
                         text_labels.append([seg_ann[0][0],seg_ann[0][1],annotation_text,annotation['category_id']-1])
-
 
         if args.bbox:
             cv2_image = abyss_deep_learning.draw.boxes(labels,
@@ -156,6 +149,7 @@ def main(args=None):
                 else:
                     cv2.imwrite(image['path'],cv2_image)
 
+
 def parse_cli():
     parser = ArgumentParser(
         description=DESCRIPTION)
@@ -190,6 +184,7 @@ def parse_cli():
     parser.add_argument('-s', '--text-scale', type=float, default=0.4,
                         help="Sets the text scale of annotations")
     return parser.parse_args()
+
 
 if __name__ == '__main__':
     main(args=parse_cli())
