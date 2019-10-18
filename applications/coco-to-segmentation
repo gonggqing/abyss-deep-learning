@@ -118,7 +118,7 @@ def main(args: argparse.Namespace):
                 for chan in range(img.shape[2]):
                     png_path = save_as_png(
                         Image.fromarray(
-                            normalize(img[:, :, chan])),
+                            normalize(img[:, :, chan]), max_val=args.num_classes),
                             os.path.join(dir_name, f'{chan}.png'))
 
                     if not save_bin:
@@ -191,7 +191,7 @@ def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--dirname', '--dir', choices=['id', 'file_name', 'path'], default='file_name',
                         help="Naming scheme for image directory. Default is %(default)s")
-    parser.add_argument('-n', '--num-classes', type=int, required=True,
+    parser.add_argument('-n', '--num-classes', type=int,
                         help="Number of possible classes that can be detected from the network (excluding background).")
     parser.add_argument('-i', '--input',
                         help="Pass COCO JSON as command line argument. If specified, does not read from stdin.")
