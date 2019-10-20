@@ -11,7 +11,7 @@ keras
 cython
 pycocotools
 keras_retinanet
-tensorflow-gpu==1.13.1
+tensorflow-gpu<2.0.0
 imgaug
 Trains
 sklearn

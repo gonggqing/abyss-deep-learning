@@ -127,7 +127,7 @@ def main(args=None):
                 while s == '' or s[0] == '.' or s[0] == '..': s = s[1:]
                 if args.path_basename:
                     output_path = os.path.basename(image['path'])
-                elif not args.path_trim_depth is None:
+                elif args.path_trim_depth is not None:
                     s = image['path'].split('/')
                     if len( s ) <= args.path_trim_depth: print("coco-draw: expected path depth of at least " + str( args.path_trim_depth ) + "; got: '" + image['path'] + "'", file=sys.stderr); sys.exit(1)
                     output_path = '/'.join( s[args.path_trim_depth:] )
