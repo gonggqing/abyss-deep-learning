@@ -298,6 +298,28 @@ def load_config(args):
     return config
 
 
+def setup_schedule(config, steps_per_epoch):
+    schedule_config = dict(config['training']['schedule'])
+    schedule_type = schedule_config['type']
+    schedule = None
+    del schedule_config['type']
+    if schedule_type == 'cyclic':
+        if 'epochs_per_cycle' in schedule_config:  # Set by epoch instead of steps
+            schedule_config['step_size'] = schedule_config['epochs_per_cycle'] * steps_per_epoch
+            del schedule_config['epochs_per_cycle']
+    elif schedule_type == 'power':
+        schedule = tf.keras.callbacks.LearningRateScheduler(
+            lambda epoch: (
+                schedule_config['initial_lr']
+                * schedule_config['base']
+                ** (-epoch / schedule_config['period'])))
+    elif schedule_type == 'plateau':
+        schedule = tf.keras.callbacks.ReduceLROnPlateau(**schedule_config)
+    else:
+        logging.error(f"Unknown training schedule {schedule_type}.")
+    return schedule
+
+
 def setup_model_util(config):
     """Given the application config, set up the model utilities module.
 
@@ -371,7 +393,9 @@ def main(args):
     else:
         logging.info("Loading model.")
         # TODO? Support for tensorflow version < 1.14 (load model from json+h5)
-        model = tf.keras.models.load_model(args.training__weights)
+        model = tf.keras.models.load_model(
+            config['training']['weights'],
+            custom_objects={'tf': tf}, compile=False)
 
     # Start training
     optimizer = tf.keras.optimizers.deserialize(config['training']['optimizer'])
@@ -415,25 +439,11 @@ def main(args):
         tf.keras.callbacks.TerminateOnNaN()
     ]
     if 'schedule' in config['training'] and config['training']['schedule']:
-        schedule_config = dict(config['training']['schedule'])
-        schedule_type = schedule_config['type']
-        del schedule_config['type']
-        if schedule_type == 'cyclic':
-            if 'epochs_per_cycle' in schedule_config:  # Set by epoch instead of steps
-                schedule_config['step_size'] = schedule_config['epochs_per_cycle'] * steps_per_epoch
-                del schedule_config['epochs_per_cycle']
-            schedule = CyclicLR(**schedule_config)
-        elif schedule_type == 'power':
-            schedule = tf.keras.callbacks.LearningRateScheduler(
-                lambda epoch: (
-                    schedule_config['initial_lr']
-                    * schedule_config['base']
-                    ** (-epoch / schedule_config['period'])))
+        schedule = setup_schedule(config, steps_per_epoch)
         callbacks.append(schedule)
 
     with open(os.path.join(args.model_dir, "model_def.json"), 'w') as file:
         file.write(model.to_json())
-
 
     model.fit(
         gen_train,
