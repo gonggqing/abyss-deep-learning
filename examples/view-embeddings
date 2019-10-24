@@ -424,20 +424,11 @@ def main(args):
             
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(cache_path[1]))
             _, frame = cap.read()
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).copy()
             ## CHECK
             thumbs[cnt,:,:] = np.array(PIL.Image.fromarray(frame).resize((args.thumb_size[::-1])), dtype=np.uint8)
             feature = model.predict(np.expand_dims(PIL.Image.fromarray(frame).resize(args.image_size[::-1]),
                                                    axis=0).astype(np.float32) / 127.5 - 1)
-            if args.pooling == 'avg':
-                feature = np.mean(np.mean(feature, axis=1),
-                                   axis=1)  # compute the mean embedding vector across all pixels
-            elif args.pooling == 'max':
-                feature = np.max(np.max(feature, axis=1),
-                                  axis=1)  # compute the max embedding vector across all pixels
-            else:
-                raise ValueError("Only avg,max pooling methods are supported")
-
             features[cnt,:] = feature
             cnt = cnt + 1
 
