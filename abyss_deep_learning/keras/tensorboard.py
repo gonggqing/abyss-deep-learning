@@ -2,7 +2,8 @@
 """
 # import os
 # from tensorflow.contrib.tensorboard.plugins import projector
-from keras.backend import tf
+#from keras.backend import tf
+import tensorflow as tf
 from keras.callbacks import TensorBoard, Callback
 from keras.models import Model
 from tensorboard import summary
