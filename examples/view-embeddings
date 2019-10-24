@@ -7,6 +7,7 @@ import numpy as np
 import PIL.Image
 import tensorflow as tf
 from pycocotools.coco import COCO
+import cv2
 
 try:
     from tensorboard.plugins import projector
@@ -96,13 +97,14 @@ def save_embeddings(log_dir, features, metadata=None, sprite=None, sprite_shape=
 def say(*args):
     print(*args, file=sys.stderr)
 
-def image_arg_to_coco(image_arg, do_patches=False, patch_size=[512,512]):
+def image_arg_to_coco(image_arg, do_patches=False, from_video=False, patch_size=[512,512]):
     """Gets the image argument and converts it to a COCO format dataset.
-    The image argument can sequence of images.
+    The image argument can sequence of images, or a sequence of videos
 
     Args:
-        image_arg (list): The image arguments
-        do_patches (bool): Whether to extract patches from the given images.
+        image_arg (list): The image/video arguments
+        do_patches (bool): Whether to extract patches from the given image_arg.
+        from_video (bool): Whether to extract frames from the given image_arg.
 
     Returns:
         COCO: The coco dataset
@@ -134,6 +136,36 @@ def image_arg_to_coco(image_arg, do_patches=False, patch_size=[512,512]):
         coco = COCO()
         coco.dataset = dataset
         coco.createIndex()
+
+    elif from_video:
+        # we will subsample the videos, and ripping the frames
+        n = 0
+        for _, ipath in enumerate(tqdm(image_arg)):
+            cap = cv2.VideoCapture(ipath)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            duration = frame_count / fps
+            # TODO: dont hardcode this
+            n_frames = int(fps * 10) # this gets a frame every 10 seconds
+            for frame in range(0, frame_count, n_frames):
+                patch_path = os.path.splitext(ipath)[0] + \
+                             '.' + str(frame) + '.png'
+                image = {
+                    'filename': ipath,
+                    'path': os.path.basename(patch_path),
+                    'height': patch_size[1],
+                    'width': patch_size[0],
+                    'id': n
+                }
+                image_list.append(image)
+                n = n + 1
+            cap.release()
+
+        dataset = {'images': image_list, 'categories': [], 'annotations': []}
+        coco = COCO()
+        coco.dataset = dataset
+        coco.createIndex()
+
     else:
         # input is assumed to be a list of images, and a coco will be created for it
         for n, ipath in enumerate(image_arg):
@@ -270,12 +302,20 @@ def add_additional_metadata(meta_df, args):
 def main(args):
     if args.images[0].endswith('.txt'):
         args.images = [l.rstrip('\n') for l in open(args.images[0]).readlines()]
+
     say("Loading model...")
+    # import tensorflow as tf
+    # from keras.backend.tensorflow_backend import set_session
+    # config = tf.ConfigProto()
+    # config.gpu_options.per_process_gpu_memory_fraction = 0.8
+    # config.gpu_options.allow_growth = False
+    # set_session(tf.Session(config=config))
+
     if args.model_definition is not None:
-        model = tf.keras.models.model_from_json(open(args.model_definition).read(),custom_objects = {'tf': tf})
+        model = tf.keras.models.model_from_json(open(args.model_definition).read(), custom_objects={'tf': tf})
         model.load_weights(args.model_weights)
     else:
-        model = tf.keras.models.load_model(args.model_weights, custom_objects = {'tf': tf})
+        model = tf.keras.models.load_model(args.model_weights, custom_objects={'tf': tf})
 
     layer_name = args.layer_name
     if layer_name is not None:
@@ -288,45 +328,46 @@ def main(args):
     features_list = []
     df_list = []
 
-    if args.coco:
-        say("Predicting on coco")
-        # Load coco
-        coco = COCO(args.coco)
-        # Get the data from coco
-        coco_data = get_data_from_coco(coco, args, load_images=True)
-        # Load images
-        images = np.array(coco_data['imgs'], dtype=np.uint8)
-        say("Creating thumbnails of {:d} images".format(len(images)))
-        # Create thumbnails
-        thumbs = np.array([
-            np.array(PIL.Image.fromarray(image).resize(args.thumb_size))
-            for image in images], dtype=np.uint8)
-        # Rescale images
-        images = images.astype(np.float32) / 127.5 - 1
-        # Predict features
-        features = model.predict(images)
-        # Get mean features
-        if args.pooling == 'avg':
-            features = np.mean(np.mean(features, axis=1), axis=1)  # compute the mean embedding vector across all pixels
-        elif args.pooling == 'max':
-            features = np.max(np.max(features, axis=1), axis=1)  # compute the max embedding vector across all pixels
-        else:
-            raise ValueError("Only avg,max pooling methods are supported")
-
-        # Get metadata df
-        coco_meta_df = create_metadata_df(coco_data, args)
-
-        # Add to lists
-        df_list.append(coco_meta_df)
-        features_list.append(features)
-        thumbs_list.append(thumbs)
+      # if args.coco:
+    #     say("Predicting on coco")
+    #     # Load coco
+    #     coco = COCO(args.coco)
+    #     # Get the data from coco
+    #     coco_data = get_data_from_coco(coco, args, load_images=True)
+    #     # Load images
+    #     images = np.array(coco_data['imgs'], dtype=np.uint8)
+    #     say("Creating thumbnails of {:d} images".format(len(images)))
+    #     # Create thumbnails
+    #     thumbs = np.array([
+    #         np.array(PIL.Image.fromarray(image).resize(args.thumb_size))
+    #         for image in images], dtype=np.uint8)
+    #     # Rescale images
+    #     images = images.astype(np.float32) / 127.5 - 1
+    #     # Predict features
+    #     features = model.predict(images)
+    #     # Get mean features
+    #     if args.pooling == 'avg':
+    #         features = np.mean(np.mean(features, axis=1), axis=1)  # compute the mean embedding vector across all pixels
+    #     elif args.pooling == 'max':
+    #         features = np.max(np.max(features, axis=1), axis=1)  # compute the max embedding vector across all pixels
+    #     else:
+    #         raise ValueError("Only avg,max pooling methods are supported")
+    #
+    #     # Get metadata df
+    #     coco_meta_df = create_metadata_df(coco_data, args)
+    #
+    #     # Add to lists
+    #     df_list.append(coco_meta_df)
+    #     features_list.append(features)
+    #     thumbs_list.append(thumbs)
 
     if args.images and args.from_cube_face:  # Cube face different prediction pipeline
         say("Predicting on cube faces...")
         patches_coco = image_arg_to_coco(args.images, do_patches=True, patch_size=args.image_size)
         patches_data = get_data_from_coco(patches_coco, args, load_images=False)
-        thumbs = np.zeros((len(patches_coco.loadImgs(patches_coco.getImgIds())),args.thumb_size[0],args.thumb_size[1],3))
-        features = np.zeros((len(patches_coco.loadImgs(patches_coco.getImgIds())), 256))
+        thumbs = np.zeros((len(patches_coco.loadImgs(patches_coco.getImgIds())),
+                           args.thumb_size[0], args.thumb_size[1],3))
+        features = np.zeros((len(patches_coco.loadImgs(patches_coco.getImgIds())), int(output.shape[-1])))
         cache_file_name = ''
         cnt = 0
         for image in tqdm(patches_coco.loadImgs(patches_coco.getImgIds())):
@@ -337,9 +378,9 @@ def main(args):
                 img = imread(image['filename'], dtype=np.uint8)
 
             crop_index = np.asarray([[int( cache_path[-3]),
-                                       int( cache_path[-3]) + int( args.image_size[0])],
-                                      [int( cache_path[-2]),
-                                       int( cache_path[-2]) + int( args.image_size[1])]])
+                                      int( cache_path[-3]) + int( args.image_size[0])],
+                                    [int( cache_path[-2]),
+                                     int( cache_path[-2]) + int( args.image_size[1])]])
 
             patch = img[crop_index[0,0] : crop_index[0,1],
                         crop_index[1,0] : crop_index[1,1]]
@@ -360,6 +401,48 @@ def main(args):
 
         # Get metadata df
         patches_meta_df = create_metadata_df(patches_data, args)
+
+        # Add to lists
+        df_list.append(patches_meta_df)
+        features_list.append(features)
+        thumbs_list.append(thumbs)
+
+    elif args.images and args.from_video:  # process video-frames
+        say("Predicting on videos...")
+        video_coco = image_arg_to_coco(args.images, from_video=True, patch_size=args.image_size)
+        frames_data = get_data_from_coco(video_coco, args, load_images=False)
+        thumbs = np.zeros((len(frames_data['Path']), args.thumb_size[0], args.thumb_size[1], 3))
+        features = np.zeros((len(frames_data['Path']), int(output.shape[-1])))
+        cache_file_name = ''
+        cnt = 0
+        for image in tqdm(video_coco.loadImgs(video_coco.getImgIds())):
+            # TODO: Major speed ups available if done from generators.
+            cache_path = image['path'].split('.')
+            if cache_file_name is not image['filename']:
+                cache_file_name = image['filename']
+                cap = cv2.VideoCapture(cache_file_name)
+            
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(cache_path[1]))
+            _, frame = cap.read()
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            ## CHECK
+            thumbs[cnt,:,:] = np.array(PIL.Image.fromarray(frame).resize((args.thumb_size[::-1])), dtype=np.uint8)
+            feature = model.predict(np.expand_dims(PIL.Image.fromarray(frame).resize(args.image_size[::-1]),
+                                                   axis=0).astype(np.float32) / 127.5 - 1)
+            if args.pooling == 'avg':
+                feature = np.mean(np.mean(feature, axis=1),
+                                   axis=1)  # compute the mean embedding vector across all pixels
+            elif args.pooling == 'max':
+                feature = np.max(np.max(feature, axis=1),
+                                  axis=1)  # compute the max embedding vector across all pixels
+            else:
+                raise ValueError("Only avg,max pooling methods are supported")
+
+            features[cnt,:] = feature
+            cnt = cnt + 1
+
+        # Get metadata df
+        patches_meta_df = create_metadata_df(frames_data, args)
 
         # Add to lists
         df_list.append(patches_meta_df)
@@ -455,7 +538,13 @@ def get_args(cmd_line=None):
     parser.add_argument(
         "--from-cube-face", help="Optionally, sub-divide (tile) input images (i.e., cube-faces), so embeddings can be "
                              "computed for unlabelled cube-faces.", action='store_true')
+    parser.add_argument(
+        "--from-video", help="Optionally, extract frames from a video, so embeddings can be "
+                             "computed for unlabelled videos.", action='store_true')
     args = parser.parse_args(args=cmd_line)
+
+    assert args.from_video is not True or args.from_cube_face is not True, "Error! Both --from-video and " \
+                                                                            "--from_cube-face cannot be used together."
     if args.image_size is not None:
         args.image_size = tuple(int(i) for i in args.image_size.split(','))
     args.thumb_size = tuple(int(i) for i in args.thumb_size.split(',')) \
