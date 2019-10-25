@@ -235,7 +235,6 @@ def get_data_from_coco(coco, args, load_images=True):
     for k,v in cid_to_name.items():
         data[v] = hots[:, k]
 
-
     return data
 
 def create_metadata_df(data, args):
@@ -322,41 +321,61 @@ def main(args):
     features_list = []
     df_list = []
 
-      # if args.coco:
-    #     say("Predicting on coco")
-    #     # Load coco
-    #     coco = COCO(args.coco)
-    #     # Get the data from coco
-    #     coco_data = get_data_from_coco(coco, args, load_images=True)
-    #     # Load images
-    #     images = np.array(coco_data['imgs'], dtype=np.uint8)
-    #     say("Creating thumbnails of {:d} images".format(len(images)))
-    #     # Create thumbnails
-    #     thumbs = np.array([
-    #         np.array(PIL.Image.fromarray(image).resize(args.thumb_size))
-    #         for image in images], dtype=np.uint8)
-    #     # Rescale images
-    #     images = images.astype(np.float32) / 127.5 - 1
-    #     # Predict features
-    #     features = model.predict(images)
-    #     # Get mean features
-    #     if args.pooling == 'avg':
-    #         features = np.mean(np.mean(features, axis=1), axis=1)  # compute the mean embedding vector across all pixels
-    #     elif args.pooling == 'max':
-    #         features = np.max(np.max(features, axis=1), axis=1)  # compute the max embedding vector across all pixels
-    #     else:
-    #         raise ValueError("Only avg,max pooling methods are supported")
-    #
-    #     # Get metadata df
-    #     coco_meta_df = create_metadata_df(coco_data, args)
-    #
-    #     # Add to lists
-    #     df_list.append(coco_meta_df)
-    #     features_list.append(features)
-    #     thumbs_list.append(thumbs)
+    if args.coco:
+        say("Predicting on coco...")
+        # Load coco
+        coco = COCO(args.coco)
+        # Get the data from coco
+        say("Loading images...")
+
+        coco_data = get_data_from_coco(coco, args, load_images=True)
+        # Load images
+        images = np.array(coco_data['imgs'], dtype=np.uint8)
+        say("Creating thumbnails of {:d} images".format(len(images)))
+        # Create thumbnails
+        thumbs = np.array([
+            np.array(PIL.Image.fromarray(image).resize(args.thumb_size))
+            for image in images], dtype=np.uint8)
+        # Rescale images
+        images = images.astype(np.float32) / 127.5 - 1
+        # Predict features
+        model_output = model.predict(images)
+
+        if isinstance(model.output, list):
+            # unpack list
+            predictions = model_output[0].argmax(axis=1)
+            features = model_output[1]
+        else:
+            features = model_output
+
+        # Get mean features
+        if len(features.shape) > 2:
+            raise ValueError(
+                'It looks like the extracted features are not the right shape; they are not a vector. '
+                'This is probably because you are not using pooling to vectorise them. Try: --pooling "avg"'
+                'or --pooling "max".')
+        else:
+            if args.pooling == 'avg':
+                features = np.mean(np.mean(features, axis=1),
+                                   axis=1)  # compute the mean embedding vector across all pixels
+            elif args.pooling == 'max':
+                features = np.max(np.max(features, axis=1),
+                                  axis=1)  # compute the max embedding vector across all pixels
+            elif args.pooling is not None:
+                raise ValueError("Only avg,max pooling methods are supported")
+             # Get metadata df
+
+        if predictions is not None:
+            coco_data['prediction'] = predictions
+        coco_meta_df = create_metadata_df(coco_data, args)
+
+        # Add to lists
+        df_list.append(coco_meta_df)
+        features_list.append(features)
+        thumbs_list.append(thumbs)
 
     if args.images and args.from_cube_face:  # Cube face different prediction pipeline
-        say("Predicting on cube faces...")
+        say("Predicting on unlabelled cube faces...")
         patches_coco = image_arg_to_coco(args.images, do_patches=True, patch_size=args.image_size)
         patches_data = get_data_from_coco(patches_coco, args, load_images=False)
         thumbs = np.zeros((len(patches_coco.loadImgs(patches_coco.getImgIds())),
@@ -415,10 +434,10 @@ def main(args):
         thumbs_list.append(thumbs)
 
     elif args.images and args.from_video:  # process video-frames
-        say("Predicting on videos...")
+        say("Predicting on unlabelled videos...")
         video_coco = image_arg_to_coco(args.images, from_video=True, patch_size=args.image_size)
         frames_data = get_data_from_coco(video_coco, args, load_images=False)
-        thumbs = np.zeros((len(frames_data['Path']), args.thumb_size[0], args.thumb_size[1], 3))
+        thumbs = np.zeros((len(frames_data['Path']), args.thumb_size[1], args.thumb_size[0], 3))
         features = np.zeros((len(frames_data['Path']), int(output.shape[-1])))
         if isinstance(model.output, list):
             predictions = np.zeros((len(frames_data['Path'])))
@@ -433,10 +452,10 @@ def main(args):
             
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(cache_path[1]))
             _, frame = cap.read()
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).copy()
-            thumbs[cnt, :, :] = np.array(PIL.Image.fromarray(frame).resize((args.thumb_size[::-1])), dtype=np.uint8)
-            model_output = model.predict(np.expand_dims(PIL.Image.fromarray(frame).resize(args.image_size[::-1]),
-                                                   axis=0).astype(np.float32) / 127.5 - 1)
+            frame = PIL.Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).copy()) # convert from cv2 to PIL format
+            thumbs[cnt, :, :] = np.array(frame.resize((args.thumb_size)), dtype=np.uint8)
+            model_output = model.predict(np.expand_dims(frame.resize(args.image_size)
+                                                        , axis=0).astype(np.float32) / 127.5 - 1)
             if isinstance(model.output, list):
                 # unpack list
                 prediction = model_output[0].argmax()
