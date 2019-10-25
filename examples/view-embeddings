@@ -304,12 +304,6 @@ def main(args):
         args.images = [l.rstrip('\n') for l in open(args.images[0]).readlines()]
 
     say("Loading model...")
-    # import tensorflow as tf
-    # from keras.backend.tensorflow_backend import set_session
-    # config = tf.ConfigProto()
-    # config.gpu_options.per_process_gpu_memory_fraction = 0.8
-    # config.gpu_options.allow_growth = False
-    # set_session(tf.Session(config=config))
 
     if args.model_definition is not None:
         model = tf.keras.models.model_from_json(open(args.model_definition).read(), custom_objects={'tf': tf})
@@ -321,7 +315,7 @@ def main(args):
     if layer_name is not None:
         output = model.get_layer(layer_name).output
         model = tf.keras.models.Model(inputs=model.input,
-                                  outputs=output)
+                                  outputs=[model.output, output]) # get the logits, plus the layer_name as output
     say("Model loaded!")
 
     thumbs_list = []
@@ -371,7 +365,7 @@ def main(args):
         cache_file_name = ''
         cnt = 0
         for image in tqdm(patches_coco.loadImgs(patches_coco.getImgIds())):
-            # TODO: Major speed ups available if done from generators.
+            # TODO: possible speed ups available if done from generators.
             cache_path = image['path'].split('.')
             if cache_file_name is not image['filename']:
                 cache_file_name = image['filename']
@@ -386,15 +380,28 @@ def main(args):
                         crop_index[1,0] : crop_index[1,1]]
             # thumbs.append(np.array(PIL.Image.fromarray(patch).resize(args.thumb_size), dtype=np.uint8))
             thumbs[cnt,:,:] = np.array(PIL.Image.fromarray(patch).resize(args.thumb_size), dtype=np.uint8)
-            feature = model.predict(np.expand_dims(patch, axis=0).astype(np.float32) / 127.5 - 1)
-            if args.pooling == 'avg':
-                feature = np.mean(np.mean(feature, axis=1),
-                                   axis=1)  # compute the mean embedding vector across all pixels
-            elif args.pooling == 'max':
-                feature = np.max(np.max(feature, axis=1),
-                                  axis=1)  # compute the max embedding vector across all pixels
+            model_output = model.predict(np.expand_dims(patch, axis=0).astype(np.float32) / 127.5 - 1)
+            if isinstance(model.output, list):
+                # unpack it
+                prediction = model_output[0]
+                feature = model_output[1]
             else:
-                raise ValueError("Only avg,max pooling methods are supported")
+                feature = model_output
+                # Get mean features
+            if len(features.shape) > 2:
+                raise ValueError(
+                    'It looks like the extracted features are not the right shape; they are not a vector. '
+                    'This is probably because you are not using pooling to vectorise them. Try: --pooling "avg"'
+                    'or --pooling "max".')
+            else:
+                if args.pooling == 'avg':
+                    features = np.mean(np.mean(features, axis=1),
+                                       axis=1)  # compute the mean embedding vector across all pixels
+                elif args.pooling == 'max':
+                    features = np.max(np.max(features, axis=1),
+                                      axis=1)  # compute the max embedding vector across all pixels
+                elif args.pooling is not None:
+                    raise ValueError("Only avg,max pooling methods are supported")
 
             features[cnt,:] = feature
             cnt = cnt + 1
@@ -413,10 +420,12 @@ def main(args):
         frames_data = get_data_from_coco(video_coco, args, load_images=False)
         thumbs = np.zeros((len(frames_data['Path']), args.thumb_size[0], args.thumb_size[1], 3))
         features = np.zeros((len(frames_data['Path']), int(output.shape[-1])))
+        if isinstance(model.output, list):
+            predictions = np.zeros((len(frames_data['Path'])))
         cache_file_name = ''
         cnt = 0
         for image in tqdm(video_coco.loadImgs(video_coco.getImgIds())):
-            # TODO: Major speed ups available if done from generators.
+            # TODO: possible speed ups available if done from generators.
             cache_path = image['path'].split('.')
             if cache_file_name is not image['filename']:
                 cache_file_name = image['filename']
@@ -425,14 +434,39 @@ def main(args):
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(cache_path[1]))
             _, frame = cap.read()
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).copy()
-            ## CHECK
-            thumbs[cnt,:,:] = np.array(PIL.Image.fromarray(frame).resize((args.thumb_size[::-1])), dtype=np.uint8)
-            feature = model.predict(np.expand_dims(PIL.Image.fromarray(frame).resize(args.image_size[::-1]),
+            thumbs[cnt, :, :] = np.array(PIL.Image.fromarray(frame).resize((args.thumb_size[::-1])), dtype=np.uint8)
+            model_output = model.predict(np.expand_dims(PIL.Image.fromarray(frame).resize(args.image_size[::-1]),
                                                    axis=0).astype(np.float32) / 127.5 - 1)
-            features[cnt,:] = feature
+            if isinstance(model.output, list):
+                # unpack list
+                prediction = model_output[0].argmax()
+                feature = model_output[1]
+            else:
+                feature = model_output
+
+            # Get mean features
+            if len(features.shape) > 2:
+                raise ValueError(
+                    'It looks like the extracted features are not the right shape; they are not a vector. '
+                    'This is probably because you are not using pooling to vectorise them. Try: --pooling "avg"'
+                    'or --pooling "max".')
+            else:
+                if args.pooling == 'avg':
+                    features = np.mean(np.mean(features, axis=1),
+                                       axis=1)  # compute the mean embedding vector across all pixels
+                elif args.pooling == 'max':
+                    features = np.max(np.max(features, axis=1),
+                                      axis=1)  # compute the max embedding vector across all pixels
+                elif args.pooling is not None:
+                    raise ValueError("Only avg,max pooling methods are supported")
+
+            features[cnt, :] = feature
+            predictions[cnt] = prediction
             cnt = cnt + 1
 
         # Get metadata df
+        if predictions is not None:
+            frames_data['prediction'] = predictions
         patches_meta_df = create_metadata_df(frames_data, args)
 
         # Add to lists
@@ -455,14 +489,25 @@ def main(args):
         # Rescale images
         images = images.astype(np.float32) / 127.5 - 1
         # Predict features
-        features = model.predict(images)
-        # Get mean features
-        if args.pooling == 'avg':
-            features = np.mean(np.mean(features, axis=1), axis=1)  # compute the mean embedding vector across all pixels
-        elif args.pooling == 'max':
-            features = np.max(np.max(features, axis=1), axis=1)  # compute the max embedding vector across all pixels
+        model_output = model.predict(images)
+        if isinstance(model.output, list):
+            predictions = model_output[0]
+            features = model_output[1]
         else:
-            raise ValueError("Only avg,max pooling methods are supported")
+            features = model_output
+        # Get mean features
+        if len(features.shape) > 2:
+            raise ValueError('It looks like the extracted features are not the right shape; they are not a vector. '
+                             'This is probably because you are not using pooling to vectorise them. Try: --pooling "avg"'
+                             'or --pooling "max".')
+        else:
+            if args.pooling == 'avg':
+                features = np.mean(np.mean(features, axis=1), axis=1)  # compute the mean embedding vector across all pixels
+            elif args.pooling == 'max':
+                features = np.max(np.max(features, axis=1), axis=1)  # compute the max embedding vector across all pixels
+            elif args.pooling is not None:
+                raise ValueError('Only avg,max pooling methods are supported. Try: --pooling "avg"'
+                             'or --pooling "max".')
 
         # Get metadata df
         images_meta_df = create_metadata_df(image_data, args)
@@ -521,7 +566,7 @@ def get_args(cmd_line=None):
     parser.add_argument(
         "--layer-name", help="The layer to calculate the embeddings on, e.g. 'decoder_conv1_pointwise_BN'", required=True)
     parser.add_argument(
-        "--pooling", help="The type of pooling to use, options are {avg,max}", default="avg")
+        "--pooling", help="The type of pooling to use, options are {avg,max}")
     parser.add_argument(
         "--metadata-csv", help="Additional metadata contained in a .csv file, indexed by filename")
     parser.add_argument(
