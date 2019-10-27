@@ -118,7 +118,7 @@ def main(args: argparse.Namespace):
                 for chan in range(img.shape[2]):
                     png_path = save_as_png(
                         Image.fromarray(
-                            normalize(img[:, :, chan]), max_val=args.num_classes),
+                            normalize(img[:, :, chan], max_val=args.num_classes)),
                             os.path.join(dir_name, f'{chan}.png'))
 
                     if not save_bin:
@@ -169,7 +169,7 @@ def load_entry(image_entry: dict, background) -> Union[np.ndarray, None]:
         return np.full((height, width), background, dtype=np.int32)
 
 
-def normalize(arr: np.ndarray, max_val: Number = None) -> np.ndarray:
+def normalize(arr: np.ndarray, max_val: int = None) -> np.ndarray:
     """
     Linear normalization from 0 to 255
     http://en.wikipedia.org/wiki/Normalization_%28image_processing%29
@@ -180,10 +180,8 @@ def normalize(arr: np.ndarray, max_val: Number = None) -> np.ndarray:
     arr_max = arr.max()
     if max_val is None or arr_max > max_val:
         max_val = arr_max
-    print(arr.shape, min_val, max_val, min_val == max_val, max_val - min_val)
     ret_arr = np.full(arr.shape, 255).astype(np.uint8) if min_val == max_val else ((arr - min_val) * (255.0 / (max_val - min_val))).astype(
         np.uint8)
-    print(ret_arr.max(), ret_arr.mean(), np.unique(ret_arr, return_counts=True))
     return ret_arr
 
 

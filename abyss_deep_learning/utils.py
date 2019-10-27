@@ -453,9 +453,11 @@ def annotations_to_mask(anns: List[CocoAnnotationEntry], shape: Tuple[int, int],
 
     for ann in anns:
         # reshape segmentation
-        contours = [np.reshape(segm, (len(segm) // 2, 1, 2)) for segm in ann['segmentation']]
+        contours = [np.reshape(segm, (len(segm) // 2, 1, 2)).astype(np.int32) for segm in ann['segmentation']]
+        # print(contours == True, contours)
         for channel in range(len(channels)):
-            cv2.drawContours(image=channels[channel], contours=contours, contourIdx=-1, color=ann.get(id_types[channel], 99), thickness=cv2.FILLED, lineType=cv2.LINE_8)
+            if contours:
+                cv2.drawContours(image=channels[channel], contours=contours, contourIdx=-1, color=ann.get(id_types[channel], 99), thickness=cv2.FILLED, lineType=cv2.LINE_8)
     mask = np.dstack(channels)
     return mask
 
