@@ -140,13 +140,13 @@ def get_args(cmd_line=None):
         help="Path to the validation coco dataset")
     parser.add_argument("--seed", default=0, type=int, help="Random seed (0 default)")
     parser.add_argument(
-            '--parallel', '-P', default=['/gpu:0'],  action='append', help='Compute devices to use, eg \'/gpu:0\'\'/gpu:1\'')
+        '--parallel', '-P', default=['/gpu:0'], action='append', help="Compute devices to use, eg '/gpu:0', '/cpu:0'")
     parser.add_argument(
         '--verbose', '-v',
         action='store_const', const=logging.INFO,
         dest='loglevel', help="verbose output to stderr")
     args = parser.parse_args(cmd_line)
-    args.parallel=list(dict.fromkeys(args.parallel)) #remove duplicates
+    args.parallel = list(dict.fromkeys(args.parallel))  # remove duplicates
     return args
 
 
@@ -297,6 +297,29 @@ def load_config(args):
     return config
 
 
+def setup_schedule(config, steps_per_epoch):
+    schedule_config = dict(config['training']['schedule'])
+    schedule_type = schedule_config['type']
+    schedule = None
+    del schedule_config['type']
+    if schedule_type == 'cyclic':
+        if 'epochs_per_cycle' in schedule_config:  # Set by epoch instead of steps
+            schedule_config['step_size'] = schedule_config['epochs_per_cycle'] * steps_per_epoch
+            del schedule_config['epochs_per_cycle']
+            schedule = CyclicLR(**schedule_config)
+    elif schedule_type == 'power':
+        schedule = tf.keras.callbacks.LearningRateScheduler(
+            lambda epoch: (
+                schedule_config['initial_lr']
+                * schedule_config['base']
+                ** (-epoch / schedule_config['period'])))
+    elif schedule_type == 'plateau':
+        schedule = tf.keras.callbacks.ReduceLROnPlateau(**schedule_config)
+    else:
+        logging.error(f"Unknown training schedule {schedule_type}.")
+    return schedule
+
+
 def setup_model_util(config):
     """Given the application config, set up the model utilities module.
 
@@ -362,8 +385,8 @@ def main(args):
         // config['training']['batch_size'] // len(args.parallel)
 
     # Set up training
-    print('Training on compute devices:')
-    print(args.parallel)
+    logging.info('Training on compute devices:')
+    logging.info(args.parallel)
     if len(args.parallel) == 1:
         strategy = tf.distribute.OneDeviceStrategy(device=args.parallel[0])
     elif len(args.parallel) >= 2:
@@ -371,6 +394,18 @@ def main(args):
     else:
         print('Invalid compute device selection!')
         exit(1)
+
+    # Set up training
+    if config['training']['new_heads']:
+        logging.info("Creating new head.")
+        model_args = dict(config['model'])
+        del model_args['type']
+        model = model_util.make_model(**model_args)
+    else:
+        logging.info("Loading model.")
+        # TODO? Support for tensorflow version < 1.14 (load model from json+h5)
+        model = tf.keras.models.load_model(
+            args.training__weights, compile=False, custom_objects={'tf': tf})
 
     with strategy.scope():
         if config['training']['new_heads']:
@@ -400,51 +435,32 @@ def main(args):
                 logging.info(f"Freezing layer: {layer.name}")
                 layer.trainable = False
 
-        #if args.parallel > 1:
-        #    logging.info(f"Distributing across {args.parallel} GPUs")
-        #    model = tf.keras.utils.multi_gpu_model(model, args.parallel)
+    model.compile(
+        optimizer=optimizer,
+        loss=config['training']['loss'],
+        metrics=[
+            'categorical_accuracy',
+            tf.keras.metrics.Recall(),
+            tf.keras.metrics.Precision(),
+        ])
+    # tf.keras.metrics.MeanIoU(num_classes=config['model']['classes'])
 
-        model.compile(
-            optimizer=optimizer,
-            loss=config['training']['loss'],
-            metrics=[
-                'categorical_accuracy',
-                tf.keras.metrics.Recall(),
-                tf.keras.metrics.Precision(),
-                tf.keras.metrics.MeanIoU(num_classes=config['model']['classes'])
-               ])
-
-        callbacks = [
-            ScalarLogger(model.optimizer.lr, "learning_rate"),
-            tf.keras.callbacks.TensorBoard('.', write_graph=False),
-            tf.keras.callbacks.ModelCheckpoint(
-                filepath=os.path.join(args.model_dir, 'model_{epoch:03d}_{val_loss:.3f}.h5'),
-                save_best_only=True, save_weights_only=False, verbose=1),
-            tf.keras.callbacks.ModelCheckpoint(
-                filepath=os.path.join(args.model_dir, 'weights_{epoch:03d}_{val_loss:.3f}.h5'),
-                save_best_only=True, save_weights_only=True, verbose=1),
-            tf.keras.callbacks.TerminateOnNaN()
-        ]
-        if 'schedule' in config['training'] and config['training']['schedule']:
-            schedule_config = dict(config['training']['schedule'])
-            schedule_type = schedule_config['type']
-            del schedule_config['type']
-            if schedule_type == 'cyclic':
-                if 'epochs_per_cycle' in schedule_config:  # Set by epoch instead of steps
-                    schedule_config['step_size'] = schedule_config['epochs_per_cycle'] * steps_per_epoch
-                    del schedule_config['epochs_per_cycle']
-                schedule = CyclicLR(**schedule_config)
-            elif schedule_type == 'power':
-                schedule = tf.keras.callbacks.LearningRateScheduler(
-                    lambda epoch: (
-                        schedule_config['initial_lr']
-                        * schedule_config['base']
-                        ** (-epoch / schedule_config['period'])))
-            callbacks.append(schedule)
+    callbacks = [
+        ScalarLogger(model.optimizer.lr, "learning_rate"),
+        tf.keras.callbacks.TensorBoard('.', write_graph=False),
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=os.path.join(args.model_dir, 'model_{epoch:03d}_{val_loss:.3f}.h5'),
+            save_best_only=True, save_weights_only=False, verbose=1),
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=os.path.join(args.model_dir, 'weights_{epoch:03d}_{val_loss:.3f}.h5'),
+            save_best_only=True, save_weights_only=True, verbose=1),
+        tf.keras.callbacks.TerminateOnNaN()
+    ]
+    if 'schedule' in config['training'] and config['training']['schedule']:
+        callbacks.append(setup_schedule(config, steps_per_epoch))
 
     with open(os.path.join(args.model_dir, "model_def.json"), 'w') as file:
         file.write(model.to_json())
-
 
     model.fit(
         gen_train,
