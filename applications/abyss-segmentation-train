@@ -17,7 +17,6 @@ import sys
 
 import abyss_deep_learning.imgaug as abyss_imgaug
 import abyss_deep_learning.keras.zoo.segmentation.deeplab_v3_plus.util as deeplab_util
-import extra_keras_metrics
 import numpy as np
 import tensorflow as tf
 from abyss_deep_learning.datasets.coco import ImageSemanticSegmentationDataset
@@ -141,13 +140,13 @@ def get_args(cmd_line=None):
         help="Path to the validation coco dataset")
     parser.add_argument("--seed", default=0, type=int, help="Random seed (0 default)")
     parser.add_argument(
-        '--parallel', '-P', default=1, type=int,
-        help='Number of GPUs to use')
+        '--parallel', '-P', default=['/gpu:0'], action='append', help="Compute devices to use, eg '/gpu:0', '/cpu:0'")
     parser.add_argument(
         '--verbose', '-v',
         action='store_const', const=logging.INFO,
         dest='loglevel', help="verbose output to stderr")
     args = parser.parse_args(cmd_line)
+    args.parallel = list(dict.fromkeys(args.parallel))  # remove duplicates
     return args
 
 
@@ -249,7 +248,7 @@ def setup_dataset(coco_path, model_config, process_config, categories_config, ar
         hack_dataset(generator),
         output_types=(tf.float32, tf.float32),
         output_shapes=output_shapes)\
-        .prefetch(2 * args.parallel * process_config['batch_size'])\
+        .prefetch(2 * len(args.parallel) * process_config['batch_size'])\
         .batch(process_config['batch_size'])
     return dataset, generator
 
@@ -307,6 +306,7 @@ def setup_schedule(config, steps_per_epoch):
         if 'epochs_per_cycle' in schedule_config:  # Set by epoch instead of steps
             schedule_config['step_size'] = schedule_config['epochs_per_cycle'] * steps_per_epoch
             del schedule_config['epochs_per_cycle']
+            schedule = CyclicLR(**schedule_config)
     elif schedule_type == 'power':
         schedule = tf.keras.callbacks.LearningRateScheduler(
             lambda epoch: (
@@ -349,7 +349,7 @@ def main(args):
         int: Error code. 0 if no errors occurred.
     """
     np.random.seed(args.seed)
-    tf.random.set_random_seed(args.seed)
+    tf.random.set_seed(args.seed)
 
     logging.basicConfig(
         format='%(filename)s: %(asctime)s.%(msecs)d: %(levelname)s: %(message)s',
@@ -380,9 +380,20 @@ def main(args):
             config['validation'], config['categories'], args)
         if validation_steps is None:
             validation_steps = len(validation_dataset.data_ids) \
-                // config['validation']['batch_size'] // args.parallel
+                // config['validation']['batch_size'] // len(args.parallel)
     steps_per_epoch = len(training_dataset.data_ids) \
-        // config['training']['batch_size'] // args.parallel
+        // config['training']['batch_size'] // len(args.parallel)
+
+    # Set up training
+    logging.info('Training on compute devices:')
+    logging.info(args.parallel)
+    if len(args.parallel) == 1:
+        strategy = tf.distribute.OneDeviceStrategy(device=args.parallel[0])
+    elif len(args.parallel) >= 2:
+        strategy = tf.distribute.MirroredStrategy(devices=args.parallel)
+    else:
+        print('Invalid compute device selection!')
+        exit(1)
 
     # Set up training
     if config['training']['new_heads']:
@@ -394,38 +405,45 @@ def main(args):
         logging.info("Loading model.")
         # TODO? Support for tensorflow version < 1.14 (load model from json+h5)
         model = tf.keras.models.load_model(
-            config['training']['weights'],
-            custom_objects={'tf': tf}, compile=False)
+            args.training__weights, compile=False, custom_objects={'tf': tf})
 
-    # Start training
-    optimizer = tf.keras.optimizers.deserialize(config['training']['optimizer'])
+    with strategy.scope():
+        if config['training']['new_heads']:
+            logging.info("Creating new head.")
+            model_args = dict(config['model'])
+            del model_args['type']
+            model = model_util.make_model(**model_args)
+        else:
+            logging.info("Loading model.")
+            # TODO? Support for tensorflow version < 1.14 (load model from json+h5)
 
-    for layer in model.layers:
-        if type(layer).__name__.startswith('BatchNormalization'):
-            layer.trainable = layer.trainable and config['training']['train_batch_norm']
+        # Start training
+        optimizer = tf.keras.optimizers.deserialize(config['training']['optimizer'])
 
-    freeze = config['training']['freeze'] if 'freeze' in config['training'] else None
-    if freeze:
-        layer_names = [layer.name for layer in model.layers]
-        if freeze not in layer_names:
-            logging.error(f"Error freezing model layers: could not find layer {freeze}")
-        layer_index = layer_names.index(freeze)
-        logging.info(f"Freezing layers before {freeze} ({layer_index})")
-        for layer in model.layers[:layer_index]:
-            logging.info(f"Freezing layer: {layer.name}")
-            layer.trainable = False
+        for layer in model.layers:
+            if type(layer).__name__.startswith('BatchNormalization'):
+                layer.trainable = layer.trainable and config['training']['train_batch_norm']
 
-    if args.parallel > 1:
-        logging.info(f"Distributing across {args.parallel} GPUs")
-        model = tf.keras.utils.multi_gpu_model(model, args.parallel)
+        freeze = config['training']['freeze'] if 'freeze' in config['training'] else None
+        if freeze:
+            layer_names = [layer.name for layer in model.layers]
+            if freeze not in layer_names:
+                logging.error(f"Error freezing model layers: could not find layer {freeze}")
+            layer_index = layer_names.index(freeze)
+            logging.info(f"Freezing layers before {freeze} ({layer_index})")
+            for layer in model.layers[:layer_index]:
+                logging.info(f"Freezing layer: {layer.name}")
+                layer.trainable = False
 
     model.compile(
         optimizer=optimizer,
         loss=config['training']['loss'],
         metrics=[
             'categorical_accuracy',
-            extra_keras_metrics.precision,
-            extra_keras_metrics.recall])
+            tf.keras.metrics.Recall(),
+            tf.keras.metrics.Precision(),
+        ])
+    # tf.keras.metrics.MeanIoU(num_classes=config['model']['classes'])
 
     callbacks = [
         ScalarLogger(model.optimizer.lr, "learning_rate"),
@@ -439,8 +457,7 @@ def main(args):
         tf.keras.callbacks.TerminateOnNaN()
     ]
     if 'schedule' in config['training'] and config['training']['schedule']:
-        schedule = setup_schedule(config, steps_per_epoch)
-        callbacks.append(schedule)
+        callbacks.append(setup_schedule(config, steps_per_epoch))
 
     with open(os.path.join(args.model_dir, "model_def.json"), 'w') as file:
         file.write(model.to_json())
