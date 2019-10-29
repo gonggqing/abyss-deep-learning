@@ -152,7 +152,7 @@ def image_arg_to_coco(image_arg, do_patches=False, from_video=False, patch_size=
             # TODO: dont hardcode this
             n_frames = int(fps * 10) # this gets a frame every 10 seconds
             n_frames = int(1)  # this gets a frame every 10 seconds
-            for frame in range(0, frame_count, n_frames):
+            for frame in range(0, frame_count - 1, n_frames):
                 patch_path = os.path.splitext(ipath)[0] + \
                              '.' + str(frame) + '.png'
                 image = {
@@ -536,12 +536,23 @@ def main(args):
             if cache_file_name is not image['filename']:
                 cache_file_name = image['filename']
                 cap = cv2.VideoCapture(cache_file_name)
-
-                vid_cnt_begin = cnt # quick and dirty. Just delete this.
+                if cnt != 0:
+                    np.savetxt(os.path.join(args.tensorboard_dir, cache_file_name.split('.')[-2].split('/')[-1] + '.distance.csv'),
+                        np.min( [compute_embedding_distance(features[vid_cnt_begin: cnt],
+                                                        np.tile(centroid, (cnt - vid_cnt_begin, 1)),
+                                                        method='mahalanobis',
+                                                        inverse_covariance_matrix=np.linalg.inv(class_covariances[n]))
+                             for n, centroid in enumerate(class_centroids)], axis=0), delimiter=',')   # quick and dirty saving of distances per video
+                vid_cnt_begin = cnt # quick and dirty
             
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(cache_path[1]))
             _, frame = cap.read()
-            frame = PIL.Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).copy()) # convert from cv2 to PIL format
+            try:
+                frame = PIL.Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).copy()) # convert from cv2 to PIL format
+            except:
+                say("Unexpectedly failed to grabbed a frame, possibly reached the end of video. Continuing...")
+                continue
+
             thumbs[cnt, :, :] = np.array(frame.resize((args.thumb_size)), dtype=np.uint8)
             model_output = model.predict(np.expand_dims(frame.resize(args.image_size)
                                                         , axis=0).astype(np.float32) / 127.5 - 1)
@@ -571,14 +582,6 @@ def main(args):
             features[cnt, :] = feature
             predictions[cnt] = prediction
             cnt = cnt + 1
-
-            with open(os.path.join(args.tensorboard_dir, cache_file_name.split('.')[-2].split('/')[-1] + '.distance.csv'),
-                 'wb') as f:  # quick and dirty saving of distances per video
-                f.write(np.min(
-                    [compute_embedding_distance(features[vid_cnt_begin: cnt], np.tile(centroid, (cnt - vid_cnt_begin, 1)),
-                                                method='mahalanobis',
-                                                inverse_covariance_matrix=np.linalg.inv(class_covariances[n]))
-                     for n, centroid in enumerate(class_centroids)], axis=0) )
 
         # Get metadata df
         if predictions is not None:
