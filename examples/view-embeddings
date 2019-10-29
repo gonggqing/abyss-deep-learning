@@ -329,8 +329,12 @@ def compute_embedding_distance(vector1, vector2, method='euclidean', inverse_cov
 
             # faster numpy implementation
             # see https://stackoverflow.com/questions/27686240/calculate-mahalanobis-distance-using-numpy-only
-            e = vector1.squeeze() - vector2.squeeze()
+            e = vector1 - vector2
             D = np.sqrt(np.sum(np.dot(e, inverse_covariance_matrix) * e))
+
+            #NOTE: this can be parallelised with:
+            # #D = np.sqrt(np.sum(np.dot(e, inverse_covariance_matrix) * e),axis=1),
+            # if vectors1 and 2 are a list of vectors
             if np.isnan(D):
                 import warnings
                 warnings.warn("Computed distance in nan. This probably means that your covariance matrix is "
