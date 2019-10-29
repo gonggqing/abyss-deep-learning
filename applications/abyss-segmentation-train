@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import sys
+import copy
 
 import abyss_deep_learning.imgaug as abyss_imgaug
 import abyss_deep_learning.keras.zoo.segmentation.deeplab_v3_plus.util as deeplab_util
@@ -23,6 +24,8 @@ from abyss_deep_learning.datasets.coco import ImageSemanticSegmentationDataset
 from abyss_deep_learning.keras.utils import lambda_gen
 from imgaug.augmentables.segmaps import SegmentationMapsOnImage
 from keras_contrib.callbacks import CyclicLR
+from tensorboard.plugins.hparams import api as hp
+
 
 CONFIG_INSTALL_PATH = os.path.join(
     os.path.dirname(os.path.dirname(sys.argv[0])),
@@ -50,6 +53,45 @@ def xpath_set(dictionary, path, value):
             return
         elem = child
 
+def config_to_hparams(config):
+    """
+    Converts the training configuration file to a flat key:plain-data type dictionary that is necessary for passing to hparams.
+    Replaces dictionary hierarchy with '/'.
+
+    Args:
+        config: (dict) The training configuration file.
+
+    Returns:
+        (dict): The flattened dictionary.
+
+    """
+    training_config = copy.deepcopy(config)
+    def flatten_configuration(cfg):
+        flat_cfg = {}
+        queue = []
+        queue.extend(list(cfg.items()))
+        while len(queue) > 0:
+            next_pair = queue.pop(0)
+            if next_pair[1] is None:
+                continue
+            if isinstance(next_pair[1], dict):
+                for k, v in next_pair[1].items():
+                    queue.append((next_pair[0] + '/' + k, v))
+            elif isinstance(next_pair[1], list) or isinstance(next_pair[1], tuple):
+                for n, v in enumerate(next_pair[1]):
+                    queue.append((next_pair[0] + '[%d]' % n, v))
+            else:
+                flat_cfg[next_pair[0]] = next_pair[1]
+        return flat_cfg
+
+    try:
+        for key in ['training', 'validation']:
+            del training_config[key]['augmentation']
+    except KeyError as error:
+        pass
+    flat_cfg = flatten_configuration(training_config)
+    return flat_cfg
+
 
 class ScalarLogger(tf.keras.callbacks.Callback):
     def __init__(self, scalar_tensor, name):
@@ -58,6 +100,37 @@ class ScalarLogger(tf.keras.callbacks.Callback):
 
     def on_epoch_end(self, epoch, logs):
         logs[self.name] = tf.keras.backend.get_value(self.tensor)
+
+
+class BestMetricCallback(tf.keras.callbacks.Callback):
+    """
+    Logs the best value a metric has reported during the training run. This is used for easier visualisation for hparams.
+    """
+    def __init__(self, metric, target='max'):
+        """
+        Args:
+            metric: (str) the target metric, e.g. val_accuracy
+            target: (str) whether best performance is minimising or maximising the metric. Defaults to max.
+        """
+        super(BestMetricCallback, self).__init__()
+        self.metric = metric
+        self.best = None
+        if target == 'max':
+            self.mult = 1
+        elif target == 'min':
+            self.mult = -1
+        else:
+            raise ValueError("Target options are min or max")
+    def on_epoch_end(self, epoch, logs=None):
+        """
+        Adds the best recorded metric to the logs
+        """
+        recorded_metric = logs[self.metric]
+        if self.best is None:
+            self.best = recorded_metric
+        elif recorded_metric * self.mult > self.best * self.mult:
+            self.best = recorded_metric
+        logs[self.metric + '_best'] = self.best
 
 
 class AnnotationClassMapper:
@@ -141,12 +214,20 @@ def get_args(cmd_line=None):
     parser.add_argument("--seed", default=0, type=int, help="Random seed (0 default)")
     parser.add_argument(
         '--parallel', '-P', default=['/gpu:0'], action='append', help="Compute devices to use, eg '/gpu:0', '/cpu:0'")
+    parser.add_argument("--hparams-metric",
+                        help="Logs the best value of this metric at every epoch. \
+                        Specifying this argument will enable logging of hparams.")
+    parser.add_argument("--hparams-function", choices=['min', 'max'],
+                        help="For keep-best-metric, whether this metric should be maxmised or minimised. \
+                        I.e. accuracy should be maximised, loss should be minimised")
     parser.add_argument(
         '--verbose', '-v',
         action='store_const', const=logging.INFO,
         dest='loglevel', help="verbose output to stderr")
     args = parser.parse_args(cmd_line)
     args.parallel = list(dict.fromkeys(args.parallel))  # remove duplicates
+    if args.hparams_metric and not args.hparams_function:
+        raise ValueError("If --hparams-metric is given, --hparams-function must also be given")
     return args
 
 
@@ -434,9 +515,14 @@ def main(args):
                 tf.keras.metrics.Recall(),
                 tf.keras.metrics.Precision(),
             ])
-    # tf.keras.metrics.MeanIoU(num_classes=config['model']['classes'])
 
-        callbacks = [
+        # tf.keras.metrics.MeanIoU(num_classes=config['model']['classes'])
+        callbacks=[]
+        if args.hparams_metric:
+            callbacks.append(BestMetricCallback(args.hparams_metric, args.hparams_function))
+            callbacks.append(hp.KerasCallback('.', config_to_hparams(config)))
+
+        callbacks.extend([
             ScalarLogger(model.optimizer.lr, "learning_rate"),
             tf.keras.callbacks.TensorBoard('.', write_graph=False),
             tf.keras.callbacks.ModelCheckpoint(
@@ -445,11 +531,14 @@ def main(args):
             tf.keras.callbacks.ModelCheckpoint(
                 filepath=os.path.join(args.model_dir, 'weights_{epoch:03d}_{val_loss:.3f}.h5'),
                 save_best_only=True, save_weights_only=True, verbose=1),
-            tf.keras.callbacks.TerminateOnNaN()
-        ]
+            tf.keras.callbacks.TerminateOnNaN(),
+            tf.keras.callbacks.CSVLogger('./logs.csv')
+        ])
+
         if 'schedule' in config['training'] and config['training']['schedule']:
             callbacks.append(setup_schedule(config, steps_per_epoch))
 
+        os.makedirs(args.model_dir, exist_ok=True)
         with open(os.path.join(args.model_dir, "model_def.json"), 'w') as file:
             file.write(model.to_json())
 
