@@ -201,7 +201,15 @@ def get_data_from_coco(coco, args, load_images=True):
     hots = []
     img_ids = []
     paths = []
-    labelled_list = []
+    is_labelled_list = []
+    labelled_class_list = []
+
+    class_map = '/mnt/pond/scratch/cctv-ml-experiments/fault-detection/057.fault-no-fault/fault-detection.category-map.json'
+    raw_cat_map = json.load(
+        open(class_map, 'r'))  # Load the caption map - caption_map should live on place on servers
+    cat_map = {}
+    for k, v in raw_cat_map.items():
+        cat_map[int(k)] = v
 
     for image in coco.loadImgs(coco.getImgIds()):
         if load_images:
@@ -212,23 +220,27 @@ def get_data_from_coco(coco, args, load_images=True):
                 hot[ann['category_id']] = 1
 
             if len(coco.loadAnns(coco.getAnnIds(imgIds=[image['id']]))) > 0:
-                labelled_list.append(True)
+                is_labelled_list.append(True)
 
             img_list.append(img)
             hots.append(hot)
             img_ids.append(image['id'])
             paths.append(image['path'])
+            labelled_class_list.append(cat_map[ann['category_id']])
 
         else:  # This is needed for patches
             paths.append(image['path'])
             img_ids.append(image['id'])
-            labelled_list.append(False)
+            is_labelled_list.append(False)
+
     data = {
         'imgs': img_list,
         'ImgIds': img_ids,
         'Path': paths,
-        'Labelled': labelled_list
+        'Labelled': is_labelled_list
     }
+    if load_images:
+        data['class'] = labelled_class_list
 
     hots = np.asarray(hots)
     cid_to_name = {cat['id']:cat['name'] for cat in coco.loadCats(coco.getCatIds())}
@@ -297,6 +309,42 @@ def add_additional_metadata(meta_df, args):
 
     return output_df
 
+def compute_embedding_distance(vector1, vector2, method='euclidean', inverse_covariance_matrix=None):
+        '''
+        compute the distance between two vectors.
+        :param vector1: first vector
+        :param vector2: second vector
+        :param method: method of distance computation. Choices are: ['euclidean', 'mahalanobis']
+        :return: the distance between the two vectors
+        '''
+        # TODO: bregman distance/divergence ? - http://mark.reid.name/blog/meet-the-bregman-divergences.html
+        if method is 'euclidean':
+            # see https://stackoverflow.com/questions/1401712/how-can-the-euclidean-distance-be-calculated-with-numpy
+            return np.linalg.norm(vector1 - vector2) # equivalent (and faster) to scipy.spatial.distance.euclidean
+        elif method is 'mahalanobis':
+            # a measure of the distance between a point P and a distribution D.
+            # https://towardsdatascience.com/importance-of-distance-metrics-in-machine-learning-modelling-e51395ffe60d
+            # from scipy.spatial import distance
+            # D = distance.mahalanobis(vector1.squeeze(), vector2.squeeze(), inverse_covariance_matrix)
+
+            # faster numpy implementation
+            # see https://stackoverflow.com/questions/27686240/calculate-mahalanobis-distance-using-numpy-only
+            e = vector1 - vector2
+            D = np.sqrt(np.sum(np.dot(e, inverse_covariance_matrix) * e))
+
+            #NOTE: this can be parallelised with:
+            # #D = np.sqrt(np.sum(np.dot(e, inverse_covariance_matrix) * e),axis=1),
+            # if vectors1 and 2 are a list of vectors
+            if np.isnan(D):
+                import warnings
+                warnings.warn("Computed distance in nan. This probably means that your covariance matrix is "
+                              "semi-definite. You can fix this by including more observations when computing the "
+                              "covariance matrix.")
+            return D
+        else:
+            raise(ValueError, "No other distance methods are implemented yet. Please use \'euclidean\', or "
+                              "\'mahalanobis\' only.")
+
 
 def main(args):
     if args.images[0].endswith('.txt'):
@@ -320,9 +368,11 @@ def main(args):
     thumbs_list = []
     features_list = []
     df_list = []
+    predictions = None
 
     if args.coco:
-        say("Predicting on coco...")
+        say("")
+        say("Predicting on coco images.")
         # Load coco
         coco = COCO(args.coco)
         # Get the data from coco
@@ -339,6 +389,7 @@ def main(args):
         # Rescale images
         images = images.astype(np.float32) / 127.5 - 1
         # Predict features
+        say("Predicting on coco images...")
         model_output = model.predict(images)
 
         if isinstance(model.output, list):
@@ -367,14 +418,40 @@ def main(args):
 
         if predictions is not None:
             coco_data['prediction'] = predictions
+            if args.compute_class_centroids: # compute the centroids for each class
+                class_centroids = []
+                class_covariances=[]
+                for c in set(coco_data["class"]):
+                    # compute the mean embedding vector (centroid) for each class, and the covariance matrix
+                    centroid = np.mean(features[np.asarray(coco_data["class"]) == c], axis=0)
+                    centroid_cov = np.cov(features[np.asarray(coco_data["class"]) == c].T)
+                    if centroid.shape[0] == 0:
+                        raise(ValueError, 'Something bad happened. There are no instances of class ' + str(c) + ' in '
+                                            'the supplied coco!')
+                    class_centroids.append(centroid)
+                    class_covariances.append(centroid_cov)
+                distances = []
+                say("Computing centroid distances...")
+                # compute the distance from the closest centroid
+                for feature in tqdm(features):
+                    distance = np.min([compute_embedding_distance(feature, centroid, method='mahalanobis',
+                                                                  inverse_covariance_matrix=np.linalg.inv(class_covariances[n])) for n, centroid in enumerate(class_centroids)])
+                    distances.append(distance)
+                coco_data['centroid-distance'] = distances
+
         coco_meta_df = create_metadata_df(coco_data, args)
 
         # Add to lists
         df_list.append(coco_meta_df)
         features_list.append(features)
         thumbs_list.append(thumbs)
+        if args.compute_class_centroids:
+            np.savetxt(os.path.join(args.tensorboard_dir, 'class-centroids.csv'), class_centroids,
+                       delimiter=',')
 
     if args.images and args.from_cube_face:  # Cube face different prediction pipeline
+        assert args.compute_class_centroids is not True, 'Not get implemented! Do not use.'
+        say("")
         say("Predicting on unlabelled cube faces...")
         patches_coco = image_arg_to_coco(args.images, do_patches=True, patch_size=args.image_size)
         patches_data = get_data_from_coco(patches_coco, args, load_images=False)
@@ -384,7 +461,6 @@ def main(args):
         cache_file_name = ''
         cnt = 0
         for image in tqdm(patches_coco.loadImgs(patches_coco.getImgIds())):
-            # TODO: possible speed ups available if done from generators.
             cache_path = image['path'].split('.')
             if cache_file_name is not image['filename']:
                 cache_file_name = image['filename']
@@ -434,7 +510,8 @@ def main(args):
         thumbs_list.append(thumbs)
 
     elif args.images and args.from_video:  # process video-frames
-        say("Predicting on unlabelled videos...")
+        say("")
+        say("Predicting on unlabelled videos.")
         video_coco = image_arg_to_coco(args.images, from_video=True, patch_size=args.image_size)
         frames_data = get_data_from_coco(video_coco, args, load_images=False)
         thumbs = np.zeros((len(frames_data['Path']), args.thumb_size[1], args.thumb_size[0], 3))
@@ -443,8 +520,8 @@ def main(args):
             predictions = np.zeros((len(frames_data['Path'])))
         cache_file_name = ''
         cnt = 0
+        say("Predicting...")
         for image in tqdm(video_coco.loadImgs(video_coco.getImgIds())):
-            # TODO: possible speed ups available if done from generators.
             cache_path = image['path'].split('.')
             if cache_file_name is not image['filename']:
                 cache_file_name = image['filename']
@@ -486,6 +563,14 @@ def main(args):
         # Get metadata df
         if predictions is not None:
             frames_data['prediction'] = predictions
+            if args.compute_class_centroids:  # compute the centroids for each class
+                distances = []
+                # compute the distance from the closest centroid
+                for feature in features:
+                    distance = np.min([compute_embedding_distance(feature, centroid) for centroid in class_centroids])
+                    distances.append(distance)
+                frames_data['centroid-distance'] = distances
+
         patches_meta_df = create_metadata_df(frames_data, args)
 
         # Add to lists
@@ -494,6 +579,7 @@ def main(args):
         thumbs_list.append(thumbs)
 
     elif args.images:  # No cube faces
+        assert args.compute_class_centroids is not True, 'Not get implemented! Do not use.'
         say("Predicting on images")
         # Load coco
         coco = image_arg_to_coco(args.images, do_patches=False)
@@ -564,8 +650,10 @@ def main(args):
 def get_args(cmd_line=None):
     '''Get args from the command line args'''
     parser = argparse.ArgumentParser(
-        description="""View the embeddings of a layer and display the results on the TensorBoard Projector
+        description="""View the embeddings of a layer and display the results on the TensorBoard Projector.
         
+        example (CCTV oriented) - python3 ~/src/abyss/deep-learning/examples/view-embeddings ./CCTV.outputs/ --images video-list.txt --model-weights /mnt/pond/processed/abyss-internal/cctv/classification/models/fault-no-fault/20190909.fault-no-fault/models/best_model.h5 --model-definition /mnt/pond/processed/abyss-internal/cctv/classification/models/fault-no-fault/20190909.fault-no-fault/models/model-definition.json --image-size 320,240 --layer-name global_average_pooling2d_1 --from-video --thumb-size=64,48 --coco coco.json --compute-class-centroids
+
         """)
     parser.add_argument(
         "tensorboard_dir", help="Where to write the tensorboard embeddings")
@@ -596,10 +684,15 @@ def get_args(cmd_line=None):
     parser.add_argument(
         "--from-video", help="Optionally, extract frames from a video, so embeddings can be "
                              "computed for unlabelled videos.", action='store_true')
+    parser.add_argument(
+        "--compute-class-centroids", help="Optionally, compute the embeddings centroids for each labelled class.",
+        action='store_true')
     args = parser.parse_args(args=cmd_line)
 
     assert args.from_video is not True or args.from_cube_face is not True, "Error! Both --from-video and " \
                                                                             "--from_cube-face cannot be used together."
+    assert args.compute_class_centroids is True and args.coco is not None, \
+        "Error! If using --compute-class-centroids, a coco fo labelled data much also be supplied using --coco argument."
     if args.image_size is not None:
         args.image_size = tuple(int(i) for i in args.image_size.split(','))
     args.thumb_size = tuple(int(i) for i in args.thumb_size.split(',')) \
