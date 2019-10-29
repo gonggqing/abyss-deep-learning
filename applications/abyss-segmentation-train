@@ -395,19 +395,8 @@ def main(args):
         print('Invalid compute device selection!')
         exit(1)
 
-    # Set up training
-    if config['training']['new_heads']:
-        logging.info("Creating new head.")
-        model_args = dict(config['model'])
-        del model_args['type']
-        model = model_util.make_model(**model_args)
-    else:
-        logging.info("Loading model.")
-        # TODO? Support for tensorflow version < 1.14 (load model from json+h5)
-        model = tf.keras.models.load_model(
-            args.training__weights, compile=False, custom_objects={'tf': tf})
-
     with strategy.scope():
+        # Set up training
         if config['training']['new_heads']:
             logging.info("Creating new head.")
             model_args = dict(config['model'])
@@ -416,6 +405,8 @@ def main(args):
         else:
             logging.info("Loading model.")
             # TODO? Support for tensorflow version < 1.14 (load model from json+h5)
+            model = tf.keras.models.load_model(
+                args.training__weights, compile=False, custom_objects={'tf': tf})
 
         # Start training
         optimizer = tf.keras.optimizers.deserialize(config['training']['optimizer'])
@@ -435,42 +426,42 @@ def main(args):
                 logging.info(f"Freezing layer: {layer.name}")
                 layer.trainable = False
 
-    model.compile(
-        optimizer=optimizer,
-        loss=config['training']['loss'],
-        metrics=[
-            'categorical_accuracy',
-            tf.keras.metrics.Recall(),
-            tf.keras.metrics.Precision(),
-        ])
+        model.compile(
+            optimizer=optimizer,
+            loss=config['training']['loss'],
+            metrics=[
+                'categorical_accuracy',
+                tf.keras.metrics.Recall(),
+                tf.keras.metrics.Precision(),
+            ])
     # tf.keras.metrics.MeanIoU(num_classes=config['model']['classes'])
 
-    callbacks = [
-        ScalarLogger(model.optimizer.lr, "learning_rate"),
-        tf.keras.callbacks.TensorBoard('.', write_graph=False),
-        tf.keras.callbacks.ModelCheckpoint(
-            filepath=os.path.join(args.model_dir, 'model_{epoch:03d}_{val_loss:.3f}.h5'),
-            save_best_only=True, save_weights_only=False, verbose=1),
-        tf.keras.callbacks.ModelCheckpoint(
-            filepath=os.path.join(args.model_dir, 'weights_{epoch:03d}_{val_loss:.3f}.h5'),
-            save_best_only=True, save_weights_only=True, verbose=1),
-        tf.keras.callbacks.TerminateOnNaN()
-    ]
-    if 'schedule' in config['training'] and config['training']['schedule']:
-        callbacks.append(setup_schedule(config, steps_per_epoch))
+        callbacks = [
+            ScalarLogger(model.optimizer.lr, "learning_rate"),
+            tf.keras.callbacks.TensorBoard('.', write_graph=False),
+            tf.keras.callbacks.ModelCheckpoint(
+                filepath=os.path.join(args.model_dir, 'model_{epoch:03d}_{val_loss:.3f}.h5'),
+                save_best_only=True, save_weights_only=False, verbose=1),
+            tf.keras.callbacks.ModelCheckpoint(
+                filepath=os.path.join(args.model_dir, 'weights_{epoch:03d}_{val_loss:.3f}.h5'),
+                save_best_only=True, save_weights_only=True, verbose=1),
+            tf.keras.callbacks.TerminateOnNaN()
+        ]
+        if 'schedule' in config['training'] and config['training']['schedule']:
+            callbacks.append(setup_schedule(config, steps_per_epoch))
 
-    with open(os.path.join(args.model_dir, "model_def.json"), 'w') as file:
-        file.write(model.to_json())
+        with open(os.path.join(args.model_dir, "model_def.json"), 'w') as file:
+            file.write(model.to_json())
 
-    model.fit(
-        gen_train,
-        steps_per_epoch=steps_per_epoch,
-        validation_data=gen_val,
-        validation_steps=validation_steps,
-        epochs=config['training']['epochs'],
-        callbacks=callbacks,
-        initial_epoch=0,
-        verbose=1)
+        model.fit(
+            gen_train,
+            steps_per_epoch=steps_per_epoch,
+            validation_data=gen_val,
+            validation_steps=validation_steps,
+            epochs=config['training']['epochs'],
+            callbacks=callbacks,
+            initial_epoch=0,
+            verbose=1)
     return 0
 
 
