@@ -309,18 +309,20 @@ def add_additional_metadata(meta_df, args):
 
     return output_df
 
-def compute_embedding_distance(vector1, vector2, method='euclidean', inverse_covariance_matrix=None):
+def compute_embedding_distance(vectorlist1, vectorlist2, method='euclidean', inverse_covariance_matrix=None):
         '''
         compute the distance between two vectors.
-        :param vector1: first vector
-        :param vector2: second vector
+        :param vector1: a list of vectors
+        :param vector2: a list of vectors
         :param method: method of distance computation. Choices are: ['euclidean', 'mahalanobis']
         :return: the distance between the two vectors
         '''
         # TODO: bregman distance/divergence ? - http://mark.reid.name/blog/meet-the-bregman-divergences.html
         if method is 'euclidean':
+            return [np.linalg.norm(vectorlist1[count].squeeze() - vectorlist2[count].squeeze())
+                    for count, _ in enumerate(tqdm(vectorlist1))]
             # see https://stackoverflow.com/questions/1401712/how-can-the-euclidean-distance-be-calculated-with-numpy
-            return np.linalg.norm(vector1 - vector2) # equivalent (and faster) to scipy.spatial.distance.euclidean
+            # return np.linalg.norm(vector1 - vector2) # equivalent (and faster) to scipy.spatial.distance.euclidean
         elif method is 'mahalanobis':
             # a measure of the distance between a point P and a distribution D.
             # https://towardsdatascience.com/importance-of-distance-metrics-in-machine-learning-modelling-e51395ffe60d
@@ -329,15 +331,11 @@ def compute_embedding_distance(vector1, vector2, method='euclidean', inverse_cov
 
             # faster numpy implementation
             # see https://stackoverflow.com/questions/27686240/calculate-mahalanobis-distance-using-numpy-only
-            e = vector1 - vector2
-            D = np.sqrt(np.sum(np.dot(e, inverse_covariance_matrix) * e))
-
-            #NOTE: this can be parallelised with:
-            # #D = np.sqrt(np.sum(np.dot(e, inverse_covariance_matrix) * e),axis=1),
-            # if vectors1 and 2 are a list of vectors
-            if np.isnan(D):
+            e = vectorlist1 - vectorlist2
+            D = np.sqrt(np.sum(np.dot(e, inverse_covariance_matrix) * e, axis=1))
+            if np.any(np.isnan(D)):
                 import warnings
-                warnings.warn("Computed distance in nan. This probably means that your covariance matrix is "
+                warnings.warn("A computed distance in nan. This probably means that your covariance matrix is "
                               "semi-definite. You can fix this by including more observations when computing the "
                               "covariance matrix.")
             return D
@@ -376,9 +374,8 @@ def main(args):
         # Load coco
         coco = COCO(args.coco)
         # Get the data from coco
-        say("Loading images...")
-
         coco_data = get_data_from_coco(coco, args, load_images=True)
+        say("Loading images...")
         # Load images
         images = np.array(coco_data['imgs'], dtype=np.uint8)
         say("Creating thumbnails of {:d} images".format(len(images)))
@@ -430,13 +427,14 @@ def main(args):
                                             'the supplied coco!')
                     class_centroids.append(centroid)
                     class_covariances.append(centroid_cov)
-                distances = []
+
                 say("Computing centroid distances...")
-                # compute the distance from the closest centroid
-                for feature in tqdm(features):
-                    distance = np.min([compute_embedding_distance(feature, centroid, method='mahalanobis',
-                                                                  inverse_covariance_matrix=np.linalg.inv(class_covariances[n])) for n, centroid in enumerate(class_centroids)])
-                    distances.append(distance)
+                # compute the distances from the closest centroid
+                distances = np.min(
+                    [compute_embedding_distance(features, np.tile(centroid, (len(features), 1)),
+                                                method='mahalanobis',
+                                                inverse_covariance_matrix=np.linalg.inv(class_covariances[n]))
+                     for n, centroid in enumerate(class_centroids)], axis=0)
                 coco_data['centroid-distance'] = distances
 
         coco_meta_df = create_metadata_df(coco_data, args)
@@ -447,6 +445,11 @@ def main(args):
         thumbs_list.append(thumbs)
         if args.compute_class_centroids:
             np.savetxt(os.path.join(args.tensorboard_dir, 'class-centroids.csv'), class_centroids,
+                       delimiter=',')
+            class_covariances = np.asarray(class_covariances)
+            np.savetxt(os.path.join(args.tensorboard_dir, 'class-covariances.csv'),
+                       class_covariances.reshape(class_covariances.shape[0],
+                                                             class_covariances.shape[1] * class_covariances.shape[2]),
                        delimiter=',')
 
     if args.images and args.from_cube_face:  # Cube face different prediction pipeline
@@ -512,6 +515,7 @@ def main(args):
     elif args.images and args.from_video:  # process video-frames
         say("")
         say("Predicting on unlabelled videos.")
+        say("creating coco...")
         video_coco = image_arg_to_coco(args.images, from_video=True, patch_size=args.image_size)
         frames_data = get_data_from_coco(video_coco, args, load_images=False)
         thumbs = np.zeros((len(frames_data['Path']), args.thumb_size[1], args.thumb_size[0], 3))
@@ -564,11 +568,13 @@ def main(args):
         if predictions is not None:
             frames_data['prediction'] = predictions
             if args.compute_class_centroids:  # compute the centroids for each class
-                distances = []
-                # compute the distance from the closest centroid
-                for feature in features:
-                    distance = np.min([compute_embedding_distance(feature, centroid) for centroid in class_centroids])
-                    distances.append(distance)
+                say("Computing centroid distances...")
+                # compute the distances from the closest centroid
+                distances = np.min(
+                    [compute_embedding_distance(features, np.tile(centroid, (len(features), 1)),
+                                                method='mahalanobis',
+                                                inverse_covariance_matrix=np.linalg.inv(class_covariances[n]))
+                     for n, centroid in enumerate(class_centroids)], axis=0)
                 frames_data['centroid-distance'] = distances
 
         patches_meta_df = create_metadata_df(frames_data, args)
@@ -582,6 +588,7 @@ def main(args):
         assert args.compute_class_centroids is not True, 'Not get implemented! Do not use.'
         say("Predicting on images")
         # Load coco
+        say("creating coco...")
         coco = image_arg_to_coco(args.images, do_patches=False)
         # Get the data from coco
         image_data = get_data_from_coco(coco, args, load_images=True)
