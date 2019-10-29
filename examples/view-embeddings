@@ -537,7 +537,7 @@ def main(args):
                 cache_file_name = image['filename']
                 cap = cv2.VideoCapture(cache_file_name)
 
-                open(os.path.join(args.tensorboard_dir, cache_file_name.split('.')[-2].split('/')[-1] + '.distance.csv'), 'wb') # quick and dirty saving of distances per video
+                vid_cnt_begin = cnt # quick and dirty. Just delete this.
             
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(cache_path[1]))
             _, frame = cap.read()
@@ -572,10 +572,13 @@ def main(args):
             predictions[cnt] = prediction
             cnt = cnt + 1
 
-            with open(os.path.join(args.tensorboard_dir, cache_file_name.split('.')[-2].split('/')[-1] + '.distance.csv'), 'ab') as f:  # quick and dirty saving of distances per video
-                f.write(np.min([compute_embedding_distance(np.expand_dims(feature, axis=0), np.expand_dims(centroid, axis=0), method='mahalanobis', inverse_covariance_matrix=np.linalg.inv(class_covariances[n]))
-                     for n, centroid in enumerate(class_centroids)], axis=0))
-                f.write(",")
+            with open(os.path.join(args.tensorboard_dir, cache_file_name.split('.')[-2].split('/')[-1] + '.distance.csv'),
+                 'wb') as f:  # quick and dirty saving of distances per video
+                f.write(np.min(
+                    [compute_embedding_distance(features[vid_cnt_begin: cnt], np.tile(centroid, (cnt - vid_cnt_begin, 1)),
+                                                method='mahalanobis',
+                                                inverse_covariance_matrix=np.linalg.inv(class_covariances[n]))
+                     for n, centroid in enumerate(class_centroids)], axis=0) )
 
         # Get metadata df
         if predictions is not None:
