@@ -309,7 +309,7 @@ def add_additional_metadata(meta_df, args):
 
     return output_df
 
-def compute_embedding_distance(vector1, vector2, method='euclidean'):
+def compute_embedding_distance(vector1, vector2, method='euclidean', inverse_covariance_matrix=None):
         '''
         compute the distance between two vectors.
         :param vector1: first vector
@@ -317,24 +317,29 @@ def compute_embedding_distance(vector1, vector2, method='euclidean'):
         :param method: method of distance computation. Choices are: ['euclidean', 'mahalanobis']
         :return: the distance between the two vectors
         '''
-        # TODO: bregman distance? - http://mark.reid.name/blog/meet-the-bregman-divergences.html
+        # TODO: bregman distance/divergence ? - http://mark.reid.name/blog/meet-the-bregman-divergences.html
         if method is 'euclidean':
             # see https://stackoverflow.com/questions/1401712/how-can-the-euclidean-distance-be-calculated-with-numpy
-            return np.linalg.norm(vector1 - vector2) # equivalent (but faster) to scipy.spatial.distance.euclidean
-        #TODO: Mahalanobis distance - a measure of the distance between a point P and a distribution D.
-        #               The idea of measuring is, how many standard deviations away P is from the mean of D.
-        #      -
+            return np.linalg.norm(vector1 - vector2) # equivalent (and faster) to scipy.spatial.distance.euclidean
+        elif method is 'mahalanobis':
+            # a measure of the distance between a point P and a distribution D.
+            # https://towardsdatascience.com/importance-of-distance-metrics-in-machine-learning-modelling-e51395ffe60d
+            # from scipy.spatial import distance
+            # D = distance.mahalanobis(vector1.squeeze(), vector2.squeeze(), inverse_covariance_matrix)
 
-        # elif method is 'mahalanobis':
-        #     # see https://stackoverflow.com/questions/27686240/calculate-mahalanobis-distance-using-numpy-only and
-        #     # https://towardsdatascience.com/importance-of-distance-metrics-in-machine-learning-modelling-e51395ffe60d
-        #     e = xx - yy
-        #     X = np.vstack([xx, yy])
-        #     V = np.cov(X.T)
-        #     p = np.linalg.inv(V)
-        #     D = np.sqrt(np.sum(np.dot(e, p) * e, axis=1))
+            # faster numpy implementation
+            # see https://stackoverflow.com/questions/27686240/calculate-mahalanobis-distance-using-numpy-only
+            e = vector1.squeeze() - vector2.squeeze()
+            D = np.sqrt(np.sum(np.dot(e, inverse_covariance_matrix) * e))
+            if np.isnan(D):
+                import warnings
+                warnings.warn("Computed distance in nan. This probably means that your covariance matrix is "
+                              "semi-definite. You can fix this by including more observations when computing the "
+                              "covariance matrix.")
+            return D
         else:
-            raise(ValueError, "No other distance methods are implemented yet. Please use \'euclidean\' only.")
+            raise(ValueError, "No other distance methods are implemented yet. Please use \'euclidean\', or "
+                              "\'mahalanobis\' only.")
 
 
 def main(args):
@@ -362,7 +367,8 @@ def main(args):
     predictions = None
 
     if args.coco:
-        say("Predicting on coco...")
+        say("")
+        say("Predicting on coco images.")
         # Load coco
         coco = COCO(args.coco)
         # Get the data from coco
@@ -379,6 +385,7 @@ def main(args):
         # Rescale images
         images = images.astype(np.float32) / 127.5 - 1
         # Predict features
+        say("Predicting on coco images...")
         model_output = model.predict(images)
 
         if isinstance(model.output, list):
@@ -409,19 +416,24 @@ def main(args):
             coco_data['prediction'] = predictions
             if args.compute_class_centroids: # compute the centroids for each class
                 class_centroids = []
+                class_covariances=[]
                 for c in set(coco_data["class"]):
-                    # compute the mean embedding vector (centroid) for each class
+                    # compute the mean embedding vector (centroid) for each class, and the covariance matrix
                     centroid = np.mean(features[np.asarray(coco_data["class"]) == c], axis=0)
+                    centroid_cov = np.cov(features[np.asarray(coco_data["class"]) == c].T)
                     if centroid.shape[0] == 0:
                         raise(ValueError, 'Something bad happened. There are no instances of class ' + str(c) + ' in '
                                             'the supplied coco!')
                     class_centroids.append(centroid)
-                centroid_distances = []
+                    class_covariances.append(centroid_cov)
+                distances = []
+                say("Computing centroid distances...")
                 # compute the distance from the closest centroid
-                for feature in features:
-                    distance = np.min([compute_embedding_distance(feature, centroid) for centroid in class_centroids])
-                    centroid_distances.append(distance)
-                coco_data['centroid-distance'] = centroid_distances
+                for feature in tqdm(features):
+                    distance = np.min([compute_embedding_distance(feature, centroid, method='mahalanobis',
+                                                                  inverse_covariance_matrix=np.linalg.inv(class_covariances[n])) for n, centroid in enumerate(class_centroids)])
+                    distances.append(distance)
+                coco_data['centroid-distance'] = distances
 
         coco_meta_df = create_metadata_df(coco_data, args)
 
@@ -435,6 +447,7 @@ def main(args):
 
     if args.images and args.from_cube_face:  # Cube face different prediction pipeline
         assert args.compute_class_centroids is not True, 'Not get implemented! Do not use.'
+        say("")
         say("Predicting on unlabelled cube faces...")
         patches_coco = image_arg_to_coco(args.images, do_patches=True, patch_size=args.image_size)
         patches_data = get_data_from_coco(patches_coco, args, load_images=False)
@@ -493,6 +506,7 @@ def main(args):
         thumbs_list.append(thumbs)
 
     elif args.images and args.from_video:  # process video-frames
+        say("")
         say("Predicting on unlabelled videos.")
         video_coco = image_arg_to_coco(args.images, from_video=True, patch_size=args.image_size)
         frames_data = get_data_from_coco(video_coco, args, load_images=False)
@@ -546,12 +560,12 @@ def main(args):
         if predictions is not None:
             frames_data['prediction'] = predictions
             if args.compute_class_centroids:  # compute the centroids for each class
-                centroid_distances = []
+                distances = []
                 # compute the distance from the closest centroid
                 for feature in features:
                     distance = np.min([compute_embedding_distance(feature, centroid) for centroid in class_centroids])
-                    centroid_distances.append(distance)
-                frames_data['centroid-distance'] = centroid_distances
+                    distances.append(distance)
+                frames_data['centroid-distance'] = distances
 
         patches_meta_df = create_metadata_df(frames_data, args)
 
@@ -632,8 +646,10 @@ def main(args):
 def get_args(cmd_line=None):
     '''Get args from the command line args'''
     parser = argparse.ArgumentParser(
-        description="""View the embeddings of a layer and display the results on the TensorBoard Projector
+        description="""View the embeddings of a layer and display the results on the TensorBoard Projector.
         
+        example (CCTV oriented) - python3 ~/src/abyss/deep-learning/examples/view-embeddings ./CCTV.outputs/ --images video-list.txt --model-weights /mnt/pond/processed/abyss-internal/cctv/classification/models/fault-no-fault/20190909.fault-no-fault/models/best_model.h5 --model-definition /mnt/pond/processed/abyss-internal/cctv/classification/models/fault-no-fault/20190909.fault-no-fault/models/model-definition.json --image-size 320,240 --layer-name global_average_pooling2d_1 --from-video --thumb-size=64,48 --coco coco.json --compute-class-centroids
+
         """)
     parser.add_argument(
         "tensorboard_dir", help="Where to write the tensorboard embeddings")
