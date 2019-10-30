@@ -885,30 +885,22 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
     if args.intersections is None:
         first_coco = None
         second_coco = None
-
         if args.first is not None and args.second is None:
             first_coco = MyCOCO(args.first)
             second_coco = MyCOCO(sys.stdin)
-
         elif args.first is None and args.second is not None:
             first_coco = MyCOCO(sys.stdin)
             second_coco = MyCOCO(args.second)
-
         elif args.first is not None and args.second is not None:
             first_coco = MyCOCO(args.first)
             second_coco = MyCOCO(args.second)
-
         assert first_coco is not None and second_coco is not None, "could not load first or second COCO file"
-
         for first_img_entry in first_coco.images:
             try:
                 second_img_entry = second_coco.loadImgs(ids=first_img_entry['id']).pop()
             except KeyError as e:
                 logging.warning(
-                    "cannot find matching image {} from stdin in JSON file {},"
-                    "try matching image ids using coco-calc assign-new-image-ids".format(first_img_entry['id'],
-                                                                                         args.second)
-                )
+                    f"cannot find matching image {first_img_entry['id']} from stdin in JSON file {args.second}, try matching image ids using coco-calc assign-new-image-ids")
                 raise e
             first_ann_entries, first_polys = get_img_polys(first_coco, first_img_entry['id'])
             second_ann_entries, second_polys = get_img_polys(second_coco, second_img_entry['id'])
@@ -927,7 +919,7 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                     first_area = first_ann_entries[i].get('area', 0)
 
                 if first_area <= 0:
-                    calc_area = polygon_area(first_ann_entries[i].get('segmentation'))
+                    calc_area = polygon_area(first_ann_entries[i].get('segmentation')[0])
 
                     logging.warning("annotation {} from {} has incorrect area value of {}, setting to {}".format(
                         first_ann_entries[i]['id'], args.first, first_area, calc_area
@@ -968,7 +960,6 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
         coco = None
         if args.second is not None:
             coco = MyCOCO(args.second)
-
             for img_entry in coco.images:
                 for ann in coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id'])):
                     category_sums = {id_: 0 for id_ in df['first_cat_id'].unique().tolist()}
@@ -988,7 +979,7 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                         second_area = ann.get('area', 0)
 
                     if second_area <= 0:
-                        calc_area = polygon_area(ann.get('segmentation'))
+                        calc_area = polygon_area(ann.get('segmentation')[0])
                         logging.warning("annotation {} from {} has incorrect area value of {}, setting to {}".format(
                             ann['id'], args.second, second_area, calc_area
                         ))
@@ -1005,7 +996,6 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                             area,
                             float(area / second_area),
                         )))
-
         else:
             if args.first is None and args.second is None:
                 coco = MyCOCO(sys.stdin)
@@ -1059,9 +1049,9 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
 
 def flatten_holes(args: argparse.Namespace) -> Tuple[Union[None, MyCOCO], int]:
     if args.coco:
-        coco = MyCOCO(args.coco)  # todo: remove pycoco dependency
+        coco = MyCOCO(args.coco)
     else:
-        coco = MyCOCO(sys.stdin)  # todo: remove pycoco dependency
+        coco = MyCOCO(sys.stdin)
 
     for img_entry in coco.images:
         shape = img_entry['height'], img_entry['width']
