@@ -379,8 +379,8 @@ def main(args):
         # Load coco
         coco = COCO(args.coco)
         # Get the data from coco
-        coco_data = get_data_from_coco(coco, args, load_images=True)
         say("Loading images...")
+        coco_data = get_data_from_coco(coco, args, load_images=True)
         # Load images
         images = np.array(coco_data['imgs'], dtype=np.uint8)
         say("Creating thumbnails of {:d} images".format(len(images)))
