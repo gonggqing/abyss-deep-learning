@@ -1,10 +1,10 @@
 """Metrics for machine learning"""
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 import skimage
 from scipy.optimize import linear_sum_assignment
-from skimage.draw import polygon, polygon_perimeter
+from skimage.draw import polygon, polygon_perimeter, line
 
 from abyss_deep_learning.utils import do_overlap
 
@@ -49,8 +49,9 @@ def get_bbox_intersection(bbox_a, bbox_b):
     return intersections
 
 
+# TODO: transition from sklearn contour operations to opencv contour operations
 def poly_intersection_area(first: List[np.array], second: List[np.array], grid_max_x: int = None,
-                           grid_max_y: int = None):
+                           grid_max_y: int = None) -> Tuple[np.array, np.array, np.array]:
     """
     parameters
     ----------
@@ -61,14 +62,13 @@ def poly_intersection_area(first: List[np.array], second: List[np.array], grid_m
 
     returns
     -------
-        numpy.array, numpy.array, numpy.array: first polygon areas list, second polygon areas list, intersection areas matrix
+        numpy.array, numpy.array, numpy.array: first polygon areas vector, second polygon areas vector, intersection areas matrix
 
     """
-    import logging
 
     precompute_first = []
     precompute_second = []
-    if grid_max_x is None or grid_max_y is None:  # Todo completely re-write me to take in to account lower offset by lower value?
+    if grid_max_x is None or grid_max_y is None:
         grid_max_x = 0
         grid_max_y = 0
         for array in first + second:
@@ -78,63 +78,64 @@ def poly_intersection_area(first: List[np.array], second: List[np.array], grid_m
                 grid_max_x = int(upper_val_x) + 1
             if upper_val_y > grid_max_y:
                 grid_max_y = int(upper_val_y) + 1
+
     grid = np.zeros((grid_max_y, grid_max_x), dtype=np.uint8)
     first_areas = []
     second_areas = []
     first_bboxes = []
     second_bboxes = []
-    for array in first:
-        array = np.round(array).astype(int)
-        r = array[:, 1]
-        c = array[:, 0]
+
+    def draw_grid(array_: np.array, bboxes: List[Tuple[int, int, int, int]], grid_: np.array) -> None:
+        array_ = np.round(array_).astype(int)
+        r = array_[:, 1]
+        c = array_[:, 0]
         r[r < 0] = 0
         c[c < 0] = 0
-
         r[r >= grid_max_y] = grid_max_y - 1
         c[c >= grid_max_x] = grid_max_x - 1
-        first_bboxes.append((min(c), min(r), max(c), max(r)))
+        bboxes.append((min(c), min(r), max(c), max(r)))
 
-        grid[polygon(r, c, grid.shape)] = 1
-        try:
-            grid[polygon_perimeter(r, c, grid.shape)] = 1
-        except IndexError:
-            logging.warn(f'invalid polygon, perimeter not drawn {array}')
+        nx = len(np.unique(c))
+        ny = len(np.unique(r))
+        if nx > 2 or ny > 2:
+            grid_[polygon_perimeter(r, c)] = 1
+        elif nx == 2 or ny == 2:
+            for i in range(len(c) - 1):
+                if r[i] == r[i + 1] and c[i] == c[i + 1]:
+                    grid_[r, c] = 1  # single pixel drawn
+                else:
+                    grid_[line(r[i], c[i], r[i + 1], c[i + 1])] = 1  # draw line
+        elif nx == 1 and ny == 1:
+            grid_[r, c] = 1
+        else:
+            raise ValueError(f"polygon malformed, unable to draw onto grid a polygon of shape {array_.shape}")
+
+    for array in first:
+        draw_grid(array, first_bboxes, grid)
         first_areas.append(np.count_nonzero(grid))
         precompute_first.append(np.array(grid))  # make a copy of grid
         grid[:] = 0
     for array in second:
-        array = np.round(array).astype(int)
-        r = array[:, 1]
-        c = array[:, 0]
-        r[r < 0] = 0
-        c[c < 0] = 0
-        r[r >= grid_max_y] = grid_max_y - 1
-        c[c >= grid_max_x] = grid_max_x - 1
-        second_bboxes.append((min(c), min(r), max(c), max(r)))
-        grid[polygon(r, c, grid.shape)] = 1
-
-        try:
-            grid[polygon_perimeter(r, c, grid.shape)] = 1
-        except IndexError:
-            logging.warn(f'invalid polygon, perimeter not drawn {array}')
-
+        draw_grid(array, second_bboxes, grid)
         second_areas.append(np.count_nonzero(grid))
         precompute_second.append(np.array(grid))  # make a copy of grid
         grid[:] = 0
-    # intersections = np.zeros((len(first), len(second)))
+
     intersections = []
-    for i in range(len(precompute_first)):  # todo: can it be done in my numpyish way?
+    for i in range(len(precompute_first)):
         tmp = []
         first_bbox = first_bboxes[i]
         for j in range(len(precompute_second)):
             second_bbox = second_bboxes[j]
-            tmp.append(np.count_nonzero(np.logical_and(precompute_first[i], precompute_second[j])) if do_overlap(first_bbox, second_bbox) else 0)
+            tmp.append(
+                np.count_nonzero(np.logical_and(precompute_first[i], precompute_second[j])) if do_overlap(first_bbox,
+                                                                                                          second_bbox) else 0)
         intersections.append(tmp)
     return first_areas, second_areas, np.array(intersections, dtype=np.uint)
 
 
 def poly_iou_matrix(predictions_array: List[np.array], truth_arrays: List[np.array],
-                                               grid_max_x: int = None, grid_max_y: int = None):
+                    grid_max_x: int = None, grid_max_y: int = None):
     """
 
     Args:
@@ -159,7 +160,7 @@ def poly_iou_matrix(predictions_array: List[np.array], truth_arrays: List[np.arr
 
 
 def poly_iou_matrix_deprecated(predictions_array: List[np.array], truth_arrays: List[np.array], grid_max_x: int = None,
-                    grid_max_y: int = None):
+                               grid_max_y: int = None):
     """
 
     Args:

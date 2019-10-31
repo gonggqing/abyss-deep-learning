@@ -374,7 +374,7 @@ def shoelace_area(polygon_: List[Union[int, float]]) -> float:
 
 def polygon_area(polygon_: List[Union[int, float]]) -> float:
     """
-    Converts a list of polygons into binary mask,
+    Converts a list of points <x, y> into binary mask,
     then to run-time length encoding format to calculate area using the pycocotools
     """
     return maskUtils.area(maskUtils.encode(np.asfortranarray(polygon_to_mask(polygon_).astype(np.uint8))))

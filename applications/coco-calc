@@ -14,9 +14,9 @@ from typing import List, Tuple, Union
 import numpy as np
 import pandas as pd
 from PIL import Image
+from abyss.bedrock.imaging.mask import mask_intersections
 from pycocotools.coco import COCO
 
-from abyss.bedrock.imaging.mask import mask_intersections
 import abyss_deep_learning
 from abyss_deep_learning.datasets.coco_utilities import coco_is_valid
 from abyss_deep_learning.metrics import poly_intersection_area
@@ -25,17 +25,17 @@ from abyss_deep_learning.utils import polygon_area, imwrite, imread, do_overlap,
 __author__ = 'Kent Hu, Vsevolod Vlaskine'
 
 _ASSIGN_NEW_IMAGE_IDS_DESCRIPTION = """
-Read in COCO file from stdin and reassigned the image ids of incoming COCO file based on the image ids from
-the command line COCO. The new ids are matched by the file_name of either COCO files
+Read in COCO file from stdin and reassign image ids of stdin COCO file using image ids from 
+command line COCO. The new ids are assigned from the command line COCO to the stdin COCO
+by matching image entries on the specified --key field.
 
 Input COCO file from stdin is output to stdout.
 
-If no COCO file is passed in, the input COCO file can have new image ids assigned based on the existing ordering or
-the input COCO file can be sorted based on a field in 'images' and then have new ids assigned based on the ordering
+If no COCO file is passed by command line, the stdin COCO file has image ids assigned based on existing ordering
 
 examples:
-    cat input.json | coco-calc assign-new-image-id coco coco.json --key file_name # Match by key and assign new ids to input COCO from command line COCO 
-    cat input.json | coco-calc assign-new-image-id sort --key file_name # Sort the images by a key then assign new ids, if no key, assign image ids based on existing ordering
+    cat input.json | coco-calc assign-new-image-id --master coco.json --key file_name  # Match by key and assign new ids to stdin COCO from command line COCO 
+    cat input.json | coco-calc assign-new-image-id  # Assign image ids based on existing ordering
 """
 
 _DESCRIPTION = """
@@ -553,14 +553,69 @@ def grouper(iterable, size: int, fillvalue=None):
 
 
 def assign_new_image_ids(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
-    """Assigning new image id methods"""
+    """
+
+    Args:
+        args: command line args, --keep-mismatch bool, --key str, --master str
+
+    Returns:
+        COCO JSON,
+
+    """
     coco = MyCOCO(sys.stdin)
-    if args.assign_method == 'sort':
-        return assign_from_sorted(coco, args)
-    elif args.assign_method == 'coco':
-        return assign_from_coco(coco, args)
-    logging.warning("Output coco is the same as input coco")
-    return coco, 1
+    if args.master is None:
+        old_id_2_path = {image['id']: image['path'] for image in coco.dataset['images']}
+        for i, image_entry in enumerate(coco.dataset['images']):
+            image_entry['id'] = i
+        path_2_new_id = {image_entry['path']: image_entry['id'] for image_entry in coco.dataset['images']}
+        for annotation in coco.dataset.get('annotations'):
+            annotation['image_id'] = path_2_new_id[old_id_2_path[annotation['image_id']]]
+        return coco, 0
+    else:
+        old_id_2_key = {img_entry['id']: img_entry[args.key] for img_entry in coco.dataset['images']}
+        with open(args.master) as f:
+            cl_coco = json.load(f)
+        key_2_new_id = {img_entry[args.key]: img_entry['id'] for img_entry in cl_coco['images']}
+        all_ids = set(range(len(coco.dataset['images']) + len(cl_coco['images'])))
+        new_ids = {new_id for new_id in key_2_new_id.values()}
+        available_ids = all_ids - new_ids
+        old_id_2_new_id = {}
+        if not args.keep_mismatch:
+            kept_img_ids = set()
+            kept_ann_ids = set()
+        for old_id, key in old_id_2_key.items():
+            if key not in key_2_new_id.keys():
+                old_id_2_new_id[old_id] = available_ids.pop()
+        for i, image_entry in enumerate(coco.dataset['images']):
+            try:
+                image_entry['id'] = key_2_new_id[old_id_2_key[image_entry['id']]]
+                if not args.keep_mismatch:
+                    kept_img_ids.add(id(image_entry))
+            except KeyError:
+                if args.keep_mismatch:
+                    # current image entry key does not exist in the command line COCO file
+                    logging.warning(
+                        f"Image entry with id {image_entry['id']} and key: value -> {args.key}: {image_entry[args.key]} cannot be found on command line COCO file")
+                    logging.warning(
+                        f"ID {old_id_2_new_id[image_entry['id']]} will be assigned to image entry with id {image_entry['id']}")
+                    image_entry['id'] = old_id_2_new_id[image_entry['id']]
+                else:
+                    continue
+        for i, ann_entry in enumerate(coco.dataset['annotations']):
+            try:
+                ann_entry['image_id'] = key_2_new_id[old_id_2_key[ann_entry['image_id']]]
+                if not args.keep_mismatch:
+                    kept_ann_ids.add(id(ann_entry))
+            except KeyError:
+                if args.keep_mismatch:
+                    logging.warning("This annotation has an image that could not be matched")
+                    ann_entry['image_id'] = old_id_2_new_id[ann_entry['image_id']]
+                else:
+                    continue
+        if not args.keep_mismatch:
+            coco.dataset['images'] = [img for img in coco.dataset['images'] if id(img) in kept_img_ids]
+            coco.dataset['annotations'] = [ann for ann in coco.dataset['annotations'] if id(ann) in kept_ann_ids]
+        return coco, 0
 
 
 #  Felzenszwalb et al.
@@ -674,88 +729,6 @@ def non_max_suppression(args: argparse.Namespace) -> Tuple[Union[COCO, None], in
         print("Error!", e)
         print("Error!", sys.exc_info()[0], "occured.")
         raise
-
-
-def assign_from_coco(stdin_coco: COCO, args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
-    """
-
-    Args:
-        stdin_coco: COCO file read from stdin
-        args: arguments passed from argparse
-
-    Returns: COCO file with image ids that have been reassigned based on the image ids from a command line COCO file
-
-    """
-    old_id_2_key = {img_entry['id']: img_entry[args.key] for img_entry in stdin_coco.dataset['images']}
-    with open(args.coco) as f:
-        cl_coco = json.load(f)
-    key_2_new_id = {img_entry[args.key]: img_entry['id'] for img_entry in cl_coco['images']}
-    all_ids = set(range(len(stdin_coco.dataset['images']) + len(cl_coco['images'])))
-    new_ids = {new_id for new_id in key_2_new_id.values()}
-    available_ids = all_ids - new_ids
-    old_id_2_new_id = {}
-    if not args.keep_mismatch:
-        kept_img_ids = set()
-        kept_ann_ids = set()
-    for old_id, key in old_id_2_key.items():
-        if key not in key_2_new_id.keys():
-            old_id_2_new_id[old_id] = available_ids.pop()
-    for i, image_entry in enumerate(stdin_coco.dataset['images']):
-        try:
-            image_entry['id'] = key_2_new_id[old_id_2_key[image_entry['id']]]
-            if not args.keep_mismatch:
-                kept_img_ids.add(id(image_entry))
-        except KeyError:
-            if args.keep_mismatch:
-                # current image entry key does not exist in the command line COCO file
-                logging.warning(
-                    "Image entry with id {} and key: value -> {}: {} cannot be found on command line COCO file".format(
-                        image_entry['id'], args.key, image_entry[args.key]))
-                logging.warning(
-                    "ID {} will be assigned to image entry with id {}".format(old_id_2_new_id[image_entry['id']],
-                                                                              image_entry['id']))
-                image_entry['id'] = old_id_2_new_id[image_entry['id']]
-            else:
-                continue
-
-    for i, ann_entry in enumerate(stdin_coco.dataset['annotations']):
-        try:
-            ann_entry['image_id'] = key_2_new_id[old_id_2_key[ann_entry['image_id']]]
-            if not args.keep_mismatch:
-                kept_ann_ids.add(id(ann_entry))
-        except KeyError:
-            if args.keep_mismatch:
-                logging.warning("This annotation has an image that could not be matched")
-                ann_entry['image_id'] = old_id_2_new_id[ann_entry['image_id']]
-            else:
-                continue
-
-    if not args.keep_mismatch:
-        stdin_coco.dataset['images'] = [img for img in stdin_coco.dataset['images'] if id(img) in kept_img_ids]
-        stdin_coco.dataset['annotations'] = [ann for ann in stdin_coco.dataset['annotations'] if
-                                             id(ann) in kept_ann_ids]
-    return stdin_coco, 0
-
-
-def assign_from_sorted(coco: COCO, args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
-    """
-
-    Args:
-        coco: COCO file read from stdin
-        args: arguments pass from argparse
-
-    Returns: COCO file with image ids that have been reassigned based on the sorted order of the images from args.key
-
-    """
-    old_id_2_path = {image['id']: image['path'] for image in coco.dataset['images']}
-    from operator import itemgetter
-    coco.dataset['images'].sort(key=itemgetter(args.key))
-    for i, image_entry in enumerate(coco.dataset['images']):
-        image_entry['id'] = i
-    path_2_new_id = {image_entry['path']: image_entry['id'] for image_entry in coco.dataset['images']}
-    for annotation in coco.dataset.get('annotations'):
-        annotation['image_id'] = path_2_new_id[old_id_2_path[annotation['image_id']]]
-    return coco, 0
 
 
 def to_mask(args: argparse.Namespace) -> Tuple[None, int]:
@@ -912,30 +885,22 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
     if args.intersections is None:
         first_coco = None
         second_coco = None
-
         if args.first is not None and args.second is None:
             first_coco = MyCOCO(args.first)
             second_coco = MyCOCO(sys.stdin)
-
         elif args.first is None and args.second is not None:
             first_coco = MyCOCO(sys.stdin)
             second_coco = MyCOCO(args.second)
-
         elif args.first is not None and args.second is not None:
             first_coco = MyCOCO(args.first)
             second_coco = MyCOCO(args.second)
-
         assert first_coco is not None and second_coco is not None, "could not load first or second COCO file"
-
         for first_img_entry in first_coco.images:
             try:
                 second_img_entry = second_coco.loadImgs(ids=first_img_entry['id']).pop()
             except KeyError as e:
                 logging.warning(
-                    "cannot find matching image {} from stdin in JSON file {},"
-                    "try matching image ids using coco-calc assign-new-image-ids".format(first_img_entry['id'],
-                                                                                         args.second)
-                )
+                    f"cannot find matching image {first_img_entry['id']} from stdin in JSON file {args.second}, try matching image ids using coco-calc assign-new-image-ids")
                 raise e
             first_ann_entries, first_polys = get_img_polys(first_coco, first_img_entry['id'])
             second_ann_entries, second_polys = get_img_polys(second_coco, second_img_entry['id'])
@@ -954,7 +919,7 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                     first_area = first_ann_entries[i].get('area', 0)
 
                 if first_area <= 0:
-                    calc_area = polygon_area(first_ann_entries[i].get('segmentation'))
+                    calc_area = polygon_area(first_ann_entries[i].get('segmentation')[0])
 
                     logging.warning("annotation {} from {} has incorrect area value of {}, setting to {}".format(
                         first_ann_entries[i]['id'], args.first, first_area, calc_area
@@ -995,7 +960,6 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
         coco = None
         if args.second is not None:
             coco = MyCOCO(args.second)
-
             for img_entry in coco.images:
                 for ann in coco.loadAnns(coco.getAnnIds(imgIds=img_entry['id'])):
                     category_sums = {id_: 0 for id_ in df['first_cat_id'].unique().tolist()}
@@ -1015,7 +979,7 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                         second_area = ann.get('area', 0)
 
                     if second_area <= 0:
-                        calc_area = polygon_area(ann.get('segmentation'))
+                        calc_area = polygon_area(ann.get('segmentation')[0])
                         logging.warning("annotation {} from {} has incorrect area value of {}, setting to {}".format(
                             ann['id'], args.second, second_area, calc_area
                         ))
@@ -1032,7 +996,6 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
                             area,
                             float(area / second_area),
                         )))
-
         else:
             if args.first is None and args.second is None:
                 coco = MyCOCO(sys.stdin)
@@ -1086,9 +1049,9 @@ def coverage(args: argparse.Namespace) -> Tuple[Union[COCO, None], int]:
 
 def flatten_holes(args: argparse.Namespace) -> Tuple[Union[None, MyCOCO], int]:
     if args.coco:
-        coco = MyCOCO(args.coco)  # todo: remove pycoco dependency
+        coco = MyCOCO(args.coco)
     else:
-        coco = MyCOCO(sys.stdin)  # todo: remove pycoco dependency
+        coco = MyCOCO(sys.stdin)
 
     for img_entry in coco.images:
         shape = img_entry['height'], img_entry['width']
@@ -1377,40 +1340,23 @@ def get_args(flags: List[str] = None) -> argparse.Namespace:
         description=_ASSIGN_NEW_IMAGE_IDS_DESCRIPTION,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=parents,
-        help="Assign new ids to COCO file from stdin based on ids from COCO file passed as command line argument.",
+        help="assign new ids to COCO file from stdin based on ids from COCO file passed as command line argument.",
     )
     parser_new_img_ids.add_argument(
         '--keep-mismatch',
         action='store_true',
-        help="Keep image if the key to match by does not exist from the COCO file passed from command line, "
-             "otherwise it is dropped from the output along with its annotations",
+        help="keep image if the key to match by does not exist from the COCO file passed from command line, "
+             "otherwise it is dropped from the output along with its annotations.",
     )
-
-    subparser_new_ids = parser_new_img_ids.add_subparsers(dest='assign_method')
-    parser_sort = subparser_new_ids.add_parser(
-        'sort',
-        parents=parents,
-        help="Sort images by a given key and assign new ids based on ordering",
+    parser_new_img_ids.add_argument(
+        "--key",
+        default="path",
+        help="key to match image entries from stdin to command line COCO. Default is %(default)s."
     )
-    parser_sort.add_argument(
-        '-k', '--key',
-        help="Key to sort by before assigning imade ids. "
-             "If no key is given, assigned new image ids based on existing ordering",
-    )
-
-    parser_coco = subparser_new_ids.add_parser(
-        'coco',
-        parents=parents,
-        help="Match images from stdin COCO with command line COCO by key and assign image ids from command line COCO.",
-    )
-    parser_coco.add_argument(
-        'coco',
-        help="COCO file to assign image ids from.",
-    )
-    parser_coco.add_argument(
-        '-k', '--key',
-        default='path',
-        help="Key to match by. Default is %(default)s.",
+    parser_new_img_ids.add_argument(
+        "--master",
+        help="master COCO JSON to take image ids from and assign to the COCO JSON passed by stdin. "
+             "If --master is not specified, image ids will be assigned using the existing order of image entries."
     )
 
     parser_to_mask = subparsers.add_parser(
