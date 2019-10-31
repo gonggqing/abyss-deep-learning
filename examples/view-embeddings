@@ -319,24 +319,16 @@ def compute_distance(vectorlist1, vectorlist2, method='euclidean', inverse_covar
         '''
         compute the distance between two vectors.
         :param vector1: a list of vectors
-        :param vector2: a list of vectors
+        :param vector2: another list of vectors
         :param method: method of distance computation. Choices are: ['euclidean', 'mahalanobis']
         :return: the distance between the two vectors
         '''
         # TODO: bregman distance/divergence ? - http://mark.reid.name/blog/meet-the-bregman-divergences.html
         if method is 'euclidean':
-            return [np.linalg.norm(vectorlist1[count].squeeze() - vectorlist2[count].squeeze())
-                    for count, _ in enumerate(tqdm(vectorlist1))]
-            # see https://stackoverflow.com/questions/1401712/how-can-the-euclidean-distance-be-calculated-with-numpy
-            # return np.linalg.norm(vector1 - vector2) # equivalent (and faster) to scipy.spatial.distance.euclidean
-        elif method is 'mahalanobis':
-            # a measure of the distance between a point P and a distribution D.
-            # https://towardsdatascience.com/importance-of-distance-metrics-in-machine-learning-modelling-e51395ffe60d
-            # from scipy.spatial import distance
-            # D = distance.mahalanobis(vector1.squeeze(), vector2.squeeze(), inverse_covariance_matrix)
-
-            # fast numpy implementation
-            # see https://stackoverflow.com/questions/27686240/calculate-mahalanobis-distance-using-numpy-only
+            # implementation: https://stackoverflow.com/questions/1401712/how-can-the-euclidean-distance-be-calculated-with-numpy
+            return [np.linalg.norm(vectorlist1[count].squeeze() - vectorlist2[count].squeeze()) for count, _ in enumerate(tqdm(vectorlist1))]
+        elif method is 'mahalanobis':  # a measure of the distance between a point P and a distribution D.
+            # implementation: https://stackoverflow.com/questions/27686240/calculate-mahalanobis-distance-using-numpy-only
             e = vectorlist1 - vectorlist2
             D = np.sqrt(np.sum(np.dot(e, inverse_covariance_matrix) * e, axis=1))
             if np.any(np.isnan(D)):
@@ -349,19 +341,6 @@ def compute_distance(vectorlist1, vectorlist2, method='euclidean', inverse_covar
             raise(ValueError, "No other distance methods are implemented yet. Please use \'euclidean\', or "
                               "\'mahalanobis\' only.")
 
-# def compute_embedding_distance(features, centroid, covariance_matrix=None, distance_type='min'):
-            #     '''
-            #     Compute the distance of feature vectors from a
-            #     :param features: size [n,M] where n is the number of examples, and M is the length of each feature vector
-            #     :param centroid: size [N,M] where N is the number of classes to measure distance from, and M is the length of each feature vector
-            #     :param covariance_matrix: size [N,M,M], and is the covariance matrix for centroids. If not None, Mahalobois distance is computed, else is Euclidean distance
-            #     :param distance_type: string, determine how to combine the distances. Options ['min','average']
-            #     :return:
-            #     the distance of features, from the centroids
-            #     '''
-            #
-            #     # todo??
-            #     return distances
 def compute_feature_stats(features, labels=None):
     '''
     compute the centroids and covariance matrices for each class
@@ -370,7 +349,6 @@ def compute_feature_stats(features, labels=None):
     :return: (class_centroids, class_covariances), where:
         class_centroids - [C, M], where is the centroid of of features in each class, and C is number of classes
         class_covariances - [C, M, M], where is the convariance matrix of features for each class
-
     '''
     class_centroids = []
     class_covariances = []
@@ -421,12 +399,38 @@ def get_principal_components_per_class(convariance_matrix_per_class, percent_var
 
     return principal_components_idx
 
+def pool_features(features, pooling=None):
+    '''
+    Pool features in required, plus does some checks to make sure the features are vectors
+    :param features:
+    :param pooling: method of pooling, options are 'avg, 'max', or None
+    :return: list of optionally pooled feature vectors
+    '''
+    if len(features.shape) > 2:
+        raise ValueError(
+            'It looks like the extracted features are not the right shape; they are not a vector. '
+            'This is probably because you are not using pooling to vectorise them. Try: --pooling "avg" '
+            'or --pooling "max".')
+    else:
+        if pooling is 'avg':
+            features = np.mean(np.mean(features, axis=1), axis=1)  # compute the mean embedding vector across all pixels
+        elif pooling is 'max':
+            features = np.max(np.max(features, axis=1), axis=1)  # compute the max embedding vector across all pixels
+        elif pooling is not None:
+            raise ValueError("Only avg,max pooling methods are supported")
+
+    return features
+
 def main(args):
+    thumbs_list = []
+    features_list = []
+    df_list = []
+    predictions = None
+
     if args.images[0].endswith('.txt'):
         args.images = [l.rstrip('\n') for l in open(args.images[0]).readlines()]
 
     say("Loading model...")
-
     if args.model_definition is not None:
         model = tf.keras.models.model_from_json(open(args.model_definition).read(), custom_objects={'tf': tf})
         model.load_weights(args.model_weights)
@@ -440,55 +444,30 @@ def main(args):
                                   outputs=[model.output, output]) # get the logits, plus the layer_name as output
     say("Model loaded!")
 
-    thumbs_list = []
-    features_list = []
-    df_list = []
-    predictions = None
-
     if args.coco:
         say("")
-        say("Predicting on coco images.")
-        # Load coco
-        coco = COCO(args.coco)
-        # Get the data from coco
-        coco_data = get_data_from_coco(coco, args, load_images=True)
+        say("Predicting on images in coco dataset.")
+        coco = COCO(args.coco) # Load coco
         say("Loading images...")
-        # Load images
+        coco_data = get_data_from_coco(coco, args, load_images=True) # Get the data from coco
         images = np.array(coco_data['imgs'], dtype=np.uint8)
         say("Creating thumbnails of {:d} images".format(len(images)))
-        # Create thumbnails
         thumbs = np.array([
             np.array(PIL.Image.fromarray(image).resize(args.thumb_size))
-            for image in images], dtype=np.uint8)
-        # Rescale images
-        images = images.astype(np.float32) / 127.5 - 1
-        # Predict features
+            for image in images], dtype=np.uint8) # Create the thumbnails
+        images = images.astype(np.float32) / 127.5 - 1 # Rescale images
+
         say("Predicting on coco images...")
         model_output = model.predict(images)
 
-        if isinstance(model.output, list):
-            # unpack list
+        if isinstance(model.output, list): # unpack list
             predictions = model_output[0].argmax(axis=1)
             features = model_output[1]
         else:
             features = model_output
 
         # Get mean features
-        if len(features.shape) > 2:
-            raise ValueError(
-                'It looks like the extracted features are not the right shape; they are not a vector. '
-                'This is probably because you are not using pooling to vectorise them. Try: --pooling "avg"'
-                'or --pooling "max".')
-        else:
-            if args.pooling == 'avg':
-                features = np.mean(np.mean(features, axis=1),
-                                   axis=1)  # compute the mean embedding vector across all pixels
-            elif args.pooling == 'max':
-                features = np.max(np.max(features, axis=1),
-                                  axis=1)  # compute the max embedding vector across all pixels
-            elif args.pooling is not None:
-                raise ValueError("Only avg,max pooling methods are supported")
-             # Get metadata df
+        features = pool_features(features, args.pooling)
 
         if predictions is not None:
             coco_data['prediction'] = predictions
@@ -496,16 +475,26 @@ def main(args):
                 say("Computing class centroids and covariances...")
                 class_centroids, class_covariances = compute_feature_stats(features, np.asarray(coco_data["class"]))
 
+                # save them
+                np.savetxt(os.path.join(args.tensorboard_dir, 'class-centroids.csv'), class_centroids,
+                           delimiter=',')
+                class_covariances = np.asarray(class_covariances)
+                np.savetxt(os.path.join(args.tensorboard_dir, 'class-covariances.csv'),
+                           class_covariances.reshape(class_covariances.shape[0],
+                                                     class_covariances.shape[1] * class_covariances.shape[2]),
+                           delimiter=',')
+
                 say("Computing centroid distances and probabilities...")
                 distances = np.zeros((len(class_covariances), len(predictions)))
                 main_features_idx = get_principal_components_per_class(class_covariances,
                                                                        percent_variance_to_capture=80)
                 for m, covariance in enumerate(class_covariances):
-                    # resample the covariance matrix using only the princpal components?
-                    # NOTE: Is this mathematically meaningful? Should instead resample from the total convariance matrix? Is THAT mathematically meaningful?
+                    # re-sample the covariance matrix using only the principal components?
+                    # NOTE: Is this mathematically meaningful? Should instead re-sample from the total convariance
+                    # matrix? Is THAT mathematically meaningful?
                     for n, c in enumerate(set(coco_data["class"])):
                         if n == m:
-                            # compute the distances using the main components only
+                            # compute the distances using the principal components only
                             distances[m] = compute_distance(features[:, main_features_idx[m]],
                                                             np.tile(class_centroids[m][main_features_idx[m]],
                                                                     (len(features[:, main_features_idx[m]]), 1)),
@@ -514,10 +503,9 @@ def main(args):
                                                                 features[np.asarray(coco_data["class"]) == c][:,
                                                                 main_features_idx[m]].T)))
 
-                distances = np.min(distances, axis=0)
                 # compute the probability using chi-squared, with the degrees of freedom as the number of main components
-                probability_in_class_distribution = np.around(chi2.cdf(distances, len(main_features_idx[n])), decimals=4)
-
+                probability_in_class_distribution = np.around(chi2.cdf(np.min(distances, axis=0),
+                                                                       len(main_features_idx[n])), decimals=4)
                 coco_data['distance-from-centroid'] = distances
                 coco_data['probability-out-of-distribution'] = probability_in_class_distribution
 
@@ -527,14 +515,6 @@ def main(args):
         df_list.append(coco_meta_df)
         features_list.append(features)
         thumbs_list.append(thumbs)
-        if args.compute_class_centroids:
-            np.savetxt(os.path.join(args.tensorboard_dir, 'class-centroids.csv'), class_centroids,
-                       delimiter=',')
-            class_covariances = np.asarray(class_covariances)
-            np.savetxt(os.path.join(args.tensorboard_dir, 'class-covariances.csv'),
-                       class_covariances.reshape(class_covariances.shape[0],
-                                                             class_covariances.shape[1] * class_covariances.shape[2]),
-                       delimiter=',')
 
     if args.images and args.from_cube_face:  # Cube face different prediction pipeline
         assert args.compute_class_centroids is not True, 'Not get implemented! Do not use.'
@@ -560,32 +540,16 @@ def main(args):
 
             patch = img[crop_index[0,0] : crop_index[0,1],
                         crop_index[1,0] : crop_index[1,1]]
-            # thumbs.append(np.array(PIL.Image.fromarray(patch).resize(args.thumb_size), dtype=np.uint8))
             thumbs[cnt, :, :] = np.array(PIL.Image.fromarray(patch).resize(args.thumb_size), dtype=np.uint8)
             model_output = model.predict(np.expand_dims(patch, axis=0).astype(np.float32) / 127.5 - 1)
-            if isinstance(model.output, list):
-                # unpack it
+            if isinstance(model.output, list): # unpack it
                 prediction = model_output[0]
                 feature = model_output[1]
             else:
                 feature = model_output
-                # Get mean features
-            if len(features.shape) > 2:
-                raise ValueError(
-                    'It looks like the extracted features are not the right shape; they are not a vector. '
-                    'This is probably because you are not using pooling to vectorise them. Try: --pooling "avg"'
-                    'or --pooling "max".')
-            else:
-                if args.pooling == 'avg':
-                    features = np.mean(np.mean(features, axis=1),
-                                       axis=1)  # compute the mean embedding vector across all pixels
-                elif args.pooling == 'max':
-                    features = np.max(np.max(features, axis=1),
-                                      axis=1)  # compute the max embedding vector across all pixels
-                elif args.pooling is not None:
-                    raise ValueError("Only avg,max pooling methods are supported")
 
-            features[cnt,:] = feature
+            # Get mean features
+            features[cnt, :] = pool_features(feature, args.pooling)
             cnt = cnt + 1
 
         # Get metadata df
@@ -614,7 +578,7 @@ def main(args):
             if cache_file_name is not image['filename']:
                 if cnt != 0:  # quick and dirty saving of distances per video
                     np.savetxt(os.path.join(args.tensorboard_dir, cache_file_name.split('.')[-2].split('/')[-1] + '.distance.csv'),
-                        np.min( [compute_distance(features[:, main_features_idx[m]],
+                        np.min( [compute_distance(features[vid_cnt_begin:cnt, main_features_idx[m]],
                                                             np.tile(class_centroids[m][main_features_idx[m]],
                                                                     (len(features[:, main_features_idx[m]]), 1)),
                                                             method='mahalanobis',
@@ -624,7 +588,7 @@ def main(args):
 
                     np.savetxt(os.path.join(args.tensorboard_dir,
                                             cache_file_name.split('.')[-2].split('/')[-1] + '.probability.csv'),
-                               np.around(chi2.cdf(np.min([compute_distance(features[:, main_features_idx[m]],
+                               np.around(chi2.cdf(np.min([compute_distance(features[vid_cnt_begin:cnt, main_features_idx[m]],
                                                             np.tile(class_centroids[m][main_features_idx[m]],
                                                                     (len(features[:, main_features_idx[m]]), 1)),
                                                             method='mahalanobis',
@@ -643,7 +607,7 @@ def main(args):
             try: # quick and dirty
                 frame = PIL.Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).copy()) # convert from cv2 to PIL format
             except:
-                frame=np.zeros((args.image_size[0],args.image_size[1])) # quick and dirty
+                frame = PIL.Image.new('RGB', (args.image_size[0], args.image_size[1])) # quick and dirty
                 say("Unexpectedly failed to grab a frame; possibly reached the end of video. Continuing...")
 
             thumbs[cnt, :, :] = np.array(frame.resize((args.thumb_size)), dtype=np.uint8)
@@ -657,22 +621,7 @@ def main(args):
                 feature = model_output
 
             # Get mean features
-            if len(features.shape) > 2:
-                raise ValueError(
-                    'It looks like the extracted features are not the right shape; they are not a vector. '
-                    'This is probably because you are not using pooling to vectorise them. Try: --pooling "avg" '
-                    'or --pooling "max".')
-            else:
-                if args.pooling == 'avg':
-                    features = np.mean(np.mean(features, axis=1),
-                                       axis=1)  # compute the mean embedding vector across all pixels
-                elif args.pooling == 'max':
-                    features = np.max(np.max(features, axis=1),
-                                      axis=1)  # compute the max embedding vector across all pixels
-                elif args.pooling is not None:
-                    raise ValueError("Only avg,max pooling methods are supported")
-
-            features[cnt, :] = feature
+            features[cnt, :] = pool_features(feature, args.pooling)
             predictions[cnt] = prediction
             cnt = cnt + 1
 
@@ -741,18 +690,7 @@ def main(args):
         else:
             features = model_output
         # Get mean features
-        if len(features.shape) > 2:
-            raise ValueError('It looks like the extracted features are not the right shape; they are not a vector. '
-                             'This is probably because you are not using pooling to vectorise them. Try: --pooling "avg"'
-                             'or --pooling "max".')
-        else:
-            if args.pooling == 'avg':
-                features = np.mean(np.mean(features, axis=1), axis=1)  # compute the mean embedding vector across all pixels
-            elif args.pooling == 'max':
-                features = np.max(np.max(features, axis=1), axis=1)  # compute the max embedding vector across all pixels
-            elif args.pooling is not None:
-                raise ValueError('Only avg,max pooling methods are supported. Try: --pooling "avg"'
-                             'or --pooling "max".')
+        features = pool_features(features, args.pooling)
 
         # Get metadata df
         images_meta_df = create_metadata_df(image_data, args)
@@ -763,7 +701,6 @@ def main(args):
         thumbs_list.append(thumbs)
 
     # combine all lists into combined
-    # combined_meta_df = pd.concat(df_list, join='inner', ignore_index=True)  # this line is bad! removes annotations
     combined_meta_df = pd.concat(df_list)
     combined_features = np.vstack(features_list)
     combined_thumbs = np.vstack(thumbs_list)
