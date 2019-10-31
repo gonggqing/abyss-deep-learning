@@ -506,7 +506,7 @@ def main(args):
                 # compute the probability using chi-squared, with the degrees of freedom as the number of main components
                 probability_in_class_distribution = np.around(chi2.cdf(np.min(distances, axis=0),
                                                                        len(main_features_idx[n])), decimals=4)
-                coco_data['distance-from-centroid'] = distances
+                coco_data['distance-from-centroid'] = np.min(distances, axis=0)
                 coco_data['probability-out-of-distribution'] = probability_in_class_distribution
 
         coco_meta_df = create_metadata_df(coco_data, args)
@@ -631,16 +631,19 @@ def main(args):
             if args.compute_class_centroids:
                 say("Computing embedding distances...")
                 # compute the distances from the closest centroid
-
+                distances = np.min([compute_distance(features[:, main_features_idx[m]],
+                                                                             np.tile(class_centroids[m][
+                                                                                         main_features_idx[m]],
+                                                                                     (len(features[:,
+                                                                                          main_features_idx[m]]), 1)),
+                                                                             method='mahalanobis',
+                                                                             inverse_covariance_matrix=np.linalg.inv(
+                                                                                 np.cov(
+                                                                                     features[:,
+                                                                                     main_features_idx[m]].T)))
+                                                            for m, centroid in enumerate(class_centroids)], axis=0)
                 # compute the probability using chi-squared, with the degrees of freedom as the number of main components
-                probability_in_class_distribution = np.min([compute_distance(features[:, main_features_idx[m]],
-                                         np.tile(class_centroids[m][main_features_idx[m]],
-                                                 (len(features[:, main_features_idx[m]]), 1)),
-                                         method='mahalanobis',
-                                         inverse_covariance_matrix=np.linalg.inv(np.cov(
-                                             features[:, main_features_idx[m]].T)))
-                        for m, centroid in enumerate(class_centroids)], axis=0)
-
+                probability_in_class_distribution = np.around(chi2.cdf(distances, decimals=4))
 
                 coco_data['distance-from-centroid'] = distances
                 coco_data['probability-out-of-distribution'] = probability_in_class_distribution
