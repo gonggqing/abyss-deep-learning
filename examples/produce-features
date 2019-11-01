@@ -1,0 +1,119 @@
+#!/bin/bash
+
+source $( type -p bedrock-application-util )
+
+function usage()
+{
+    cat <<eof >&2
+
+descriptions
+
+usage: produce-features <images> --model <model> <options>
+
+<images>
+
+    image names: e.g. produce-features hello.png world.png ...
+    image list: e.g. produce-features images.txt ...
+    coco file: e.g. produce-features images.json ...
+    image list on stdin: cat images.txt | produce-features - ... # Note hyphen '-'
+
+    default: list of images on stdin
+
+    limitation: all images are expected to be of the same size, no checks are performed
+
+options
+$( options_description | sed 's#^#    #' )
+
+examples
+        produce-features input_images.txt --model /mnt/pond/scratch/spo/deeplab2/test2/model/model_115_1.161.decorated.h5 --output activation_80/Relu:0 > multi_im.bin
+
+        cat images.txt | produce-features - --model /mnt/pond/scratch/spo/deeplab2/test2/model/model_115_1.161.decorated.h5 --output concatenate_1/concat:0 > multi_im.bin
+eof
+    exit
+}
+
+function options_description()
+{
+    cat <<eof
+--keras-model, --model=<keras-model>; default=/mnt/pond/scratch/spo/deeplab2/test2/model/model_115_1.161.decorated.h5
+--input,--input-layer=<layer>; default=input_1:0; input layer
+--input-shape=<shape>; default=1,512,512,3; input tensor shape
+--output,--output-layers=<layers>; default=activation_80/Relu:0;
+eof
+}
+
+#TODO: from fabric-segmentation-predict - move both instances to bedrock
+function make_input_list()
+{
+    local is_coco=0
+    local i=0
+    local files=$( ( options_description; bedrock-app-visitor-options ) | comma-options-to-name-value "$@" | grep '^"' | sed 's#"##g' )
+    [[ -n "$files" ]] || { files='-'; say "no input files specified, reading list of images on stdin"; }
+    grep -v '-' --quiet <<< "$files" || local stdin=$( cat | grep -v "^#" )
+    while read f; do
+        [[ -n "$f" ]] || continue
+        [[ "$f" == "-" || -f "$f" ]] || die "file not found: '$f'"
+        if [[ "$f" == "-" ]]; then
+            echo "$stdin"
+        elif [[ $( file --brief "$f" ) == "ASCII text" ]]; then
+            local ext=$( rev <<< "$f" | cut -d. -f1 | rev )
+            if [[ "$ext" == "json" || "$ext" == "JSON" ]]; then
+                if (( is_coco && i > 0 )); then die "if input as coco json, only one input is allowed"; fi
+                is_coco=1
+                cat "$f" | jq -r .images[].path
+            else
+                cat "$f" | grep -v "^#" | tee 0.txt
+            fi
+        else
+            echo "$f"
+        fi
+        (( ++i ))
+    done <<< "$files"
+}
+
+[[ -n "$1" ]] || usage
+comma_options_help $@ && usage
+options=$( options_description | comma-options-to-name-value "$@" ) || die "invalid options"
+if (( options_verbose )); then verbose_option="--verbose"; fi
+eval "$( grep -v '^"' <<< "$options" | sed 's#^#options_#' | comma_path_value_mangle )"
+(bedrock-app-visitor-init $@ < <( make_input_list $@ ))
+comma_status_ok || die "failed to make image list"
+(( ! options_gzip )) || gzip_option="--gzip"
+
+resize_option="resize="$( echo "$options_input_shape" | cut -d, -f2,3 )
+
+# TODO: Check with Seva about better way to append output shape in a single tensor-cat call
+output_shape="$( cv-cat --files input.full-paths.txt "$resize_option" --output no-header \
+| tensor-cat --keras-model "$options_keras_model" \
+                         --input "$options_input" \
+                         --input-shape "$options_input_shape" \
+                         --output "$options_output" \
+                         --tensor "$options_output" \
+                         --tensor-shape 2> /dev/null \
+| cut -d, -f3- )"
+
+python_snippet=$(cat <<EOF
+import numpy as np
+import sys
+import os
+from abyss.bedrock.imaging.utils import read_mask_multichannel
+
+input_shape = ($output_shape)
+while len(sys.stdin.buffer.peek()) > 0:
+    arr = read_mask_multichannel(sys.stdin.buffer, input_shape, fmt=np.dtype('float32'))
+    print("Output tensor shape: " + str(arr.shape), file=sys.stderr)
+    arr_mean = arr.mean(axis=(0, 1))
+    sys.stdout.buffer.write(arr_mean.tobytes(order="C"))
+EOF
+)
+
+cv-cat --files input.full-paths.txt "$resize_option" --output no-header \
+| tensor-cat --keras-model "$options_keras_model" \
+                         --input "$options_input" \
+                         --input-shape "$options_input_shape" \
+                         --output "$options_output" \
+| python3 -c "$python_snippet"
+
+
+comma_status_ok || die "failed"
+say "done"
