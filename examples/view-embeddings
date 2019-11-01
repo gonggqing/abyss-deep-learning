@@ -488,6 +488,7 @@ def main(args):
                 distances = np.zeros((len(class_covariances), len(predictions)))
                 main_features_idx = get_principal_components_per_class(class_covariances,
                                                                        percent_variance_to_capture=80)
+                class_principal_covariances = []
                 for m, covariance in enumerate(class_covariances):
                     # re-sample the covariance matrix using only the principal components?
                     # NOTE: Is this mathematically meaningful? Should instead re-sample from the total convariance
@@ -495,13 +496,14 @@ def main(args):
                     for n, c in enumerate(set(coco_data["class"])):
                         if n == m:
                             # compute the distances using the principal components only
+                            class_principal_covariances.append(np.linalg.inv(np.cov(
+                                                                features[np.asarray(coco_data["class"]) == c][:,
+                                                                main_features_idx[m]].T)))
                             distances[m] = compute_distance(features[:, main_features_idx[m]],
                                                             np.tile(class_centroids[m][main_features_idx[m]],
                                                                     (len(features[:, main_features_idx[m]]), 1)),
                                                             method='mahalanobis',
-                                                            inverse_covariance_matrix=np.linalg.inv(np.cov(
-                                                                features[np.asarray(coco_data["class"]) == c][:,
-                                                                main_features_idx[m]].T)))
+                                                            inverse_covariance_matrix=class_principal_covariances[m])
 
                 # compute the probability using chi-squared, with the degrees of freedom as the number of main components
                 probability_in_class_distribution = np.around(chi2.cdf(np.min(distances, axis=0),
@@ -577,23 +579,22 @@ def main(args):
         for image in tqdm(video_coco.loadImgs(video_coco.getImgIds())):
             if cache_file_name is not image['filename']:
                 if cnt != 0:  # quick and dirty saving of distances per video
-                    np.savetxt(os.path.join(args.tensorboard_dir, cache_file_name.split('.')[-2].split('/')[-1] + '.distance.csv'),
+                    np.savetxt(os.path.join(args.tensorboard_dir,
+                                            cache_file_name.split('.')[-2].split('/')[-1] + '.distance.csv'),
                         np.min( [compute_distance(features[vid_cnt_begin:cnt, main_features_idx[m]],
                                                             np.tile(class_centroids[m][main_features_idx[m]],
-                                                                    (len(features[:, main_features_idx[m]]), 1)),
+                                                                    (len(features[vid_cnt_begin:cnt, main_features_idx[m]]), 1)),
                                                             method='mahalanobis',
-                                                            inverse_covariance_matrix=np.linalg.inv(np.cov(
-                                                                features[:, main_features_idx[m]].T)))
+                                                            inverse_covariance_matrix=class_principal_covariances[m])
                              for m, centroid in enumerate(class_centroids)], axis=0), delimiter=',')
 
                     np.savetxt(os.path.join(args.tensorboard_dir,
                                             cache_file_name.split('.')[-2].split('/')[-1] + '.probability.csv'),
                                np.around(chi2.cdf(np.min([compute_distance(features[vid_cnt_begin:cnt, main_features_idx[m]],
                                                             np.tile(class_centroids[m][main_features_idx[m]],
-                                                                    (len(features[:, main_features_idx[m]]), 1)),
+                                                                    (len(features[vid_cnt_begin:cnt, main_features_idx[m]]), 1)),
                                                             method='mahalanobis',
-                                                            inverse_covariance_matrix=np.linalg.inv(np.cov(
-                                                                features[:, main_features_idx[m]].T)))
+                                                            inverse_covariance_matrix=class_principal_covariances[m])
                                        for m, centroid in enumerate(class_centroids)], axis=0), len(main_features_idx[n])), decimals=4),
                                delimiter=',')  # quick and dirty saving of probabilities per video
 
